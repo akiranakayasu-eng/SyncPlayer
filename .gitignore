@@ -1,0 +1,5 @@
+.build/
+.swiftpm/
+media/
+*.log
+.DS_Store
