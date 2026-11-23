@@ -10,7 +10,10 @@
 
 ## 使い方
 
+テスト映像（60fps・20 秒・フレーム番号入り）は `tools/make-test-video.sh` で作る（ffmpeg が要る）。
+
 ```
+tools/make-test-video.sh
 swift build -c release
 .build/release/SyncPlayer --master   sync-test-60fps-20s.mp4 --log
 .build/release/SyncPlayer --follower sync-test-60fps-20s.mp4 --log --name B
@@ -22,5 +25,10 @@ swift build -c release
 ## 既知の制限（v0）
 
 - ループの継ぎ目で一瞬（約 0.1 秒）止まる。
+- 同期の精度はプレイヤー自身が測った再生位置の差（Air 1 台で 3 つ起動して平均 0.1〜0.2 ms）。画面に出るまでの差は別に、カメラで測る必要がある。
 - ディスプレイの描画タイミングは揃わないので、最大 1 フレームの差は残る。
 - 素材はフレーム間圧縮の少ないもの（ProRes、HAP、H.264 の全フレームキー）を推奨。飛び先の読み込みが遅いと予約に間に合わない。
+
+## ライセンス
+
+MIT
