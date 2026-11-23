@@ -2,8 +2,8 @@ import Foundation
 import AVFoundation
 
 /// One playback machine. The master runs this too (with clock offset 0).
-/// It follows a Schedule: start at a precise host time, then keep the media position
-/// on target by nudging the playback rate, and jump if it drifts too far.
+/// It follows a Schedule: start at a precise host time on the host clock, then watch the
+/// media position and re-schedule the start if it drifts more than a few ms.
 final class SyncNode {
     let player: AVPlayer
     let item: AVPlayerItem
@@ -14,20 +14,15 @@ final class SyncNode {
 
     // Tuning
     let lead = 0.12            // seconds ahead when (re)starting
-    let hardLimit = 0.040      // jump when off by more than this (s)
-    let gain = 0.5             // rate correction per second of error
-    let maxRateDelta = 0.01    // at most ±1% speed change
+    /// Re-schedule when the smoothed error passes this (s). Writing AVPlayer.rate makes it
+    /// hiccup ~10 ms each time, so v0 never changes the rate; a re-scheduled start lands within ~0.3 ms.
+    let softLimit = 0.004
+    let hardLimit = 0.040      // re-schedule at once on a single error this large
 
     private var activeEpoch = -1
     private var needsResync = true
     /// After a scheduled start, do not judge the error until the start has really happened.
     private var settleUntil: Double = 0
-    /// Rate changes are rare (AVPlayer hiccups briefly on each write): at most once per second,
-    /// only when the smoothed error is over 1 ms, back to 1.0 once it is under 0.3 ms.
-    private var lastRateChange: Double = 0
-    let rateInterval = 1.0
-    let rateStartError = 0.001
-    let rateStopError = 0.0003
     private(set) var errorEMA: Double = 0
     private(set) var resyncCount = 0
     private(set) var lastError: Double = 0
@@ -39,6 +34,9 @@ final class SyncNode {
         player.automaticallyWaitsToMinimizeStalling = false
         player.actionAtItemEnd = .pause
         player.isMuted = muted
+        // Run playback on the host clock (the same clock the schedule uses), not the audio
+        // device clock. Otherwise every player slowly drifts from the schedule (~1 ms / 90 s on Air).
+        player.sourceClock = CMClockGetHostTimeClock()
         Task { @MainActor in
             let d = (try? await item.asset.load(.duration))?.seconds ?? 0
             self.duration = d
@@ -94,22 +92,8 @@ final class SyncNode {
         lastError = err
         errorEMA = errorEMA * 0.8 + err * 0.2
 
-        if abs(err) > hardLimit {
+        if abs(err) > hardLimit || abs(errorEMA) > softLimit {
             resync()
-            return
-        }
-        // Ahead (err > 0) -> slow down a little, behind -> speed up.
-        guard now - lastRateChange >= rateInterval else { return }
-        var target = Double(player.rate)
-        if abs(errorEMA) > rateStartError {
-            target = 1.0 + max(-maxRateDelta, min(maxRateDelta, -errorEMA * gain))
-        } else if abs(errorEMA) < rateStopError {
-            target = 1.0
-        }
-        if abs(Double(player.rate) - target) > 0.00001 {
-            player.rate = Float(target)
-            lastRateChange = now
-            settleUntil = now + 0.2          // let the hiccup pass before judging again
         }
     }
 

@@ -6,7 +6,7 @@ import AVFoundation
 //   swift run SyncPlayer --follower <movie>
 // Options: --name A  --fullscreen  --screen 1  --audio (follower plays sound)  --mute (master silent)
 //          --broadcast 192.168.1.255  --to 192.168.1.23 (extra master->follower address, repeatable)
-//          --log (print one line per second: error, offset, round trip)
+//          --log (print one line per second: error, offset, round trip)  --log-interval 0.1
 //          --autoplay 2 (master starts by itself after 2 s)  --quit-after 60
 // Keys: space play/pause (master), r back to start, ←/→ 5 s, i info, f full screen, q quit.
 
@@ -20,6 +20,7 @@ struct Options {
     var broadcast = "255.255.255.255"
     var extra: [String] = []
     var log = false
+    var logInterval = 1.0
     var autoplay: Double? = nil   // master: start playing after N seconds
     var quitAfter: Double? = nil  // quit after N seconds (for unattended tests)
 
@@ -38,6 +39,7 @@ struct Options {
             case "--broadcast": broadcast = next()
             case "--to": extra.append(next())
             case "--log": log = true
+            case "--log-interval": log = true; logInterval = Double(next()) ?? 1
             case "--autoplay": autoplay = Double(next()) ?? 2
             case "--quit-after": quitAfter = Double(next())
             default: file = args[i]
@@ -126,7 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + q) { NSApp.terminate(nil) }
         }
         if opts.log {
-            logTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            logTimer = Timer.scheduledTimer(withTimeInterval: opts.logInterval, repeats: true) { [weak self] _ in
                 self?.printLog()
             }
         }
