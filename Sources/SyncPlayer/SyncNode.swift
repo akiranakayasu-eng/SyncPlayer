@@ -22,6 +22,12 @@ final class SyncNode {
     private var needsResync = true
     /// After a scheduled start, do not judge the error until the start has really happened.
     private var settleUntil: Double = 0
+    /// Rate changes are rare (AVPlayer hiccups briefly on each write): at most once per second,
+    /// only when the smoothed error is over 1 ms, back to 1.0 once it is under 0.3 ms.
+    private var lastRateChange: Double = 0
+    let rateInterval = 1.0
+    let rateStartError = 0.001
+    let rateStopError = 0.0003
     private(set) var errorEMA: Double = 0
     private(set) var resyncCount = 0
     private(set) var lastError: Double = 0
@@ -93,10 +99,18 @@ final class SyncNode {
             return
         }
         // Ahead (err > 0) -> slow down a little, behind -> speed up.
-        let delta = max(-maxRateDelta, min(maxRateDelta, -errorEMA * gain))
-        let rate = Float(1.0 + delta)
-        // Small threshold: a 20 s drift of 0.3 ms needs a rate change of only ~0.00002.
-        if abs(player.rate - rate) > 0.00001 { player.rate = rate }
+        guard now - lastRateChange >= rateInterval else { return }
+        var target = Double(player.rate)
+        if abs(errorEMA) > rateStartError {
+            target = 1.0 + max(-maxRateDelta, min(maxRateDelta, -errorEMA * gain))
+        } else if abs(errorEMA) < rateStopError {
+            target = 1.0
+        }
+        if abs(Double(player.rate) - target) > 0.00001 {
+            player.rate = Float(target)
+            lastRateChange = now
+            settleUntil = now + 0.2          // let the hiccup pass before judging again
+        }
     }
 
     /// Start (or restart) exactly on schedule: at local host time now+lead, at the media time
