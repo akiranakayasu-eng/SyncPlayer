@@ -1,12 +1,22 @@
 import Foundation
 import AVFoundation
+import QuartzCore
 
 /// One playback machine. The master runs this too (with clock offset 0).
 /// It follows a Schedule: start at a precise host time on the host clock, then watch the
 /// media position and re-schedule the start if it drifts more than a few ms.
+///
+/// Two players take turns so the loop point has no gap: about a second before the end,
+/// the idle player is scheduled to start at 0 exactly at the loop's host time, and its
+/// layer is shown at that moment.
 final class SyncNode {
-    let player: AVPlayer
-    let item: AVPlayerItem
+    let players: [AVPlayer]
+    let items: [AVPlayerItem]
+    let layers: [AVPlayerLayer]
+    private(set) var active = 0
+    var player: AVPlayer { players[active] }
+    var item: AVPlayerItem { items[active] }
+
     private(set) var duration: Double = 0
     var schedule: Schedule?
     /// master clock - local clock, nil while unknown.
@@ -15,39 +25,56 @@ final class SyncNode {
     // Tuning
     let lead = 0.12            // seconds ahead when (re)starting
     /// Re-schedule when the smoothed error passes this (s). Writing AVPlayer.rate makes it
-    /// hiccup ~10 ms each time, so v0 never changes the rate; a re-scheduled start lands within ~0.3 ms.
+    /// hiccup ~10 ms each time, so the rate is never changed; a re-scheduled start lands within ~0.3 ms.
     let softLimit = 0.004
     let hardLimit = 0.040      // re-schedule at once on a single error this large
+    let armAhead = 1.0         // schedule the idle player this long before the loop point
 
     private var activeEpoch = -1
     private var needsResync = true
     /// After a scheduled start, do not judge the error until the start has really happened.
     private var settleUntil: Double = 0
+    /// Host time (local) at which the idle player has been scheduled to start, if any.
+    private var armedAt: Double?
     private(set) var errorEMA: Double = 0
     private(set) var resyncCount = 0
+    private(set) var loopCount = 0
     private(set) var lastError: Double = 0
-    private var endObserver: NSObjectProtocol?
+    private var endObservers: [NSObjectProtocol] = []
 
     init(url: URL, muted: Bool) {
-        item = AVPlayerItem(url: url)
-        player = AVPlayer(playerItem: item)
-        player.automaticallyWaitsToMinimizeStalling = false
-        player.actionAtItemEnd = .pause
-        player.isMuted = muted
-        // Run playback on the host clock (the same clock the schedule uses), not the audio
-        // device clock. Otherwise every player slowly drifts from the schedule (~1 ms / 90 s on Air).
-        player.sourceClock = CMClockGetHostTimeClock()
+        var ps: [AVPlayer] = [], its: [AVPlayerItem] = [], ls: [AVPlayerLayer] = []
+        for _ in 0..<2 {
+            let it = AVPlayerItem(url: url)
+            let p = AVPlayer(playerItem: it)
+            p.automaticallyWaitsToMinimizeStalling = false
+            p.actionAtItemEnd = .pause
+            p.isMuted = muted
+            // Run playback on the host clock (the same clock the schedule uses), not the audio
+            // device clock. Otherwise every player slowly drifts from the schedule (~1 ms / 90 s on Air).
+            p.sourceClock = CMClockGetHostTimeClock()
+            let l = AVPlayerLayer(player: p)
+            l.videoGravity = .resizeAspect
+            ps.append(p); its.append(it); ls.append(l)
+        }
+        players = ps; items = its; layers = ls
+        layers[1].isHidden = true
+
         Task { @MainActor in
-            let d = (try? await item.asset.load(.duration))?.seconds ?? 0
+            let d = (try? await its[0].asset.load(.duration))?.seconds ?? 0
             self.duration = d
         }
-        endObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-            self?.needsResync = true   // loop: restart on the schedule
+        for (i, it) in its.enumerated() {
+            endObservers.append(NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime, object: it, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                // If the other player is armed, the swap handles the loop. Otherwise restart on schedule.
+                if i == self.active && self.armedAt == nil { self.needsResync = true }
+            })
         }
     }
 
-    var ready: Bool { item.status == .readyToPlay && duration > 0 }
+    var ready: Bool { items.allSatisfy { $0.status == .readyToPlay } && duration > 0 }
 
     private func wrap(_ t: Double) -> Double {
         guard duration > 0 else { return t }
@@ -63,11 +90,25 @@ final class SyncNode {
         return wrap(s.anchorMedia + (m - s.anchorHost))
     }
 
+    private func show(_ i: Int) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layers[i].isHidden = false
+        layers[1 - i].isHidden = true
+        CATransaction.commit()
+    }
+
+    private func disarm() {
+        if armedAt != nil { players[1 - active].pause() }
+        armedAt = nil
+    }
+
     func tick() {
         guard ready, let s = schedule, clockOffset() != nil else { return }
         if s.epoch != activeEpoch { activeEpoch = s.epoch; needsResync = true }
 
         if !s.playing {
+            disarm()
             if player.rate != 0 { player.pause() }
             if needsResync {
                 needsResync = false
@@ -79,10 +120,35 @@ final class SyncNode {
 
         if needsResync { resync(); return }
         let now = hostNow()
+
+        // Loop: hand over to the armed player once its start time has passed.
+        if let at = armedAt, now >= at + 0.005 {
+            let old = active
+            active = 1 - active
+            show(active)
+            players[old].pause()
+            armedAt = nil
+            loopCount += 1
+            settleUntil = now + 0.1
+            errorEMA = 0
+            return
+        }
+
         if now < settleUntil { return }          // the scheduled start is still ahead
-        if player.rate == 0 { resync(); return }
+        if player.rate == 0 && armedAt == nil { resync(); return }
 
         guard let expected = expectedMedia(atLocal: now) else { return }
+
+        // Arm the idle player for the next loop point.
+        let remaining = duration - expected
+        if armedAt == nil && remaining < armAhead && remaining > 0.03 {
+            let at = now + remaining
+            let next = players[1 - active]
+            next.setRate(1.0, time: .zero,
+                         atHostTime: CMTime(seconds: at, preferredTimescale: 1_000_000_000))
+            armedAt = at
+        }
+
         let actual = player.currentTime().seconds
         var err = actual - expected
         if duration > 0 {   // shortest way around the loop point
@@ -92,7 +158,7 @@ final class SyncNode {
         lastError = err
         errorEMA = errorEMA * 0.8 + err * 0.2
 
-        if abs(err) > hardLimit || abs(errorEMA) > softLimit {
+        if armedAt == nil && (abs(err) > hardLimit || abs(errorEMA) > softLimit) {
             resync()
         }
     }
@@ -100,14 +166,15 @@ final class SyncNode {
     /// Start (or restart) exactly on schedule: at local host time now+lead, at the media time
     /// the schedule says for that moment.
     func resync() {
+        disarm()
         let startLocal = hostNow() + lead
         guard let media = expectedMedia(atLocal: startLocal) else { return }
-        // Do not start in the last frames; the end-of-item handler will loop.
-        let target = media > duration - 0.02 ? 0 : media
+        // Do not start in the last frames; begin at 0 a little early instead.
+        let target = media > duration - 0.05 ? 0 : media
         needsResync = false
         resyncCount += 1
-        settleUntil = startLocal + 0.1
         errorEMA = 0
+        settleUntil = startLocal + 0.1
         player.setRate(1.0,
                        time: CMTime(seconds: target, preferredTimescale: 600_000),
                        atHostTime: CMTime(seconds: startLocal, preferredTimescale: 1_000_000_000))

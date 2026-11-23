@@ -94,11 +94,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let view = VideoView(frame: NSRect(origin: .zero, size: frame.size))
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.black.cgColor
-        let pl = AVPlayerLayer(player: node.player)
-        pl.frame = view.bounds
-        pl.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        pl.videoGravity = .resizeAspect
-        view.layer?.addSublayer(pl)
+        for pl in node.layers {
+            pl.frame = view.bounds
+            pl.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+            view.layer?.addSublayer(pl)
+        }
 
         info.font = .monospacedSystemFont(ofSize: 14, weight: .medium)
         info.textColor = .green
@@ -155,8 +155,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let frame = Int((pos * 60).rounded())
         var s = String(format: "%@ %@  pos %.3f s (frame@60 %d)  rate %.4f\n",
                        opts.master ? "MASTER" : "follower", opts.name, pos, frame, node.player.rate)
-        s += String(format: "error %+.1f ms  avg %+.1f ms  jumps %d",
-                    node.lastError * 1000, node.errorEMA * 1000, node.resyncCount)
+        s += String(format: "error %+.1f ms  avg %+.1f ms  jumps %d  loops %d",
+                    node.lastError * 1000, node.errorEMA * 1000, node.resyncCount, node.loopCount)
         if let f = follower {
             let st = f.stats
             s += String(format: "\nclock %@ offset %+.3f ms  rtt %.3f ms%@",
@@ -171,9 +171,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func updateInfo() { if !info.isHidden { info.stringValue = statusText() } }
 
     func printLog() {
-        var line = String(format: "%.3f\t%@\terr_ms=%+.2f\tavg_ms=%+.2f\trate=%.4f\tjumps=%d",
+        var line = String(format: "%.3f\t%@\terr_ms=%+.2f\tavg_ms=%+.2f\trate=%.4f\tjumps=%d\tloops=%d",
                           Date().timeIntervalSince1970, opts.name, node.lastError * 1000,
-                          node.errorEMA * 1000, node.player.rate, node.resyncCount)
+                          node.errorEMA * 1000, node.player.rate, node.resyncCount, node.loopCount)
         if let st = follower?.stats {
             line += String(format: "\toffset_ms=%+.3f\trtt_ms=%.3f", st.offset * 1000, st.rtt * 1000)
         }
