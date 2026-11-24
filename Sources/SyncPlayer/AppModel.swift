@@ -362,14 +362,16 @@ final class AppModel: ObservableObject {
                 outputs[o.id] = w
                 w.window.representedURL = showFile.map { URL(fileURLWithPath: $0) } ?? ShowStore.currentURL
                 w.apply(o, index: i, title: outputTitle(o))
-                w.window.makeKeyAndOrderFront(nil)
+                w.window.orderFront(nil)
                 created = true
             } else {
                 outputs[o.id]?.apply(o, index: i, title: outputTitle(o))
             }
         }
         // A new windowed output must not hide the control window (full-screen outputs stay above it anyway).
-        if created, let c = control, c.isVisible { c.orderFront(nil) }
+        // The control window also stays the key window, so activating the app does not bring the
+        // output above it and the first S hides it.
+        if created, let c = control, c.isVisible { c.makeKeyAndOrderFront(nil) }
         refreshInfo()
         updatePresentation()
     }
@@ -580,6 +582,12 @@ final class AppModel: ObservableObject {
         for o in s.outputs.indices { s.outputs[o].layers.removeAll { $0.clipID == id } }
         if s.audioClip == id { s.audioClip = nil }
         show = s
+    }
+
+    /// The movie cannot be opened (missing file or failed to load).
+    func clipBroken(_ id: String) -> Bool {
+        guard let n = transport.orderedNodes.first(where: { $0.id == id })?.node else { return false }
+        return n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path)
     }
 
     func clipName(_ id: String) -> String { show.clip(id)?.name ?? "（なし）" }

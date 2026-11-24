@@ -161,6 +161,7 @@ struct TopBar: View {
                     Text("再生・停止と位置の操作は、マスターの Mac で行う")
                         .foregroundColor(.secondary)
                         .help("この Mac をマスターにするときは、上の「この Mac の役」でマスターを選ぶ")
+                        .frame(minHeight: 24)
                 }
 
                 Text("\(timeString(dragging ? value : status.position)) / \(timeString(status.duration))")
@@ -277,7 +278,12 @@ struct Sidebar: View {
             List {
                 ForEach(model.show.clips) { c in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(c.name).lineLimit(1).truncationMode(.middle).help(c.name)
+                        HStack(spacing: 4) {
+                            if model.clipBroken(c.id) {
+                                Text("⚠︎ 開けない").font(.caption).foregroundColor(.red)
+                            }
+                            Text(c.name).lineLimit(1).truncationMode(.middle).help(c.name)
+                        }
                         HStack(spacing: 4) {
                             Spacer()
                             Button("差し替え") { model.replaceClip(c.id) }
@@ -411,6 +417,7 @@ struct Inspector: View {
             .labelsHidden()
             .padding(10)
             Divider()
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     switch tab {
@@ -428,9 +435,16 @@ struct Inspector: View {
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // Editing corners or the mesh: show where it is controlled.
+            .onChange(of: model.editMode) { m in
+                guard m != .none else { return }
+                tab = 0; openWarp = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation { proxy.scrollTo("warp", anchor: .bottom) }
+                }
+            }
+            }
         }
-        // Editing corners or the mesh: show where it is controlled.
-        .onChange(of: model.editMode) { m in if m != .none { tab = 0; openWarp = true } }
     }
 
     /// The selected layer's mask is set but missing or unreadable.
@@ -557,6 +571,7 @@ struct Inspector: View {
             }
             .padding(.top, 4)
         } label: { FoldLabel(title: "四隅・曲面（台形や曲がりを直す）", isOpen: $openWarp) }
+        .id("warp")
     }
 
     private func meshSize(_ d: Int) {
