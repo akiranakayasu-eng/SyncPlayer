@@ -70,7 +70,7 @@ struct TopBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Picker("", selection: Binding(get: { model.isMaster }, set: { model.setRole(master: $0) })) {
+            Picker("", selection: Binding(get: { model.isMaster }, set: { model.setRoleByHand(master: $0) })) {
                 Text("フォロワー").tag(false)
                 Text("マスター").tag(true)
             }

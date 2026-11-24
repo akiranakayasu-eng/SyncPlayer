@@ -676,7 +676,13 @@ final class AppModel: ObservableObject {
         control?.title = "SyncPlayer — 操作 — \(isMaster ? "マスター" : "フォロワー") — \(opts.name)"
     }
 
-    func toggleRole() { setRole(master: master == nil) }
+    func toggleRole() { setRoleByHand(master: master == nil) }
+
+    /// Role changed by hand (M, the switch): the "taken over" notice no longer applies.
+    func setRoleByHand(master m: Bool) {
+        exhibitTakenOver = false
+        setRole(master: m)
+    }
 
     /// This Mac is the exhibition master: it opens as master and starts playing by itself.
     /// Kept for this Mac (UserDefaults), not in the show, so copying a show to other Macs does not
