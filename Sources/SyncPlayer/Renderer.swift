@@ -249,6 +249,7 @@ final class FrameSource {
             return
         }
         lastFrameAt = now
+        gaveUp = false   // a late frame did come
         var shown = CMTime.invalid
         guard let pb = out.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: &shown) else { return }
         count(shown.seconds)
