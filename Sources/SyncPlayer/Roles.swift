@@ -27,6 +27,10 @@ final class Master {
     private let forgetAfter = 300.0
     private var inherited: (dur: Double, until: Double)?
     private let lock = NSLock()
+    /// Ask every Mac to show its name and screen numbers (read when announcing).
+    var ident: () -> Bool = { false }
+    /// This Mac's name, sent in the beacon.
+    var name = ""
 
     /// initial: the schedule to continue (already in this Mac's clock), so taking over is seamless.
     init(transport: Transport, broadcast: String, extraTargets: [String], initial: Schedule?, since: Double,
@@ -99,6 +103,8 @@ final class Master {
     private func announce() {
         var m = Message(k: "b", s: schedule)
         m.mid = id; m.since = since; m.file = fileLabel()
+        if ident() { m.ident = true }
+        if !name.isEmpty { m.name = name }
         let data = m.encoded()
         let targets = self.targets, sock = self.sock
         sendQueue.async { for t in targets { sock.send(data, to: t) } }
@@ -197,6 +203,10 @@ final class Follower {
     private(set) var masterID: String?
     private var masterSince: Double = 0
     private(set) var masterFile: String?
+    /// The master asks every Mac to show its name and screen numbers.
+    private(set) var masterIdent = false
+    /// The master's name from its beacon (nil from a master older than v0.3.2).
+    private(set) var masterName: String?
     private var lastBeacon: Double = 0
     private var pingID = 0              // guarded by lock
     /// Pongs with an id at or below this belong to an earlier master (guarded by lock).
@@ -250,6 +260,8 @@ final class Follower {
                 self.lastBeacon = now
                 self.masterHost = host
                 self.masterFile = m.file
+                self.masterIdent = m.ident ?? false
+                self.masterName = m.name
                 self.masterAddr = UDPSocket.withPort(from, Ports.clock)
                 if !self.adopted {
                     self.lock.lock(); let ready = self.clock.ready; self.lock.unlock()

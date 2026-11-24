@@ -36,6 +36,8 @@ struct Message: Codable {
     var since: Double? = nil // when this master took over (wall clock); the newest master wins
     var file: String? = nil // movie file name the master plays (beacon)
     var dur: Double? = nil  // longest clip of the follower (ping), for the common loop length
+    var ident: Bool? = nil  // beacon: every Mac shows its name and screen numbers (N on the master)
+    var name: String? = nil // beacon: the master Mac's name (shown on followers instead of its address)
 
     func encoded() -> Data { (try? JSONEncoder().encode(self)) ?? Data() }
     static func decode(_ d: Data) -> Message? { try? JSONDecoder().decode(Message.self, from: d) }

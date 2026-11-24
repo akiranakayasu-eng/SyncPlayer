@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import ServiceManagement
 
 /// Fast-changing numbers for the control window (kept apart so the whole window is not redrawn 5 times a second).
 final class StatusModel: ObservableObject {
@@ -9,6 +10,10 @@ final class StatusModel: ObservableObject {
     @Published var playing = false
     @Published var isMaster = false
     @Published var text = ""
+    /// One line at the top of the control window: what this Mac is doing now, in words.
+    @Published var headline = ""
+    /// 0 stopped / idle, 1 playing in step, 2 needs a look (waiting, master gone, clock still learning).
+    @Published var tone = 0
 }
 
 /// The app: the show, the playback (transport + master/follower), the output windows and the control window.
@@ -33,6 +38,8 @@ final class AppModel: ObservableObject {
     /// What showFile holds now (so opening a file does not rewrite it unchanged).
     private var fileShow: Show?
     @Published var screenNames: [String] = []
+    /// "ディスプレイ 1（1920×1080）" for the picker (the full names are too long for the side column).
+    @Published var screenShort: [String] = []
 
     var master: Master?
     var follower: Follower?
@@ -46,6 +53,10 @@ final class AppModel: ObservableObject {
     /// Info text on full-screen outputs (hidden unless I or H shows it, so an exhibition shows only the picture).
     var infoOnFull = false
     private var cursorHidden = false
+    /// Keeps the display and the Mac awake while playing or while an output is full screen.
+    private var awake: NSObjectProtocol?
+    /// Large Mac name and screen number on every output (N key). On the master it also shows them on every Mac.
+    @Published var showIdent = false
     /// An open / save panel is up (full-screen outputs stay down meanwhile).
     private var panelOpen = false
     /// S brought the control window above a full-screen output on its screen.
@@ -64,11 +75,14 @@ final class AppModel: ObservableObject {
 
     static let keyHelp = """
     space 再生／停止（マスター）  R 頭へ  ← → 5 秒（shift 1 秒）
-    M マスター⇔フォロワー  S 操作の窓（全画面の上にも出す／隠す）  I 情報（全画面では標準で隠す）  H キー一覧
-    O 次の出力  L 次のレイヤー  F 全画面  D 次の画面  A 音  G 格子
+    N 名前とディスプレイの番号  M マスター⇔フォロワー  A 音
+    S 操作の窓を出す／隠す  I 情報  H キー一覧  Q 終了
+    O 次の出力  L 次のレイヤー  F 全画面  D 次のディスプレイ  G 格子
     E 四隅の変形  W 曲面メッシュ  Tab 次の点  矢印 1 px（shift 10 px）
-    + − 大きさ  [ ] 回転  0 戻す（編集中はその変形、ほかは位置・大きさ・回転）
-    1〜9 プリセット呼び出し  ⌘1〜⌘9 プリセット保存  ⌘O ショーを開く  ⌘S ショーを保存  Q 終了
+    + − 大きさ  [ ] 回転
+    0 戻す（編集中はその変形、ほかは位置・大きさ・回転）
+    1〜9 プリセット呼び出し  ⌘1〜⌘9 プリセット保存
+    ⌘O ショーを開く  ⌘S ショーを保存
     """
 
     init(opts: Options) { self.opts = opts }
@@ -142,24 +156,39 @@ final class AppModel: ObservableObject {
             }
         }
         if show0.outputs.isEmpty, let c = show0.clips.first {
-            show0.outputs = [OutputConfig(name: "画面 1", layers: [Layer(clipID: c.id)])]
+            show0.outputs = [OutputConfig(name: "出力 1", layers: [Layer(clipID: c.id)])]
         }
         if let sc = opts.screen { show0.outputs[0].screen = sc }
         if opts.fullscreen { show0.outputs[0].fullscreen = true }
-        audioOn = opts.audio ?? show0.audioOn ?? opts.master
+        // The exhibition master (kept per Mac, not in the show) opens as master and plays.
+        let startMaster = opts.roleGiven ? opts.master : exhibitMaster
+        audioOn = opts.audio ?? show0.audioOn ?? startMaster
         presetNames = ShowStore.presetNames()
 
         buildControlWindow()
         show = show0
         selectedOutput = show.outputs.first?.id
-        setRole(master: opts.master)
+        setRole(master: startMaster)
         installKeys()
+        // Exhibition: the master plays by itself a few seconds after opening (followers catch up).
+        if !opts.roleGiven && exhibitMaster && opts.autoplay == nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self, let m = self.master, !m.schedule.playing else { return }
+                m.play()
+                self.notify("開いたので自動で再生しました")
+            }
+        }
         // Another app or a macOS dialog (e.g. the local network permission) in front: full-screen
         // outputs step down so it is not hidden behind them; back up when SyncPlayer is active again.
         NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
                                                object: nil, queue: .main) { [weak self] _ in self?.leftFront = true; self?.refreshLevels() }
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
-                                               object: nil, queue: .main) { [weak self] _ in self?.leftFront = false; self?.refreshLevels() }
+                                               object: nil, queue: .main) { [weak self] _ in
+            self?.leftFront = false; self?.refreshLevels()
+            // Back from System Settings (the login item may have been approved there).
+            let on = SMAppService.mainApp.status == .enabled
+            if self?.loginItemOn != on { self?.loginItemOn = on }
+        }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in self?.screensChanged() }
 
@@ -325,6 +354,7 @@ final class AppModel: ObservableObject {
     private func syncOutputs() {
         let ids = Set(show.outputs.map(\.id))
         for (id, w) in outputs where !ids.contains(id) { w.close(); outputs[id] = nil }
+        var created = false
         for (i, o) in show.outputs.enumerated() {
             if outputs[o.id] == nil {
                 guard let w = OutputWindow(id: o.id) else { print("Metal is not available"); exit(1) }
@@ -332,9 +362,25 @@ final class AppModel: ObservableObject {
                 outputs[o.id] = w
                 w.window.representedURL = showFile.map { URL(fileURLWithPath: $0) } ?? ShowStore.currentURL
                 w.apply(o, index: i, title: outputTitle(o))
-                w.window.makeKeyAndOrderFront(nil)
+                w.window.orderFront(nil)
+                created = true
             } else {
                 outputs[o.id]?.apply(o, index: i, title: outputTitle(o))
+            }
+        }
+        // A new windowed output must not hide the control window (full-screen outputs stay above it anyway).
+        // The control window also stays the key window, so activating the app does not bring the
+        // output above it and the first S hides it.
+        // With a full-screen output on the control window's screen, or with the control window hidden
+        // (S), an output takes the keys as before, so S, space and Q keep working.
+        if created {
+            if let c = control, c.isVisible,
+               !outputs.values.contains(where: { $0.isFull && $0.window.frame.intersects(c.frame) }) {
+                c.makeKeyAndOrderFront(nil)
+                c.makeFirstResponder(nil)      // not into a text field, so the keys are not typed there
+            } else if let w = show.outputs.compactMap({ outputs[$0.id] }).first(where: { $0.isFull })
+                        ?? show.outputs.first.flatMap({ outputs[$0.id] }) {
+                w.window.makeKeyAndOrderFront(nil)
             }
         }
         refreshInfo()
@@ -377,6 +423,17 @@ final class AppModel: ObservableObject {
         NSApp.presentationOptions = coversMain ? [.hideDock, .hideMenuBar] : []
     }
 
+    /// Whether the info text is shown now (on full-screen outputs when there are any).
+    var infoShownNow: Bool { outputs.values.contains(where: { $0.isFull }) ? infoOnFull : !infoHidden }
+
+    /// One switch for every output (I key and the control window).
+    func setInfoShown(_ on: Bool) {
+        infoOnFull = on; infoHidden = !on
+        helpSaved = nil
+        refreshInfo()
+        objectWillChange.send()
+    }
+
     /// Show or hide the info text on each output (full-screen ones follow infoOnFull).
     private func refreshInfo() {
         for w in outputs.values { w.info.isHidden = w.isFull ? !infoOnFull : infoHidden }
@@ -401,12 +458,15 @@ final class AppModel: ObservableObject {
         for (i, o) in show.outputs.enumerated() { outputs[o.id]?.replace(o, index: i, title: outputTitle(o)) }
         refreshInfo()
         updatePresentation()
-        notify("画面のつながりが変わりました（\(NSScreen.screens.count) 枚）")
+        notify("ディスプレイのつながりが変わりました（\(NSScreen.screens.count) 枚）")
     }
 
     func refreshScreens() {
         screenNames = NSScreen.screens.enumerated().map { i, s in
             "\(i + 1): \(s.localizedName)  \(Int(s.frame.width))×\(Int(s.frame.height))"
+        }
+        screenShort = NSScreen.screens.enumerated().map { i, s in
+            "ディスプレイ \(i + 1)（\(Int(s.frame.width))×\(Int(s.frame.height))）"
         }
     }
 
@@ -418,17 +478,19 @@ final class AppModel: ObservableObject {
     func addOutput() {
         let used = Set(show.outputs.map(\.screen))
         let screen = (0..<NSScreen.screens.count).first { !used.contains($0) } ?? 0
-        var o = OutputConfig(name: "画面 \(show.outputs.count + 1)", screen: screen)
+        var o = OutputConfig(name: "出力 \(show.outputs.count + 1)", screen: screen)
         if let c = show.clips.first { o.layers = [Layer(clipID: c.id)] }
         show.outputs.append(o)
         selectedOutput = o.id
-        notify("出力「\(o.name)」を足しました（画面 \(screen + 1)）")
+        notify("出力「\(o.name)」を足しました（ディスプレイ \(screen + 1)）")
     }
 
     func removeOutput() {
         guard show.outputs.count > 1, let o = selectedOutputIndex else { notify("出力は 1 つ以上要ります"); return }
-        let name = show.outputs[o].name
-        show.outputs.remove(at: o)
+        let name = show.outputs[o].name, oid = show.outputs[o].id
+        guard confirm("出力「\(name)」を消しますか？", "この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます。"),
+              show.outputs.count > 1, let o2 = show.outputs.firstIndex(where: { $0.id == oid }) else { return }
+        show.outputs.remove(at: o2)
         notify("出力「\(name)」を消しました")
     }
 
@@ -449,7 +511,7 @@ final class AppModel: ObservableObject {
         guard let o = selectedOutputIndex else { return }
         let n = max(1, NSScreen.screens.count)
         show.outputs[o].screen = (show.outputs[o].screen + 1) % n
-        notify("\(show.outputs[o].name) を画面 \(show.outputs[o].screen + 1) へ")
+        notify("\(show.outputs[o].name) をディスプレイ \(show.outputs[o].screen + 1) へ")
     }
 
     // MARK: layers
@@ -463,7 +525,12 @@ final class AppModel: ObservableObject {
 
     func removeLayer() {
         guard let i = selectedLayerIndex else { return }
-        show.outputs[i.o].layers.remove(at: i.l)
+        let name = clipName(show.outputs[i.o].layers[i.l].clipID)
+        let oid = show.outputs[i.o].id, lid = show.outputs[i.o].layers[i.l].id
+        guard confirm("レイヤー「\(name)」を消しますか？", "このレイヤーの調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。"),
+              let o2 = show.outputs.firstIndex(where: { $0.id == oid }),
+              let l2 = show.outputs[o2].layers.firstIndex(where: { $0.id == lid }) else { return }
+        show.outputs[o2].layers.remove(at: l2)
     }
 
     /// Move the selected layer toward the front (+1) or back (-1).
@@ -521,11 +588,21 @@ final class AppModel: ObservableObject {
 
     func removeClip(_ id: String) {
         guard show.clips.count > 1 else { notify("映像は 1 つ以上要ります"); return }
+        let users = show.outputs.reduce(0) { $0 + $1.layers.filter { $0.clipID == id }.count }
+        guard confirm("映像「\(clipName(id))」をショーから外しますか？",
+                      users > 0 ? "この映像を使うレイヤー \(users) つと、その調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。"
+                                : "映像のファイルは消えません。", ok: "外す") else { return }
         var s = show
         s.clips.removeAll { $0.id == id }
         for o in s.outputs.indices { s.outputs[o].layers.removeAll { $0.clipID == id } }
         if s.audioClip == id { s.audioClip = nil }
         show = s
+    }
+
+    /// The movie cannot be opened (missing file or failed to load).
+    func clipBroken(_ id: String) -> Bool {
+        guard let n = transport.orderedNodes.first(where: { $0.id == id })?.node else { return false }
+        return n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path)
     }
 
     func clipName(_ id: String) -> String { show.clip(id)?.name ?? "（なし）" }
@@ -593,6 +670,7 @@ final class AppModel: ObservableObject {
     }
 
     func deletePreset(_ name: String) {
+        guard confirm("プリセット「\(name)」を消しますか？", "キーやボタンで呼び出せなくなります。ショーそのものは変わりません。") else { return }
         ShowStore.deletePreset(name)
         presetNames = ShowStore.presetNames()
         notify("プリセット「\(name)」を削除")
@@ -612,8 +690,15 @@ final class AppModel: ObservableObject {
                                        initial: initial, since: since,
                                        fileLabel: { [weak self] in self?.show.fileLabel ?? "" },
                                        loopPolicy: { [weak self] in (self?.show.loopTogether ?? true, self?.show.loopLength ?? 0) })
+                    m.ident = { [weak self] in self?.showIdent ?? false }
+                    m.name = opts.name
                     m.onDemote = { [weak self] in
-                        self?.notify("ほかの Mac がマスターになったので、フォロワーに戻りました")
+                        // The exhibition-master mark stays: this Mac is still the one to start as master
+                        // after a restart (another Mac took over by hand for now).
+                        if self?.exhibitMaster == true { self?.exhibitTakenOver = true }
+                        self?.notify(self?.exhibitMaster == true
+                            ? "ほかの Mac がマスターになりました（この Mac は「展示のマスター」のままで、次に開くとマスターで始まります）"
+                            : "ほかの Mac がマスターになったので、フォロワーに戻りました")
                         self?.setRole(master: false)
                     }
                     master = m
@@ -639,7 +724,47 @@ final class AppModel: ObservableObject {
         control?.title = "SyncPlayer — 操作 — \(isMaster ? "マスター" : "フォロワー") — \(opts.name)"
     }
 
-    func toggleRole() { setRole(master: master == nil) }
+    func toggleRole() { setRoleByHand(master: master == nil) }
+
+    /// Role changed by hand (M, the switch): the "taken over" notice no longer applies.
+    func setRoleByHand(master m: Bool) {
+        exhibitTakenOver = false
+        setRole(master: m)
+    }
+
+    /// This Mac is the exhibition master: it opens as master and starts playing by itself.
+    /// Kept for this Mac (UserDefaults), not in the show, so copying a show to other Macs does not
+    /// make them masters too.
+    @Published var exhibitMaster = UserDefaults.standard.bool(forKey: "exhibitMaster") {
+        didSet { UserDefaults.standard.set(exhibitMaster, forKey: "exhibitMaster") }
+    }
+
+    /// Another master took over while this Mac is the exhibition master (shown in the status).
+    private var exhibitTakenOver = false
+
+    func setExhibitMaster(_ on: Bool) {
+        exhibitMaster = on
+        exhibitTakenOver = false
+        if on && master == nil { setRole(master: true) }
+    }
+
+    /// Open SyncPlayer when this Mac's user logs in (macOS Login Items). Read once and after changes.
+    @Published private(set) var loginItemOn = SMAppService.mainApp.status == .enabled
+    var openAtLogin: Bool {
+        get { loginItemOn }
+        set {
+            do {
+                if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            } catch {
+                notify("ログイン時に開く設定ができません: \(error.localizedDescription)")
+            }
+            if newValue && SMAppService.mainApp.status == .requiresApproval {
+                notify("システム設定 → 一般 → ログイン項目 で SyncPlayer を許可してください")
+                SMAppService.openSystemSettingsLoginItems()
+            }
+            loginItemOn = SMAppService.mainApp.status == .enabled
+        }
+    }
 
     func applyAudio() { transport.setAudio(clipID: show.audioClip ?? show.clips.first?.id, on: audioOn) }
 
@@ -726,6 +851,20 @@ final class AppModel: ObservableObject {
     /// Run an open / save panel. Full-screen outputs sit above the menu bar, so they are lowered
     /// while the panel is up (otherwise it could open behind them), also if the app is left and
     /// entered again meanwhile.
+    /// Ask before something that cannot be undone (lowers full-screen outputs while the alert is up).
+    func confirm(_ title: String, _ detail: String, ok: String = "消す") -> Bool {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = detail
+        a.addButton(withTitle: ok)
+        a.addButton(withTitle: "やめる")
+        panelOpen = true
+        refreshLevels()
+        defer { panelOpen = false; refreshLevels() }
+        NSApp.activate(ignoringOtherApps: true)
+        return a.runModal() == .alertFirstButtonReturn
+    }
+
     func runPanel(_ p: NSSavePanel) -> NSApplication.ModalResponse {
         panelOpen = true
         refreshLevels()
@@ -815,12 +954,7 @@ final class AppModel: ObservableObject {
         case "r": master?.jump(to: 0)
         case "m": toggleRole()
         case "s": toggleControl()
-        case "i":
-            // One switch for every output: with a full-screen output, start from its state.
-            let shown = outputs.values.contains(where: { $0.isFull }) ? infoOnFull : !infoHidden
-            infoOnFull = !shown; infoHidden = shown
-            helpSaved = nil
-            refreshInfo()
+        case "i": setInfoShown(!infoShownNow)
         case "h", "?":
             showHelp.toggle()
             if showHelp {
@@ -836,6 +970,7 @@ final class AppModel: ObservableObject {
         case "o": selectNextOutput()
         case "l": selectNextLayer()
         case "a": setAudio(!audioOn)
+        case "n": showIdent.toggle()
         case "q": NSApp.terminate(nil)
         case "g", "e", "w", "+", "=", "-", "_", "[", "]", "0":
             guard hasLayer else { notify("レイヤーを選んでください"); return true }
@@ -867,20 +1002,107 @@ final class AppModel: ObservableObject {
         transport.tick()
         tickCount += 1
         updateCursor()
+        let keepAwake = (transport.schedule?.playing ?? false) || outputs.values.contains { $0.isFull }
+        if keepAwake && awake == nil {
+            awake = ProcessInfo.processInfo.beginActivity(options: [.idleDisplaySleepDisabled, .idleSystemSleepDisabled],
+                                                          reason: "SyncPlayer: playing or showing full screen")
+        } else if !keepAwake, let a = awake {
+            ProcessInfo.processInfo.endActivity(a); awake = nil
+        }
         guard tickCount % 4 == 0 else { return }
         status.position = transport.displayTime()
         status.duration = transport.duration
         status.playing = transport.schedule?.playing ?? false
         let text = statusText()
         if status.text != text { status.text = text }
+        let (headline, tone) = headlineNow()
+        if status.headline != headline { status.headline = headline }
+        if status.tone != tone { status.tone = tone }
         let short = outputInfo()
         for w in outputs.values { w.layoutInfo(short) }
+        for (id, w) in outputs {
+            // Shown when N is on here, or when the master has N on (every Mac at once).
+            guard showIdent || (follower.map { $0.masterIdent && $0.masterAlive } ?? false), let o = show.outputs.first(where: { $0.id == id }) else { w.layoutIdent(nil); continue }
+            // The display the window is really on (numbered as in the control window's screen list);
+            // when that differs from the setting (not plugged in, moved by hand), both are shown.
+            let real = w.window.screen.flatMap { NSScreen.screens.firstIndex(of: $0) }.map { $0 + 1 }
+            let set = o.screen + 1
+            let disp = real == nil || real == set ? "ディスプレイ \(set)" : "ディスプレイ \(real!)（設定は \(set)）"
+            w.layoutIdent("\(opts.name)\n\(disp)\n\(o.name)")
+        }
         previewBox?.aspect = selectedOutputAspect
         if editMode != .none && tickCount % 20 == 0 { redrawOverlays() }
     }
 
+    /// The state in plain words for the top of the control window. The state word comes first,
+    /// so a narrow window cuts the details, not the state. A problem the detailed status warns
+    /// about (cannot open, mask, frames not arriving, a large offset) turns it orange and follows
+    /// the state word; a movie name different from the master's is only added at the end.
+    private func headlineNow() -> (String, Int) {
+        var (line, tone) = roleHeadline()
+        if let p = problemNow() {
+            // The state word stays first (a narrow window cuts the end), the problem right after it.
+            var parts = line.components(separatedBy: " ・ ")
+            parts.insert("⚠︎ \(p)", at: 1)
+            line = parts.joined(separator: " ・ "); tone = 2
+        }
+        // Each Mac may play its own movies on purpose, so a different name is only noted, not orange.
+        if let f = follower, let mf = f.masterFile, mf != show.fileLabel {
+            line += " ・ 映像の名前がマスターとちがう（Mac ごとに別の映像なら問題ない）"
+        }
+        return (line, tone)
+    }
+
+    private func roleHeadline() -> (String, Int) {
+        let playing = transport.schedule?.playing ?? false
+        if isMaster {
+            return playing ? ("再生中 ・ この Mac がマスター", 1) : ("停止中 ・ この Mac がマスター（space で再生）", 0)
+        }
+        guard let f = follower else { return ("準備中", 2) }
+        let who = String((f.masterName ?? f.masterHost).prefix(16))
+        if transport.schedule == nil {
+            return f.masterAlive ? ("マスター（\(who)）と時計を合わせている…", 2)
+                                     : ("マスター待ち ・ マスターの Mac を開くと、そろって始まる", 2)
+        }
+        if !f.masterAlive {
+            return playing ? ("再生中 ・ マスターが見えない（この Mac だけで続けている）", 2)
+                           : ("停止中 ・ マスターが見えない", 2)
+        }
+        if !f.stats.ready { return ("マスター（\(who)）と時計を合わせている…", 2) }
+        let err = String(format: "%.1f", abs(transport.maxError) * 1000)
+        return playing ? ("再生中 ・ マスター（\(who)）に合わせている ・ ずれ \(err) ms", 1)
+                       : ("停止中 ・ マスター（\(who)）が止めている", 0)
+    }
+
+    /// The first thing the detailed status warns about, in a few words (nil when all is well).
+    private func problemNow() -> String? {
+        if exhibitTakenOver && exhibitMaster && master == nil { return "ほかの Mac がマスター（展示のマスターは 1 台だけ）" }
+        for (id, n) in transport.orderedNodes {
+            if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
+                return "映像が開けない: \(String(clipName(id).prefix(20)))"
+            }
+        }
+        for o in show.outputs {
+            for l in o.layers {
+                guard let m = l.mask else { continue }
+                if missingFiles().contains(m) || GPU.shared?.maskReady(m) == false {
+                    return "マスクが読めない: \(String((m as NSString).lastPathComponent.prefix(20)))"
+                }
+            }
+        }
+        for (id, n) in transport.orderedNodes {
+            if !n.ready { return "読み込み中: \(String(clipName(id).prefix(20)))" }
+            if transport.frames[id]?.gaveUp == true { return "コマが届かない: \(String(clipName(id).prefix(20)))" }
+        }
+        if (transport.schedule?.playing ?? false), follower?.stats.ready ?? isMaster,
+           abs(transport.maxError) > 0.02 {
+            return String(format: "ずれが大きい %.0f ms", abs(transport.maxError) * 1000)
+        }
+        return nil
+    }
+
     private func roleLine() -> String {
-        String(format: "%@ %@  %@  pos %.3f s  error %+.1f ms  jumps %d",
+        String(format: "%@ %@  %@\npos %.3f s  error %+.1f ms  jumps %d",
                isMaster ? "MASTER" : "follower", opts.name, show.fileLabel, transport.displayTime(),
                transport.maxError * 1000, transport.resyncCount)
     }
@@ -895,7 +1117,7 @@ final class AppModel: ObservableObject {
         if let f = follower {
             let st = f.stats
             s += String(format: "\nmaster %@  clock %@ offset %+.3f ms  rtt %.3f ms",
-                        f.masterHost, st.ready ? "ok" : "learning", st.offset * 1000, st.rtt * 1000)
+                        f.masterName.map { "\($0) (\(f.masterHost))" } ?? f.masterHost, st.ready ? "ok" : "learning", st.offset * 1000, st.rtt * 1000)
             if transport.schedule == nil { s += "  (waiting for master)" }
             if let mf = f.masterFile, mf != show.fileLabel { s += "\n⚠︎ マスターの映像は \(mf)" }
         } else if let m = master {
@@ -932,6 +1154,9 @@ final class AppModel: ObservableObject {
     private func statusText() -> String {
         var s = roleLine()
         // Warnings first: the status box shows about 8 lines.
+        if exhibitTakenOver && exhibitMaster && master == nil {
+            s += "\n⚠︎ この Mac は「展示のマスター」ですが、ほかの Mac がマスターです。ほかの Mac にも「展示のマスター」が入っていませんか（入れるのは 1 台だけ）"
+        }
         for o in show.outputs {
             for l in o.layers {
                 guard let m = l.mask else { continue }

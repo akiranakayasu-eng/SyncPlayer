@@ -1,6 +1,11 @@
 import AppKit
 import MetalKit
 
+/// A text label that lets clicks through, so the edit points under it can still be dragged.
+final class PassThroughLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// A borderless (full-screen) window can still take the keys.
 final class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
@@ -59,7 +64,9 @@ final class OutputWindow: NSObject, NSWindowDelegate {
     let id: String
     let window: KeyableWindow
     let picture: PictureView
-    let info = NSTextField(labelWithString: "")
+    let info = PassThroughLabel(labelWithString: "")
+    /// Large Mac name and screen number in the middle (N key), to tell screens apart when setting up.
+    let ident = PassThroughLabel(labelWithString: "")
     var onBecomeKey: (() -> Void)?
     private var windowedFrame: NSRect?
     private(set) var isFull = false
@@ -86,9 +93,16 @@ final class OutputWindow: NSObject, NSWindowDelegate {
         info.textColor = .green
         info.backgroundColor = NSColor.black.withAlphaComponent(0.65)
         info.drawsBackground = true
-        info.maximumNumberOfLines = 14
+        info.maximumNumberOfLines = 22
         info.frame = NSRect(x: 10, y: 10, width: 700, height: 60)
         p.addSubview(info)
+        ident.alignment = .center
+        ident.textColor = .white
+        ident.backgroundColor = NSColor.black.withAlphaComponent(0.7)
+        ident.drawsBackground = true
+        ident.maximumNumberOfLines = 3
+        ident.isHidden = true
+        p.addSubview(ident)
         window.contentView = p
     }
 
@@ -113,9 +127,11 @@ final class OutputWindow: NSObject, NSWindowDelegate {
             window.styleMask = OutputWindow.windowed
             var f = windowedFrame ?? .zero
             if movedScreen || windowedFrame == nil || !screen.frame.intersects(f) {
+                // Top right and small, so it does not hide the control window (bottom left).
                 let vf = screen.visibleFrame
                 let off = CGFloat(index * 40)
-                f = NSRect(x: vf.minX + 60 + off, y: vf.maxY - 560 - off, width: 960, height: 540)
+                let w = min(640, vf.width / 2), h = w * 9 / 16
+                f = NSRect(x: vf.maxX - w - 20 - off, y: vf.maxY - h - 20 - off, width: w, height: h)
             }
             window.setFrame(f, display: true)
         }
@@ -137,6 +153,29 @@ final class OutputWindow: NSObject, NSWindowDelegate {
         info.stringValue = text
         let size = info.sizeThatFits(NSSize(width: 900, height: 700))
         info.frame = NSRect(x: 10, y: 10, width: min(size.width + 8, picture.bounds.width - 20), height: size.height + 4)
+    }
+
+    /// Show (text) or hide (nil) the large name and number, sized to the window.
+    func layoutIdent(_ text: String?) {
+        guard let text else { if !ident.isHidden { ident.isHidden = true }; return }
+        let b = picture.bounds
+        // As large as fits: start from the window's height and shrink until the longest line fits.
+        var size = max(18, min(b.height / 7, b.width / 12))
+        let lines = text.components(separatedBy: "\n")
+        func width(_ l: String, _ sz: CGFloat) -> CGFloat {
+            (l as NSString).size(withAttributes: [.font: NSFont.boldSystemFont(ofSize: sz)]).width
+        }
+        while size > 18 {
+            let w = lines.map { width($0, size) }.max() ?? 0   // widest line, by measured width
+            if w + size <= b.width - 20 { break }
+            size *= 0.9
+        }
+        if ident.font?.pointSize != size { ident.font = .boldSystemFont(ofSize: size) }
+        if ident.stringValue != text { ident.stringValue = text }
+        let fit = ident.sizeThatFits(NSSize(width: b.width - 40, height: b.height))
+        let w = min(fit.width + size, b.width - 20), h = fit.height + size * 0.4
+        ident.frame = NSRect(x: (b.width - w) / 2, y: (b.height - h) / 2, width: w, height: h)
+        ident.isHidden = false
     }
 
     func close() {
