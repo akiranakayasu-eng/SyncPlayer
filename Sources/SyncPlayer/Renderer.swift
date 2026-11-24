@@ -182,14 +182,22 @@ final class GPU {
         let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
         if let m = masks[path], m.date == date { masks[path]?.checked = now; return m.tex }
         var tex: MTLTexture?
+        var stamp = date
         if date != nil {
             tex = GPU.loadMask(path, device: device)
-            if tex == nil { print("mask: cannot read \(path)"); fflush(stdout) }
+            if tex == nil {
+                print("mask: cannot read \(path)"); fflush(stdout)
+                // Perhaps caught half-written: keep the last good picture and try again in 2 s.
+                if let old = masks[path]?.tex { tex = old; stamp = nil }
+            }
         }
         if masks.count > 32 { masks.removeAll() }
-        masks[path] = (tex, date, now)
+        masks[path] = (tex, stamp, now)
         return tex
     }
+
+    /// For the status: false when the mask file is missing or could not be read.
+    func maskReady(_ path: String) -> Bool? { masks[path].map { $0.tex != nil } }
 
     /// Any image file as RGBA (8 bit, gray kept as gray), so the shader reads every kind the same way.
     static func loadMask(_ path: String, device: MTLDevice) -> MTLTexture? {

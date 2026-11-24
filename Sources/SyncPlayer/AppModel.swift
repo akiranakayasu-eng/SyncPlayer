@@ -46,6 +46,8 @@ final class AppModel: ObservableObject {
     /// Info text on full-screen outputs (hidden unless I or H shows it, so an exhibition shows only the picture).
     var infoOnFull = false
     private var cursorHidden = false
+    /// Info settings before H showed the key list (restored when it is closed).
+    private var helpSaved: (Bool, Bool)?
     private var message = ""
     private var messageUntil = 0.0
     private var saveWork: DispatchWorkItem?
@@ -365,15 +367,17 @@ final class AppModel: ObservableObject {
     /// Show or hide the info text on each output (full-screen ones follow infoOnFull).
     private func refreshInfo() {
         for w in outputs.values { w.info.isHidden = w.isFull ? !infoOnFull : infoHidden }
+        // No full-screen output left: the control window goes back to an ordinary window.
+        if let c = control, c.level != .normal, !outputs.values.contains(where: { $0.isFull }) { c.level = .normal }
     }
 
-    /// Hide the pointer while it is over a full-screen output (not while editing points, and not
-    /// over the control window when S brought it up).
+    /// Hide the pointer while the front-most window under it is a full-screen output (so it shows
+    /// over the control window, open / save panels and other apps' windows), not while editing points.
     private func updateCursor() {
         let p = NSEvent.mouseLocation
-        let overControl = control.map { $0.isVisible && $0.frame.contains(p) } ?? false
-        let hide = NSApp.isActive && editMode == .none && !overControl
-            && outputs.values.contains { $0.isFull && $0.window.isVisible && $0.window.frame.contains(p) }
+        let top = NSWindow.windowNumber(at: p, belowWindowWithWindowNumber: 0)
+        let hide = NSApp.isActive && editMode == .none
+            && outputs.values.contains { $0.isFull && $0.window.isVisible && $0.window.windowNumber == top }
         if hide != cursorHidden {
             cursorHidden = hide
             if hide { NSCursor.hide() } else { NSCursor.unhide() }
@@ -479,7 +483,7 @@ final class AppModel: ObservableObject {
         p.message = message
         p.allowedContentTypes = [.movie, .video, .quickTimeMovie, .mpeg4Movie]
         p.allowsMultipleSelection = multiple
-        return p.runModal() == .OK ? p.urls : []
+        return runPanel(p) == .OK ? p.urls : []
     }
 
     /// Add movies; each also gets a layer on the selected output.
@@ -520,7 +524,7 @@ final class AppModel: ObservableObject {
         let p = NSOpenPanel()
         p.allowedContentTypes = [ShowStore.fileType, .json]
         p.message = "ショーのファイル（.syncshow）を開く"
-        guard p.runModal() == .OK, let u = p.url else { return }
+        guard runPanel(p) == .OK, let u = p.url else { return }
         openShow(at: u)
     }
 
@@ -538,7 +542,7 @@ final class AppModel: ObservableObject {
         p.allowedContentTypes = [ShowStore.fileType]
         p.nameFieldStringValue = showFile.map { ($0 as NSString).lastPathComponent } ?? "show.syncshow"
         p.message = "ショーを保存（映像は同じフォルダに置くと、ほかの Mac でもそのまま開けます）"
-        guard p.runModal() == .OK, let u = p.url else { return }
+        guard runPanel(p) == .OK, let u = p.url else { return }
         if ShowStore.write(show, to: u) { showFile = u.path; fileShow = show; notify("保存: \(u.lastPathComponent)") }
         else { notify("保存できませんでした") }
     }
@@ -659,7 +663,7 @@ final class AppModel: ObservableObject {
         let win = NSWindow(contentRect: NSRect(x: vf.minX + 20, y: vf.minY + 20, width: w, height: h),
                            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         win.isReleasedWhenClosed = false
-        win.minSize = NSSize(width: 900, height: 600)
+        win.minSize = NSSize(width: 960, height: 600)
         win.contentView = NSHostingView(rootView: ControlView(model: self, status: status))
         win.title = "SyncPlayer — 操作"
         control = win
@@ -676,25 +680,46 @@ final class AppModel: ObservableObject {
 
     func toggleControl() {
         guard let c = control else { return }
-        if c.isVisible && c.isKeyWindow { c.orderOut(nil); c.level = .normal; return }
-        // Above full-screen outputs while it is up; S again hides it.
         let anyFull = outputs.values.contains { $0.isFull }
+        // Hide only when it is really in front (it may hold the keys while a full-screen output covers it).
+        if c.isVisible && c.isKeyWindow && (!anyFull || c.level > OutputWindow.fullLevel) {
+            c.orderOut(nil); c.level = .normal; return
+        }
+        // Above full-screen outputs while it is up; S again hides it.
         c.level = anyFull ? NSWindow.Level(rawValue: OutputWindow.fullLevel.rawValue + 1) : .normal
         c.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Run an open / save panel. Full-screen outputs sit above the menu bar, so they are lowered
+    /// while the panel is up (otherwise it could open behind them).
+    func runPanel(_ p: NSSavePanel) -> NSApplication.ModalResponse {
+        let full = outputs.values.filter { $0.isFull }
+        let controlLevel = control?.level ?? .normal
+        for w in full { w.window.level = .normal }
+        control?.level = .normal   // the panel opens at its own level, below a raised control window
+        defer {
+            for w in full where w.isFull { w.window.level = OutputWindow.fullLevel }
+            if outputs.values.contains(where: { $0.isFull }) { control?.level = controlLevel }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        return p.runModal()
+    }
+
     /// Pick a mask image for the selected layer.
     func pickMask() {
-        guard let i = selectedLayerIndex else { return }
+        guard let o0 = selectedOutput, let l0 = selectedLayer else { return }
         let p = NSOpenPanel()
         p.allowedContentTypes = [.image]
         p.message = "マスクの画像（白は見える、黒は隠れる。映像と同じ縦横比にする。ショーと同じフォルダに置くと、ほかの Mac でもそのまま使えます）"
-        guard p.runModal() == .OK, let u = p.url else { return }
+        guard runPanel(p) == .OK, let u = p.url else { return }
         guard let gpu = GPU.shared, GPU.loadMask(u.path, device: gpu.device) != nil else {
             notify("画像を読めませんでした: \(u.lastPathComponent)"); return
         }
-        show.outputs[i.o].layers[i.l].mask = u.path
+        // The show may have changed while the panel was open: find the layer again.
+        guard let o = show.outputs.firstIndex(where: { $0.id == o0 }),
+              let l = show.outputs[o].layers.firstIndex(where: { $0.id == l0 }) else { return }
+        show.outputs[o].layers[l].mask = u.path
     }
 
     func toggleEdit(_ m: EditMode) {
@@ -763,11 +788,20 @@ final class AppModel: ObservableObject {
         case "m": toggleRole()
         case "s": toggleControl()
         case "i":
-            if outputs.values.contains(where: { $0.isFull }) { infoOnFull.toggle() } else { infoHidden.toggle() }
+            // One switch for every output: with a full-screen output, start from its state.
+            let shown = outputs.values.contains(where: { $0.isFull }) ? infoOnFull : !infoHidden
+            infoOnFull = !shown; infoHidden = shown
+            helpSaved = nil
             refreshInfo()
         case "h", "?":
             showHelp.toggle()
-            if showHelp { infoHidden = false; infoOnFull = true }
+            if showHelp {
+                helpSaved = (infoHidden, infoOnFull)
+                infoHidden = false; infoOnFull = true
+            } else if let h = helpSaved {
+                (infoHidden, infoOnFull) = h   // back to how it was before H
+                helpSaved = nil
+            }
             refreshInfo()
         case "f": toggleFullscreen()
         case "d": moveToNextScreen()
@@ -855,11 +889,12 @@ final class AppModel: ObservableObject {
     }
 
     private var missingCache: (at: Double, paths: Set<String>) = (-10, [])
-    /// Movies not found on disk, checked at most every 2 s (a sleeping disk can be slow to answer).
+    /// Movies and mask images not found on disk, checked at most every 2 s (a sleeping disk can be slow to answer).
     private func missingFiles() -> Set<String> {
         let now = hostNow()
         if now - missingCache.at > 2 {
-            missingCache = (now, Set(transport.orderedNodes.map(\.node.url.path)
+            let masks = show.outputs.flatMap { $0.layers.compactMap(\.mask) }
+            missingCache = (now, Set((transport.orderedNodes.map(\.node.url.path) + masks)
                                         .filter { !FileManager.default.fileExists(atPath: $0) }))
         }
         return missingCache.paths
@@ -881,6 +916,17 @@ final class AppModel: ObservableObject {
                     s += String(format: "  %dx%d %@%@  dropped %d",
                                 Int(n.videoSize.width), Int(n.videoSize.height), f.format,
                                 f.gaveUp ? "（コマが届かない）" : f.fellBack ? "（形を下げた）" : "", f.framesDropped)
+                }
+            }
+        }
+        for o in show.outputs {
+            for l in o.layers {
+                guard let m = l.mask else { continue }
+                let name = (m as NSString).lastPathComponent
+                if missingFiles().contains(m) {
+                    s += "\n⚠︎ マスク \(name) が見つかりません（\(o.name)）— マスクなしで映っています"
+                } else if GPU.shared?.maskReady(m) == false {
+                    s += "\n⚠︎ マスク \(name) を読めません（\(o.name)）— マスクなしで映っています"
                 }
             }
         }

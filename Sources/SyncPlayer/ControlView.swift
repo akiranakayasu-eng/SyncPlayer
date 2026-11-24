@@ -3,7 +3,8 @@ import AppKit
 
 /// "1:23.5", "0:01:23" or "83.5" → seconds.
 func parseTime(_ text: String) -> Double? {
-    let parts = text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "：", with: ":")
+    let half = text.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? text   // １：２３．５ too
+    let parts = half.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "：", with: ":")
         .split(separator: ":", omittingEmptySubsequences: false).map { Double($0.trimmingCharacters(in: .whitespaces)) }
     guard !parts.isEmpty, parts.count <= 3, parts.allSatisfy({ $0 != nil && $0! >= 0 && $0!.isFinite }) else { return nil }
     return parts.reduce(0.0) { $0 * 60 + $1! }
@@ -104,9 +105,18 @@ struct TopBar: View {
                    })
                 .disabled(!status.isMaster)
             TextField("0:00.0", text: $jumpText)
-                .frame(width: 70)
+                .frame(width: 64)
                 .onSubmit {
-                    if let t = parseTime(jumpText) { model.master?.jump(to: t) } else { model.notify("位置は 1:23.5 か 83.5 の形で") }
+                    if let t = parseTime(jumpText) {
+                        model.master?.jump(to: t)
+                        if status.duration > 0, t >= status.duration {
+                            model.notify("尺（\(timeString(status.duration))）を超えたので、ループの中の位置へ折り返しました")
+                        }
+                    } else {
+                        model.notify("位置は 1:23.5 か 83.5 の形で")
+                    }
+                    // Leave the field, so space and the arrows work again at once.
+                    DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
                 }
                 .disabled(!status.isMaster)
                 .help("位置を打って Return: 全台がその位置へ（分:秒 か 秒）")
@@ -302,9 +312,10 @@ struct Inspector: View {
             Button("外す") { model.layerBinding(\.mask, nil as String?).wrappedValue = nil }
                 .disabled(model.selectedLayerIndex.map { model.show.outputs[$0.o].layers[$0.l].mask == nil } ?? true)
         }
-        Text(model.selectedLayerIndex.flatMap { model.show.outputs[$0.o].layers[$0.l].mask }
-                .map { ($0 as NSString).lastPathComponent } ?? "なし")
-            .font(.caption).foregroundColor(.secondary)
+        let maskPath = model.selectedLayerIndex.flatMap { model.show.outputs[$0.o].layers[$0.l].mask }
+        let maskOK = maskPath.map { FileManager.default.fileExists(atPath: $0) && GPU.shared?.maskReady($0) != false } ?? true
+        Text(maskPath.map { ($0 as NSString).lastPathComponent + (maskOK ? "" : "（見つからない・読めない）") } ?? "なし")
+            .font(.caption).foregroundColor(maskOK ? .secondary : .red)
         Toggle("白黒を入れ替える", isOn: model.layerBinding(\.maskInvert, false))
         Text("白は見え、黒は隠れる（灰色は半分）。画像は映像の枠全体に重なり、レイヤーといっしょに動く。映像と同じ縦横比の画像にする。")
             .font(.caption).foregroundColor(.secondary)
