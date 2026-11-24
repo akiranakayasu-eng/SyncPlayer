@@ -1035,8 +1035,9 @@ final class AppModel: ObservableObject {
     }
 
     /// The state in plain words for the top of the control window. The state word comes first,
-    /// so a narrow window cuts the details, not the state. Anything the detailed status warns
-    /// about (⚠︎, cannot open, frames not arriving, a large offset) turns it orange and comes first.
+    /// so a narrow window cuts the details, not the state. A problem the detailed status warns
+    /// about (cannot open, mask, frames not arriving, a large offset) turns it orange and follows
+    /// the state word; a movie name different from the master's is only added at the end.
     private func headlineNow() -> (String, Int) {
         var (line, tone) = roleHeadline()
         if let p = problemNow() {
