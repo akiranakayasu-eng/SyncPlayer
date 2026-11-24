@@ -7,25 +7,39 @@ import CoreMedia
 /// How video frames reach the GPU. YUV (two planes, the decoder's own layout) is converted to
 /// RGB in the shader, so no separate conversion pass is needed per frame. BGRA is kept for tests.
 enum FrameFormat {
-    static var bgra = false
+    /// Test: always ask for this layout (--bgra, --frames 420v / 422v / x422 / BGRA).
+    static var forced: OSType?
+    static var bgra: Bool {
+        get { forced == kCVPixelFormatType_32BGRA }
+        set { forced = newValue ? kCVPixelFormatType_32BGRA : nil }
+    }
+    static func code(_ s: String) -> OSType? {
+        let b = Array(s.utf8)
+        guard b.count == 4 else { return nil }
+        return b.reduce(OSType(0)) { ($0 << 8) | OSType($1) }
+    }
+
+    /// Layouts to try, best first. ProRes 422 keeps its 10-bit 4:2:2 (x422) if the Mac delivers it.
+    static func chain(forCodec c: FourCharCode?) -> [OSType] {
+        if let f = forced { return [f] }
+        var out: [OSType] = []
+        switch c {
+        case kCMVideoCodecType_AppleProRes422, kCMVideoCodecType_AppleProRes422HQ,
+             kCMVideoCodecType_AppleProRes422LT, kCMVideoCodecType_AppleProRes422Proxy:
+            out = [kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange, kCVPixelFormatType_422YpCbCr8BiPlanarVideoRange]
+        case kCMVideoCodecType_AppleProRes4444, kCMVideoCodecType_AppleProRes4444XQ:
+            out = [kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange]
+        default:
+            break
+        }
+        out += [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_32BGRA]
+        return out
+    }
     static func name(_ t: OSType) -> String {
         let b = [24, 16, 8, 0].map { UInt8((t >> UInt32($0)) & 0xff) }
         return String(bytes: b, encoding: .ascii) ?? String(t)
     }
 
-    /// Keep the movie's own chroma detail: ProRes 422 as 4:2:2, ProRes 4444 as 4:4:4, others 4:2:0.
-    static func pixelFormat(forCodec c: FourCharCode?) -> OSType {
-        if bgra { return kCVPixelFormatType_32BGRA }
-        switch c {
-        case kCMVideoCodecType_AppleProRes422, kCMVideoCodecType_AppleProRes422HQ,
-             kCMVideoCodecType_AppleProRes422LT, kCMVideoCodecType_AppleProRes422Proxy:
-            return kCVPixelFormatType_422YpCbCr8BiPlanarVideoRange
-        case kCMVideoCodecType_AppleProRes4444, kCMVideoCodecType_AppleProRes4444XQ:
-            return kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange
-        default:
-            return kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-        }
-    }
 }
 
 /// Metal objects shared by every view: device, pipeline (premultiplied alpha, so layers stack),
@@ -181,6 +195,8 @@ final class FrameSource {
     private(set) var aspect = 0.0
     /// Pixel format of the last frame, as four letters (e.g. 420v, 422v, BGRA).
     private(set) var format = "-"
+    private var lastFrameAt = -1.0
+    private var waitSince = -1.0
 
     init(node: SyncNode) { self.node = node }
 
@@ -206,7 +222,15 @@ final class FrameSource {
         guard node.outputs.count == 2 else { return }
         let out = node.outputs[node.displayIndex(atLocal: now)]
         let t = out.itemTime(forHostTime: now)
-        guard out.hasNewPixelBuffer(forItemTime: t) else { return }
+        guard out.hasNewPixelBuffer(forItemTime: t) else {
+            // No frame at all in this layout 3 s after the movie was ready: try the next layout.
+            if node.ready, lastFrameAt < node.outputsSince {
+                if waitSince < node.outputsSince { waitSince = now }
+                if now - waitSince > 3 { node.useNextFormat() }
+            }
+            return
+        }
+        lastFrameAt = now
         var shown = CMTime.invalid
         guard let pb = out.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: &shown) else { return }
         count(shown.seconds)
@@ -214,10 +238,13 @@ final class FrameSource {
         format = FrameFormat.name(CVPixelBufferGetPixelFormatType(pb))
         if h > 0 { aspect = Double(w) / Double(h) }
         if CVPixelBufferGetPlaneCount(pb) >= 2 {
+            // 10-bit layouts keep each value in the top bits of 16, so the same math applies.
+            let wide = CVPixelBufferGetPixelFormatType(pb) == kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange
+                    || CVPixelBufferGetPixelFormatType(pb) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
             var y: CVMetalTexture?, c: CVMetalTexture?
-            CVMetalTextureCacheCreateTextureFromImage(nil, gpu.cache, pb, nil, .r8Unorm,
+            CVMetalTextureCacheCreateTextureFromImage(nil, gpu.cache, pb, nil, wide ? .r16Unorm : .r8Unorm,
                                                       CVPixelBufferGetWidthOfPlane(pb, 0), CVPixelBufferGetHeightOfPlane(pb, 0), 0, &y)
-            CVMetalTextureCacheCreateTextureFromImage(nil, gpu.cache, pb, nil, .rg8Unorm,
+            CVMetalTextureCacheCreateTextureFromImage(nil, gpu.cache, pb, nil, wide ? .rg16Unorm : .rg8Unorm,
                                                       CVPixelBufferGetWidthOfPlane(pb, 1), CVPixelBufferGetHeightOfPlane(pb, 1), 1, &c)
             guard y != nil, c != nil else { return }
             texture = y; chromaTexture = c

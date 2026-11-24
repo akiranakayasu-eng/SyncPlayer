@@ -73,23 +73,10 @@ final class SyncNode {
                 if let sz = try? await track.load(.naturalSize) { self.videoSize = sz }
                 if let f = (try? await track.load(.formatDescriptions))?.first { subtype = CMFormatDescriptionGetMediaSubType(f) }
             }
-            // Preferred layout first; the others in case this Mac cannot deliver it.
-            // (macOS picks among them; the format that arrived is shown in the status and log.)
-            var fmts = [FrameFormat.pixelFormat(forCodec: subtype)]
-            if !FrameFormat.bgra {   // --bgra: BGRA only, so the comparison is real
-                for f in [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_32BGRA] where !fmts.contains(f) {
-                    fmts.append(f)
-                }
-            }
-            self.outputs = its.map { it in
-                let out = AVPlayerItemVideoOutput(pixelBufferAttributes: [
-                    kCVPixelBufferPixelFormatTypeKey as String: fmts.map { NSNumber(value: $0) },
-                    kCVPixelBufferMetalCompatibilityKey as String: true])
-                it.add(out)
-                return out
-            }
-            // An output added later gets frames once the position moves: show the current one now.
-            for p in self.players { p.seek(to: p.currentTime(), toleranceBefore: .zero, toleranceAfter: .zero) { _ in } }
+            // One layout at a time (given several, macOS may pick a slow one); the next is tried
+            // only when no frame arrives (useNextFormat).
+            self.formatChain = FrameFormat.chain(forCodec: subtype)
+            self.makeOutputs()
             // Ready (duration > 0) only once the outputs exist.
             self.duration = (try? await its[0].asset.load(.duration))?.seconds ?? 0
         }
@@ -101,6 +88,38 @@ final class SyncNode {
                 if i == self.active && self.armedAt == nil { self.needsResync = true }
             })
         }
+    }
+
+    private var formatChain: [OSType] = []
+    private var formatIndex = 0
+    /// Host time the current outputs were made.
+    private(set) var outputsSince = 0.0
+
+    private func makeOutputs() {
+        guard formatChain.indices.contains(formatIndex) else { return }
+        for (it, o) in zip(items, outputs) { it.remove(o) }
+        let fmt = formatChain[formatIndex]
+        outputs = items.map { it in
+            let out = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: fmt,
+                kCVPixelBufferMetalCompatibilityKey as String: true])
+            it.add(out)
+            return out
+        }
+        outputsSince = hostNow()
+        // An output added later gets frames once the position moves: show the current one now
+        // (only while stopped; a playing player brings new frames by itself).
+        for p in players where p.rate == 0 {
+            p.seek(to: p.currentTime(), toleranceBefore: .zero, toleranceAfter: .zero) { _ in }
+        }
+    }
+
+    /// No frame arrived in this layout: try the next one. False when none is left.
+    @discardableResult func useNextFormat() -> Bool {
+        guard formatIndex + 1 < formatChain.count else { return false }
+        formatIndex += 1
+        makeOutputs()
+        return true
     }
 
     var ready: Bool { items.allSatisfy { $0.status == .readyToPlay } && duration > 0 }
