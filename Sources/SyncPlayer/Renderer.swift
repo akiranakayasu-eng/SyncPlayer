@@ -215,11 +215,12 @@ final class FrameSource {
             texture = y; chromaTexture = c
             // The movie's matrix; without one, SD (below 720 lines) is BT.601 and the rest BT.709.
             let m = CVBufferCopyAttachment(pb, kCVImageBufferYCbCrMatrixKey, nil) as? String
-            if m == (kCVImageBufferYCbCrMatrix_ITU_R_601_4 as String) || m == (kCVImageBufferYCbCrMatrix_SMPTE_240M_1995 as String) {
+            if m == (kCVImageBufferYCbCrMatrix_ITU_R_601_4 as String) {
                 yuvMatrix = 2
             } else if m == (kCVImageBufferYCbCrMatrix_ITU_R_2020 as String) {
                 yuvMatrix = 3
-            } else if m == (kCVImageBufferYCbCrMatrix_ITU_R_709_2 as String) {
+            } else if m == (kCVImageBufferYCbCrMatrix_ITU_R_709_2 as String)
+                        || m == (kCVImageBufferYCbCrMatrix_SMPTE_240M_1995 as String) {   // 240M is close to 709
                 yuvMatrix = 1
             } else {
                 yuvMatrix = h < 720 ? 2 : 1

@@ -73,14 +73,20 @@ final class SyncNode {
                 if let sz = try? await track.load(.naturalSize) { self.videoSize = sz }
                 if let f = (try? await track.load(.formatDescriptions))?.first { subtype = CMFormatDescriptionGetMediaSubType(f) }
             }
-            let fmt = FrameFormat.pixelFormat(forCodec: subtype)
+            // Preferred layout first; the others in case this Mac cannot deliver it.
+            var fmts = [FrameFormat.pixelFormat(forCodec: subtype)]
+            for f in [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_32BGRA] where !fmts.contains(f) {
+                fmts.append(f)
+            }
             self.outputs = its.map { it in
                 let out = AVPlayerItemVideoOutput(pixelBufferAttributes: [
-                    kCVPixelBufferPixelFormatTypeKey as String: fmt,
+                    kCVPixelBufferPixelFormatTypeKey as String: fmts.map { NSNumber(value: $0) },
                     kCVPixelBufferMetalCompatibilityKey as String: true])
                 it.add(out)
                 return out
             }
+            // An output added later gets frames once the position moves: show the current one now.
+            for p in self.players { p.seek(to: p.currentTime(), toleranceBefore: .zero, toleranceAfter: .zero) }
             // Ready (duration > 0) only once the outputs exist.
             self.duration = (try? await its[0].asset.load(.duration))?.seconds ?? 0
         }
