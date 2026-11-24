@@ -131,8 +131,9 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
 
     private func fetchFrame() {
         guard let node, let cache else { return }
-        let out = node.outputs[node.active]
-        let t = out.itemTime(forHostTime: CACurrentMediaTime())
+        let now = CACurrentMediaTime()
+        let out = node.outputs[node.displayIndex(atLocal: now)]
+        let t = out.itemTime(forHostTime: now)
         guard out.hasNewPixelBuffer(forItemTime: t),
               let pb = out.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: nil) else { return }
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)

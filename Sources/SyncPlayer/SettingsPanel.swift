@@ -100,7 +100,7 @@ final class SettingsPanel: NSPanel {
         // Fixed height: the text changes line count often, and a growing label would
         // shift every control below it while the user is aiming at a slider.
         status.maximumNumberOfLines = 6
-        status.lineBreakMode = .byTruncatingTail
+        status.lineBreakMode = .byWordWrapping
         status.heightAnchor.constraint(equalToConstant: 6 * 14 + 4).isActive = true
         stack.addArrangedSubview(status)
 

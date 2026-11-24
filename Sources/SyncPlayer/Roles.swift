@@ -6,7 +6,9 @@ import Darwin
 final class Master {
     let node: SyncNode
     let id = UUID().uuidString
-    let since = Date().timeIntervalSince1970
+    /// Priority: the newest master wins. Given by the caller as larger than any master this
+    /// Mac has heard of, so a Mac whose wall clock is behind can still take over.
+    let since: Double
     private let sock: UDPSocket          // clock answers + beacon sending
     private let listen: UDPSocket        // hears other masters' beacons
     private var targets: [sockaddr_in]
@@ -15,8 +17,9 @@ final class Master {
     var onDemote: (() -> Void)?
 
     /// initial: the schedule to continue (already in this Mac's clock), so taking over is seamless.
-    init(node: SyncNode, broadcast: String, extraTargets: [String], initial: Schedule?) throws {
+    init(node: SyncNode, broadcast: String, extraTargets: [String], initial: Schedule?, since: Double) throws {
         self.node = node
+        self.since = since
         sock = try UDPSocket(port: Ports.clock, broadcast: true)
         do {
             listen = try UDPSocket(port: Ports.beacon, reusePort: true)
@@ -131,17 +134,29 @@ final class Follower {
     private var masterSince: Double = 0
     private(set) var masterFile: String?
     private var lastBeacon: Double = 0
-    private var pingID = 0
+    private var pingID = 0              // guarded by lock
+    /// Pongs with an id at or below this belong to an earlier master (guarded by lock).
+    private var generationStart = 0
+    /// Largest master priority heard from any beacon (to outrank it when taking over).
+    private(set) var highestSince: Double = 0
+    /// False until the clock to the current master is learned and its schedule taken on.
+    /// Until then the previous schedule keeps playing with the previous offset (main thread).
+    private var adopted = false
+    private var provisional: Double?
     private var timer: Timer?
     private let queue = DispatchQueue(label: "follower.net", qos: .userInteractive)
     private let lock = NSLock()
 
-    init(node: SyncNode) throws {
+    /// provisionalOffset: the offset the node's current schedule is in (0 when this Mac was
+    /// the master), so playback continues while the clock to the new master is learned.
+    init(node: SyncNode, provisionalOffset: Double?) throws {
         self.node = node
+        provisional = provisionalOffset
         beaconSock = try UDPSocket(port: Ports.beacon, reusePort: true)
         clockSock = try UDPSocket(port: 0)
         node.clockOffset = { [weak self] in
             guard let self else { return nil }
+            if !self.adopted { return self.provisional }
             self.lock.lock(); defer { self.lock.unlock() }
             return self.clock.ready ? self.clock.offset : nil
         }
@@ -152,26 +167,40 @@ final class Follower {
             DispatchQueue.main.async {
                 let mid = m.mid ?? host, since = m.since ?? 0
                 let now = hostNow()
+                self.highestSince = max(self.highestSince, since)
                 if mid != self.masterID {
                     let newer = since > self.masterSince
                     let silent = now - self.lastBeacon > 1.0
                     guard self.masterID == nil || newer || silent else { return }
+                    // Keep playing the current schedule with the offset it is in until the
+                    // clock to the new master is known.
+                    self.provisional = node.schedule != nil ? node.clockOffset() : nil
+                    self.adopted = false
                     self.masterID = mid
                     self.masterSince = since
-                    self.lock.lock(); self.clock.reset(); self.lock.unlock()
+                    self.lock.lock()
+                    self.clock.reset()
+                    self.generationStart = self.pingID
+                    self.lock.unlock()
                 }
                 self.lastBeacon = now
                 self.masterHost = host
                 self.masterFile = m.file
                 self.masterAddr = UDPSocket.withPort(from, Ports.clock)
-                if node.schedule != s { node.schedule = s }
+                if !self.adopted {
+                    self.lock.lock(); let ready = self.clock.ready; self.lock.unlock()
+                    if ready { self.adopted = true; self.provisional = nil }
+                }
+                if self.adopted && node.schedule != s { node.schedule = s }
             }
         }
         clockSock.onReceive = { [weak self] data, _ in
             let t4 = hostNow()
-            guard let self, let m = Message.decode(data), m.k == "q",
+            guard let self, let m = Message.decode(data), m.k == "q", let id = m.id,
                   let t1 = m.t1, let t2 = m.t2, let t3 = m.t3 else { return }
             self.lock.lock()
+            // Drop late answers from the previous master: their times are in another clock.
+            guard id > self.generationStart else { self.lock.unlock(); return }
             self.clock.add(t1: t1, t2: t2, t3: t3, t4: t4)
             self.lock.unlock()
         }
@@ -201,12 +230,15 @@ final class Follower {
     private func pingIfDue() {
         guard let addr = masterAddr else { return }
         tickCount += 1
-        lock.lock(); let n = clock.count; lock.unlock()
+        lock.lock()
+        let n = clock.count
         // Fast pings while learning the clock, then every 0.5 s.
-        if n >= 40 && tickCount % 5 != 0 { return }
+        if n >= 40 && tickCount % 5 != 0 { lock.unlock(); return }
         pingID += 1
+        let id = pingID
+        lock.unlock()
         var m = Message(k: "p")
-        m.id = pingID
+        m.id = id
         m.t1 = hostNow()
         clockSock.send(m.encoded(), to: addr)
     }

@@ -97,6 +97,13 @@ final class SyncNode {
         return wrap(s.anchorMedia + max(0, m - s.anchorHost))
     }
 
+    /// Which player's frames to show at a local host time. The armed player takes over exactly
+    /// at the loop point, not at the next 20 Hz tick (the old one is frozen on its last frame).
+    func displayIndex(atLocal h: Double) -> Int {
+        if let at = armedAt, h >= at { return 1 - active }
+        return active
+    }
+
     private func disarm() {
         if armedAt != nil { players[1 - active].pause() }
         armedAt = nil
@@ -179,8 +186,12 @@ final class SyncNode {
         // start exactly at the scheduled moment instead of playing early.
         if let s = schedule, let off = clockOffset() { startLocal = max(startLocal, s.anchorHost - off) }
         guard let media = expectedMedia(atLocal: startLocal) else { return }
-        // Do not start in the last frames; begin at 0 a little early instead.
-        let target = media > duration - 0.05 ? 0 : media
+        // Do not start in the last frames: start at 0 exactly at the loop point instead.
+        var target = media
+        if duration > 0 && media > duration - 0.05 {
+            startLocal += duration - media
+            target = 0
+        }
         needsResync = false
         resyncCount += 1
         errorEMA = 0

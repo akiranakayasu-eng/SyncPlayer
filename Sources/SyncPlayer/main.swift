@@ -261,9 +261,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if wantMaster {
             guard master == nil else { return }
             let initial = follower?.localSchedule()
+            // Outrank every master heard so far, whatever this Mac's wall clock says.
+            let since = max(Date().timeIntervalSince1970, (follower?.highestSince ?? 0) + 0.001)
             follower?.stop(); follower = nil
             do {
-                let m = try Master(node: node, broadcast: opts.broadcast, extraTargets: opts.extra, initial: initial)
+                let m = try Master(node: node, broadcast: opts.broadcast, extraTargets: opts.extra,
+                                   initial: initial, since: since)
                 m.onDemote = { [weak self] in
                     self?.notify("ほかの Mac がマスターになったので、フォロワーに戻りました")
                     self?.setRole(master: false)
@@ -276,9 +279,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 return
             }
         } else {
+            let wasMaster = master != nil
             master?.stop(); master = nil
             if follower == nil {
-                do { follower = try Follower(node: node) }
+                // A former master keeps playing its own schedule (offset 0) until it has the new clock.
+                do { follower = try Follower(node: node, provisionalOffset: wasMaster ? 0 : nil) }
                 catch { notify("ネットワークのエラー: \(error)") }
             }
         }
