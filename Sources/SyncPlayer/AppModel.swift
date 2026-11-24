@@ -70,8 +70,8 @@ final class AppModel: ObservableObject {
             s = ShowStore.read(URL(fileURLWithPath: f))
             if s == nil { print("cannot read show: \(f)") } else { showFile = absolute(f); fileShow = s }
         }
-        let overridden = !opts.files.isEmpty || opts.preset != nil || opts.screen != nil || opts.fullscreen
-        if overridden { showFile = nil; fileShow = nil }
+        let overridden = !opts.files.isEmpty || opts.preset != nil
+        if overridden { detachShowFile(forget: false) }
         if s == nil {
             s = ShowStore.loadCurrent()
             // Keep writing to the show file opened last time, if it still holds the same show
@@ -115,7 +115,7 @@ final class AppModel: ObservableObject {
                 let prev = ShowStore.base.appendingPathComponent("current.prev.syncshow")
                 try? FileManager.default.removeItem(at: prev)
                 try? FileManager.default.copyItem(at: ShowStore.currentURL, to: prev)
-                showFile = nil; fileShow = nil
+                detachShowFile(forget: true)
                 s = Show.make(paths: urls.map(\.path))
             }
         }
@@ -211,6 +211,13 @@ final class AppModel: ObservableObject {
             if ShowStore.write(show, to: URL(fileURLWithPath: f)) { fileShow = show }
             else { notify("ショーのファイルに書けません: \((f as NSString).lastPathComponent)") }
         }
+    }
+
+    /// Stop writing to the show file. forget: false keeps it remembered for the next start.
+    private func detachShowFile(forget: Bool) {
+        let keep = UserDefaults.standard.string(forKey: "showFile")
+        showFile = nil; fileShow = nil
+        if !forget { UserDefaults.standard.set(keep, forKey: "showFile") }
     }
 
     private var backedUp: Set<String> = []
@@ -526,7 +533,12 @@ final class AppModel: ObservableObject {
         switch ShowStore.loadPreset(name) {
         case .show(let s):
             // A preset is another show: keep the opened file as it is.
-            if showFile != nil { saveNow(); showFile = nil; fileShow = nil }
+            if let f = showFile {
+                saveNow(); detachShowFile(forget: false)
+                notify("プリセット「\(name)」を読み込み（\((f as NSString).lastPathComponent) には書きません）")
+                applyShow(s); lastPreset = name
+                return
+            }
             applyShow(s)
         case .look(let l):
             var l = l
