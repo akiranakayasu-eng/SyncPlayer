@@ -41,7 +41,11 @@ final class AppModel: ObservableObject {
     var preview: PictureView?
     var previewBox: AspectBox?
     var showHelp = false
+    /// Info text on windowed outputs (shown unless I hides it).
     var infoHidden = false
+    /// Info text on full-screen outputs (hidden unless I or H shows it, so an exhibition shows only the picture).
+    var infoOnFull = false
+    private var cursorHidden = false
     private var message = ""
     private var messageUntil = 0.0
     private var saveWork: DispatchWorkItem?
@@ -51,7 +55,7 @@ final class AppModel: ObservableObject {
 
     static let keyHelp = """
     space 再生／停止（マスター）  R 頭へ  ← → 5 秒（shift 1 秒）
-    M マスター⇔フォロワー  S 操作の窓  I 情報  H キー一覧
+    M マスター⇔フォロワー  S 操作の窓（全画面の上にも出す／隠す）  I 情報（全画面では標準で隠す）  H キー一覧
     O 次の出力  L 次のレイヤー  F 全画面  D 次の画面  A 音  G 格子
     E 四隅の変形  W 曲面メッシュ  Tab 次の点  矢印 1 px（shift 10 px）
     + − 大きさ  [ ] 回転  0 戻す（編集中はその変形、ほかは位置・大きさ・回転）
@@ -133,7 +137,7 @@ final class AppModel: ObservableObject {
         }
         if let sc = opts.screen { show0.outputs[0].screen = sc }
         if opts.fullscreen { show0.outputs[0].fullscreen = true }
-        audioOn = opts.audio ?? opts.master
+        audioOn = opts.audio ?? show0.audioOn ?? opts.master
         presetNames = ShowStore.presetNames()
 
         buildControlWindow()
@@ -189,7 +193,10 @@ final class AppModel: ObservableObject {
 
     private func showDidChange(_ old: Show) {
         if show.clips != old.clips { transport.setClips(show.clips) }
-        if show.clips != old.clips || show.audioClip != old.audioClip { applyAudio() }
+        // A show opened or a preset loaded brings this Mac's sound setting with it.
+        var soundChanged = show.clips != old.clips || show.audioClip != old.audioClip
+        if show.audioOn != old.audioOn, let a = show.audioOn, a != audioOn, opts.audio == nil { audioOn = a; soundChanged = true }
+        if soundChanged { applyAudio() }
         if show.outputs != old.outputs { syncOutputs() }
         fixSelection()
         redrawOverlays()
@@ -314,8 +321,8 @@ final class AppModel: ObservableObject {
             } else {
                 outputs[o.id]?.apply(o, index: i, title: outputTitle(o))
             }
-            outputs[o.id]?.info.isHidden = infoHidden
         }
+        refreshInfo()
         updatePresentation()
     }
 
@@ -355,9 +362,28 @@ final class AppModel: ObservableObject {
         NSApp.presentationOptions = coversMain ? [.hideDock, .hideMenuBar] : []
     }
 
+    /// Show or hide the info text on each output (full-screen ones follow infoOnFull).
+    private func refreshInfo() {
+        for w in outputs.values { w.info.isHidden = w.isFull ? !infoOnFull : infoHidden }
+    }
+
+    /// Hide the pointer while it is over a full-screen output (not while editing points, and not
+    /// over the control window when S brought it up).
+    private func updateCursor() {
+        let p = NSEvent.mouseLocation
+        let overControl = control.map { $0.isVisible && $0.frame.contains(p) } ?? false
+        let hide = NSApp.isActive && editMode == .none && !overControl
+            && outputs.values.contains { $0.isFull && $0.window.isVisible && $0.window.frame.contains(p) }
+        if hide != cursorHidden {
+            cursorHidden = hide
+            if hide { NSCursor.hide() } else { NSCursor.unhide() }
+        }
+    }
+
     private func screensChanged() {
         refreshScreens()
         for (i, o) in show.outputs.enumerated() { outputs[o.id]?.replace(o, index: i, title: outputTitle(o)) }
+        refreshInfo()
         updatePresentation()
         notify("画面のつながりが変わりました（\(NSScreen.screens.count) 枚）")
     }
@@ -604,6 +630,7 @@ final class AppModel: ObservableObject {
     func setAudio(_ on: Bool) {
         audioOn = on
         applyAudio()
+        if show.audioOn != on { show.audioOn = on }   // kept in this Mac's show
         notify(on ? "音を出します" : "消音")
     }
 
@@ -649,7 +676,25 @@ final class AppModel: ObservableObject {
 
     func toggleControl() {
         guard let c = control else { return }
-        if c.isVisible && c.isKeyWindow { c.orderOut(nil) } else { c.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+        if c.isVisible && c.isKeyWindow { c.orderOut(nil); c.level = .normal; return }
+        // Above full-screen outputs while it is up; S again hides it.
+        let anyFull = outputs.values.contains { $0.isFull }
+        c.level = anyFull ? NSWindow.Level(rawValue: OutputWindow.fullLevel.rawValue + 1) : .normal
+        c.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Pick a mask image for the selected layer.
+    func pickMask() {
+        guard let i = selectedLayerIndex else { return }
+        let p = NSOpenPanel()
+        p.allowedContentTypes = [.image]
+        p.message = "マスクの画像（白は見える、黒は隠れる。映像と同じ縦横比にする。ショーと同じフォルダに置くと、ほかの Mac でもそのまま使えます）"
+        guard p.runModal() == .OK, let u = p.url else { return }
+        guard let gpu = GPU.shared, GPU.loadMask(u.path, device: gpu.device) != nil else {
+            notify("画像を読めませんでした: \(u.lastPathComponent)"); return
+        }
+        show.outputs[i.o].layers[i.l].mask = u.path
     }
 
     func toggleEdit(_ m: EditMode) {
@@ -717,8 +762,13 @@ final class AppModel: ObservableObject {
         case "r": master?.jump(to: 0)
         case "m": toggleRole()
         case "s": toggleControl()
-        case "i": infoHidden.toggle(); for w in outputs.values { w.info.isHidden = infoHidden }
-        case "h", "?": showHelp.toggle(); infoHidden = false; for w in outputs.values { w.info.isHidden = false }
+        case "i":
+            if outputs.values.contains(where: { $0.isFull }) { infoOnFull.toggle() } else { infoHidden.toggle() }
+            refreshInfo()
+        case "h", "?":
+            showHelp.toggle()
+            if showHelp { infoHidden = false; infoOnFull = true }
+            refreshInfo()
         case "f": toggleFullscreen()
         case "d": moveToNextScreen()
         case "o": selectNextOutput()
@@ -754,6 +804,7 @@ final class AppModel: ObservableObject {
     private func tick() {
         transport.tick()
         tickCount += 1
+        updateCursor()
         guard tickCount % 4 == 0 else { return }
         status.position = transport.displayTime()
         status.duration = transport.duration

@@ -1,6 +1,14 @@
 import SwiftUI
 import AppKit
 
+/// "1:23.5", "0:01:23" or "83.5" → seconds.
+func parseTime(_ text: String) -> Double? {
+    let parts = text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "：", with: ":")
+        .split(separator: ":", omittingEmptySubsequences: false).map { Double($0.trimmingCharacters(in: .whitespaces)) }
+    guard !parts.isEmpty, parts.count <= 3, parts.allSatisfy({ $0 != nil && $0! >= 0 && $0!.isFinite }) else { return nil }
+    return parts.reduce(0.0) { $0 * 60 + $1! }
+}
+
 func timeString(_ t: Double) -> String {
     let t = max(0, t.isFinite ? t : 0)
     let m = Int(t) / 60
@@ -57,6 +65,7 @@ struct TopBar: View {
     @ObservedObject var status: StatusModel
     @State private var dragging = false
     @State private var value = 0.0
+    @State private var jumpText = ""
 
     var body: some View {
         HStack(spacing: 10) {
@@ -94,6 +103,13 @@ struct TopBar: View {
                        else { dragging = false; model.master?.jump(to: value) }
                    })
                 .disabled(!status.isMaster)
+            TextField("0:00.0", text: $jumpText)
+                .frame(width: 70)
+                .onSubmit {
+                    if let t = parseTime(jumpText) { model.master?.jump(to: t) } else { model.notify("位置は 1:23.5 か 83.5 の形で") }
+                }
+                .disabled(!status.isMaster)
+                .help("位置を打って Return: 全台がその位置へ（分:秒 か 秒）")
 
             Toggle("音", isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) }))
                 .help("A キー。この Mac で音を出すか")
@@ -279,6 +295,19 @@ struct Inspector: View {
         SliderRow(label: "右", value: model.lookBinding(\.cropR, 0), range: 0...0.5)
         SliderRow(label: "上", value: model.lookBinding(\.cropT, 0), range: 0...0.5)
         SliderRow(label: "下", value: model.lookBinding(\.cropB, 0), range: 0...0.5)
+
+        Text("マスク").font(.subheadline).bold()
+        HStack {
+            Button("画像を選ぶ…") { model.pickMask() }
+            Button("外す") { model.layerBinding(\.mask, nil as String?).wrappedValue = nil }
+                .disabled(model.selectedLayerIndex.map { model.show.outputs[$0.o].layers[$0.l].mask == nil } ?? true)
+        }
+        Text(model.selectedLayerIndex.flatMap { model.show.outputs[$0.o].layers[$0.l].mask }
+                .map { ($0 as NSString).lastPathComponent } ?? "なし")
+            .font(.caption).foregroundColor(.secondary)
+        Toggle("白黒を入れ替える", isOn: model.layerBinding(\.maskInvert, false))
+        Text("白は見え、黒は隠れる（灰色は半分）。画像は映像の枠全体に重なり、レイヤーといっしょに動く。映像と同じ縦横比の画像にする。")
+            .font(.caption).foregroundColor(.secondary)
 
         Text("エッジブレンド").font(.subheadline).bold()
         SliderRow(label: "左", value: model.lookBinding(\.blendL, 0), range: 0...0.5)

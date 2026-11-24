@@ -17,6 +17,11 @@ struct Layer: Codable, Equatable, Identifiable {
     var visible = true
     var opacity = 1.0
     var look = DisplaySettings()
+    /// Mask image (path): white shows the picture, black hides it, grey fades. It covers the
+    /// whole movie frame (before cropping) and moves with the layer. nil = no mask.
+    var mask: String?
+    /// Swap white and black of the mask.
+    var maskInvert = false
 
     init(clipID: String, look: DisplaySettings = DisplaySettings()) {
         self.clipID = clipID
@@ -30,6 +35,8 @@ struct Layer: Codable, Equatable, Identifiable {
         visible = try c.decodeIfPresent(Bool.self, forKey: .visible) ?? true
         opacity = try c.decodeIfPresent(Double.self, forKey: .opacity) ?? 1
         look = try c.decodeIfPresent(DisplaySettings.self, forKey: .look) ?? DisplaySettings()
+        mask = try c.decodeIfPresent(String.self, forKey: .mask)
+        maskInvert = try c.decodeIfPresent(Bool.self, forKey: .maskInvert) ?? false
     }
 }
 
@@ -69,6 +76,9 @@ struct Show: Codable, Equatable {
     var loopTogether = true
     /// Loop length in seconds when looping together; 0 = the longest clip on any Mac.
     var loopLength = 0.0
+    /// This Mac plays sound (nil = not set: only a Mac started with --master). Saved with the
+    /// show, since each Mac keeps its own show file.
+    var audioOn: Bool?
 
     init(clips: [Clip] = [], outputs: [OutputConfig] = [], audioClip: String? = nil) {
         self.clips = clips
@@ -85,6 +95,7 @@ struct Show: Codable, Equatable {
         loopTogether = try c.decodeIfPresent(Bool.self, forKey: .loopTogether) ?? true
         loopLength = max(0, try c.decodeIfPresent(Double.self, forKey: .loopLength) ?? 0)
         if loopLength > 0 && loopLength < Show.minLoop { loopLength = Show.minLoop }
+        audioOn = try c.decodeIfPresent(Bool.self, forKey: .audioOn)
     }
 
     func clip(_ id: String) -> Clip? { clips.first { $0.id == id } }
@@ -177,6 +188,13 @@ enum ShowStore {
         for i in s.clips.indices where !fm.fileExists(atPath: s.clips[i].path) {
             let near = folder.appendingPathComponent(s.clips[i].name).path
             if fm.fileExists(atPath: near) { s.clips[i].path = near }
+        }
+        for o in s.outputs.indices {
+            for l in s.outputs[o].layers.indices {
+                guard let m = s.outputs[o].layers[l].mask, !fm.fileExists(atPath: m) else { continue }
+                let near = folder.appendingPathComponent((m as NSString).lastPathComponent).path
+                if fm.fileExists(atPath: near) { s.outputs[o].layers[l].mask = near }
+            }
         }
         return s
     }

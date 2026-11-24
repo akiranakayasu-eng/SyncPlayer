@@ -66,6 +66,8 @@ final class OutputWindow: NSObject, NSWindowDelegate {
     private(set) var screenIndex = -1
 
     static let windowed: NSWindow.StyleMask = [.titled, .resizable, .miniaturizable]
+    /// Full-screen outputs stay above ordinary windows (the control window unless S brings it up).
+    static let fullLevel = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue + 1)
 
     init?(id: String) {
         guard let p = PictureView(fps: 120) else { return nil }
@@ -105,9 +107,11 @@ final class OutputWindow: NSObject, NSWindowDelegate {
         if o.fullscreen {
             if !isFull { windowedFrame = window.frame }
             window.styleMask = [.borderless]
+            window.level = OutputWindow.fullLevel   // above the control window on the same screen
             window.setFrame(screen.frame, display: true)
         } else {
             window.styleMask = OutputWindow.windowed
+            window.level = .normal
             var f = windowedFrame ?? .zero
             if movedScreen || windowedFrame == nil || !screen.frame.intersects(f) {
                 let vf = screen.visibleFrame

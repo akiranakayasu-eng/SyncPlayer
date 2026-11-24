@@ -3,6 +3,7 @@ import MetalKit
 import AVFoundation
 import CoreVideo
 import CoreMedia
+import ImageIO
 
 /// How video frames reach the GPU. YUV (two planes, the decoder's own layout) is converted to
 /// RGB in the shader, so no separate conversion pass is needed per frame. BGRA is kept for tests.
@@ -62,7 +63,7 @@ final class GPU {
     using namespace metal;
     struct Out { float4 position [[position]]; float2 uv; float2 outPos; };
     struct U { float4 crop; float4 blend; float gamma; float grid; float hasTex; float opacity;
-               float yuv; float pad0; float pad1; float pad2; };
+               float yuv; float mask; float pad1; float pad2; };
 
     vertex Out vmain(uint vid [[vertex_id]], const device float4* v [[buffer(0)]]) {
         Out o;
@@ -86,7 +87,8 @@ final class GPU {
     }
 
     fragment float4 fmain(Out in [[stage_in]], texture2d<float> tex [[texture(0)]],
-                          texture2d<float> chroma [[texture(1)]], constant U& u [[buffer(0)]]) {
+                          texture2d<float> chroma [[texture(1)]], texture2d<float> maskTex [[texture(2)]],
+                          constant U& u [[buffer(0)]]) {
         constexpr sampler s(filter::linear, address::clamp_to_edge);
         float2 uv = in.uv;
         // crop: x=L y=R z=T w=B (uv y points up). Cropped parts show what is behind.
@@ -116,6 +118,12 @@ final class GPU {
         if (u.blend.z > 0.0) f *= pow(smoothstep(0.0, 1.0, clamp((1.0 - p.y) / u.blend.z, 0.0, 1.0)), ig);
         if (u.blend.w > 0.0) f *= pow(smoothstep(0.0, 1.0, clamp(p.y / u.blend.w, 0.0, 1.0)), ig);
         // Premultiplied: over black this is the same as darkening; over another layer it fades into it.
+        // Mask image over the whole movie frame: white shows, black hides (mask 2 = swapped).
+        if (u.mask > 0.5) {
+            float4 mk = maskTex.sample(s, st);
+            float m = dot(mk.rgb, float3(0.2126, 0.7152, 0.0722));   // premultiplied: clear = black
+            f *= u.mask > 1.5 ? 1.0 - m : m;
+        }
         float a = clamp(u.opacity, 0.0, 1.0) * f;
         return float4(c.rgb * a, a);
     }
@@ -163,6 +171,42 @@ final class GPU {
         guard let ib = dev.makeBuffer(bytes: idx, length: idx.count * 4) else { return nil }
         indexBuffer = ib
         indexCount = idx.count
+    }
+
+    /// Mask images by path, loaded once and loaded again when the file changes (checked every 2 s).
+    private var masks: [String: (tex: MTLTexture?, date: Date?, checked: Double)] = [:]
+
+    func mask(_ path: String) -> MTLTexture? {
+        let now = CACurrentMediaTime()
+        if let m = masks[path], now - m.checked < 2 { return m.tex }
+        let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        if let m = masks[path], m.date == date { masks[path]?.checked = now; return m.tex }
+        var tex: MTLTexture?
+        if date != nil {
+            tex = GPU.loadMask(path, device: device)
+            if tex == nil { print("mask: cannot read \(path)"); fflush(stdout) }
+        }
+        if masks.count > 32 { masks.removeAll() }
+        masks[path] = (tex, date, now)
+        return tex
+    }
+
+    /// Any image file as RGBA (8 bit, gray kept as gray), so the shader reads every kind the same way.
+    static func loadMask(_ path: String, device: MTLDevice) -> MTLTexture? {
+        guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+        let w = img.width, h = img.height
+        guard w > 0, h > 0, w <= 16384, h <= 16384,
+              let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let data = ctx.data else { return nil }
+        let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: w, height: h, mipmapped: false)
+        td.usage = .shaderRead
+        guard let t = device.makeTexture(descriptor: td) else { return nil }
+        t.replace(region: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0, withBytes: data, bytesPerRow: w * 4)
+        return t
     }
 
     /// Grid vertices (output x,y + source u,v) for one layer's look.
@@ -347,14 +391,16 @@ final class OutputRenderer: NSObject, MTKViewDelegate {
             if let t = fs?.texture { keep.append(t) }
             if let t = fs?.chromaTexture { keep.append(t) }
             let s = l.look
+            let maskTex = l.mask.flatMap { gpu.mask($0) }
             var u: [Float] = [Float(s.cropL), Float(s.cropR), Float(s.cropT), Float(s.cropB),
                               Float(s.blendL), Float(s.blendR), Float(s.blendT), Float(s.blendB),
                               Float(s.blendGamma), s.showGrid ? 1 : 0, tex == nil ? 0 : 1, Float(l.opacity),
-                              chroma == nil ? 0 : (fs?.yuvMatrix ?? 0), 0, 0, 0]
+                              chroma == nil ? 0 : (fs?.yuvMatrix ?? 0), maskTex == nil ? 0 : (l.maskInvert ? 2 : 1), 0, 0]
             enc.setVertexBuffer(vb, offset: 0, index: 0)
             enc.setFragmentBytes(&u, length: u.count * 4, index: 0)
             enc.setFragmentTexture(tex ?? gpu.blank, index: 0)
             enc.setFragmentTexture(chroma ?? gpu.blank, index: 1)
+            enc.setFragmentTexture(maskTex ?? gpu.blank, index: 2)
             enc.drawIndexedPrimitives(type: .triangle, indexCount: gpu.indexCount, indexType: .uint32,
                                       indexBuffer: gpu.indexBuffer, indexBufferOffset: 0)
         }
