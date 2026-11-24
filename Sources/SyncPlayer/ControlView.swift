@@ -121,6 +121,8 @@ struct TopBar: View {
                 .disabled(!status.isMaster)
                 .help("位置を打って Return: 全台がその位置へ（分:秒 か 秒）")
 
+            Toggle("名前と番号", isOn: $model.showIdent)
+                .help("N キー。出力にこの Mac の名前と画面の番号を大きく出す（設営のとき用）")
             Toggle("音", isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) }))
                 .help("A キー。この Mac で音を出すか")
             Button("ショーを開く…") { model.openShow() }

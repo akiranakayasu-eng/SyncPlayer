@@ -60,6 +60,8 @@ final class OutputWindow: NSObject, NSWindowDelegate {
     let window: KeyableWindow
     let picture: PictureView
     let info = NSTextField(labelWithString: "")
+    /// Large Mac name and screen number in the middle (N key), to tell screens apart when setting up.
+    let ident = NSTextField(labelWithString: "")
     var onBecomeKey: (() -> Void)?
     private var windowedFrame: NSRect?
     private(set) var isFull = false
@@ -89,6 +91,13 @@ final class OutputWindow: NSObject, NSWindowDelegate {
         info.maximumNumberOfLines = 14
         info.frame = NSRect(x: 10, y: 10, width: 700, height: 60)
         p.addSubview(info)
+        ident.alignment = .center
+        ident.textColor = .white
+        ident.backgroundColor = NSColor.black.withAlphaComponent(0.7)
+        ident.drawsBackground = true
+        ident.maximumNumberOfLines = 3
+        ident.isHidden = true
+        p.addSubview(ident)
         window.contentView = p
     }
 
@@ -137,6 +146,19 @@ final class OutputWindow: NSObject, NSWindowDelegate {
         info.stringValue = text
         let size = info.sizeThatFits(NSSize(width: 900, height: 700))
         info.frame = NSRect(x: 10, y: 10, width: min(size.width + 8, picture.bounds.width - 20), height: size.height + 4)
+    }
+
+    /// Show (text) or hide (nil) the large name and number, sized to the window.
+    func layoutIdent(_ text: String?) {
+        guard let text else { if !ident.isHidden { ident.isHidden = true }; return }
+        let b = picture.bounds
+        let size = max(24, min(b.height / 7, b.width / 12))
+        if ident.font?.pointSize != size { ident.font = .boldSystemFont(ofSize: size) }
+        if ident.stringValue != text { ident.stringValue = text }
+        let fit = ident.sizeThatFits(NSSize(width: b.width - 40, height: b.height))
+        let w = min(fit.width + size, b.width - 20), h = fit.height + size * 0.4
+        ident.frame = NSRect(x: (b.width - w) / 2, y: (b.height - h) / 2, width: w, height: h)
+        ident.isHidden = false
     }
 
     func close() {

@@ -46,6 +46,8 @@ final class AppModel: ObservableObject {
     /// Info text on full-screen outputs (hidden unless I or H shows it, so an exhibition shows only the picture).
     var infoOnFull = false
     private var cursorHidden = false
+    /// Large Mac name and screen number on every output (N key). On the master it also shows them on every Mac.
+    @Published var showIdent = false
     /// An open / save panel is up (full-screen outputs stay down meanwhile).
     private var panelOpen = false
     /// S brought the control window above a full-screen output on its screen.
@@ -64,7 +66,7 @@ final class AppModel: ObservableObject {
 
     static let keyHelp = """
     space 再生／停止（マスター）  R 頭へ  ← → 5 秒（shift 1 秒）
-    M マスター⇔フォロワー  S 操作の窓（全画面の上にも出す／隠す）  I 情報（全画面では標準で隠す）  H キー一覧
+    N この Mac の名前と画面の番号を大きく  M マスター⇔フォロワー  S 操作の窓（全画面の上にも出す／隠す）  I 情報（全画面では標準で隠す）  H キー一覧
     O 次の出力  L 次のレイヤー  F 全画面  D 次の画面  A 音  G 格子
     E 四隅の変形  W 曲面メッシュ  Tab 次の点  矢印 1 px（shift 10 px）
     + − 大きさ  [ ] 回転  0 戻す（編集中はその変形、ほかは位置・大きさ・回転）
@@ -612,6 +614,7 @@ final class AppModel: ObservableObject {
                                        initial: initial, since: since,
                                        fileLabel: { [weak self] in self?.show.fileLabel ?? "" },
                                        loopPolicy: { [weak self] in (self?.show.loopTogether ?? true, self?.show.loopLength ?? 0) })
+                    m.ident = { [weak self] in self?.showIdent ?? false }
                     m.onDemote = { [weak self] in
                         self?.notify("ほかの Mac がマスターになったので、フォロワーに戻りました")
                         self?.setRole(master: false)
@@ -836,6 +839,7 @@ final class AppModel: ObservableObject {
         case "o": selectNextOutput()
         case "l": selectNextLayer()
         case "a": setAudio(!audioOn)
+        case "n": showIdent.toggle()
         case "q": NSApp.terminate(nil)
         case "g", "e", "w", "+", "=", "-", "_", "[", "]", "0":
             guard hasLayer else { notify("レイヤーを選んでください"); return true }
@@ -875,6 +879,11 @@ final class AppModel: ObservableObject {
         if status.text != text { status.text = text }
         let short = outputInfo()
         for w in outputs.values { w.layoutInfo(short) }
+        for (id, w) in outputs {
+            // Shown when N is on here, or when the master has N on (every Mac at once).
+            guard showIdent || (follower.map { $0.masterIdent && $0.masterAlive } ?? false), let o = show.outputs.first(where: { $0.id == id }) else { w.layoutIdent(nil); continue }
+            w.layoutIdent("\(opts.name)\n画面 \(o.screen + 1)　\(o.name)")
+        }
         previewBox?.aspect = selectedOutputAspect
         if editMode != .none && tickCount % 20 == 0 { redrawOverlays() }
     }
