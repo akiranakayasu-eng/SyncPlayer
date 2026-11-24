@@ -827,8 +827,8 @@ final class AppModel: ObservableObject {
                 s += String(format: "\n%@: %.1f s  error %+.2f ms  avg %+.2f ms  jumps %d  loops %d",
                             name, n.duration, n.lastError * 1000, n.errorEMA * 1000, n.resyncCount, n.loopCount)
                 if let f = transport.frames[id] {
-                    s += String(format: "  %dx%d  dropped %d",
-                                Int(n.videoSize.width), Int(n.videoSize.height), f.framesDropped)
+                    s += String(format: "  %dx%d %@  dropped %d",
+                                Int(n.videoSize.width), Int(n.videoSize.height), f.format, f.framesDropped)
                 }
             }
         }
@@ -851,8 +851,9 @@ final class AppModel: ObservableObject {
         // Load check: frames shown / skipped over all clips, and the slowest output's draw rate.
         let fs = Array(transport.frames.values)
         let rates = outputs.values.map { $0.picture.renderer.drawRate }
-        line += String(format: "\tshown=%d\tdropped=%d\tdraw_fps=%.1f",
-                       fs.reduce(0) { $0 + $1.framesShown }, fs.reduce(0) { $0 + $1.framesDropped }, rates.min() ?? 0)
+        line += String(format: "\tshown=%d\tdropped=%d\tdraw_fps=%.1f\tformats=%@",
+                       fs.reduce(0) { $0 + $1.framesShown }, fs.reduce(0) { $0 + $1.framesDropped }, rates.min() ?? 0,
+                       Set(fs.map(\.format)).sorted().joined(separator: ","))
         print(line); fflush(stdout)
     }
 

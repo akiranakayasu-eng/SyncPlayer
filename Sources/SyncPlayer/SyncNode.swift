@@ -74,9 +74,12 @@ final class SyncNode {
                 if let f = (try? await track.load(.formatDescriptions))?.first { subtype = CMFormatDescriptionGetMediaSubType(f) }
             }
             // Preferred layout first; the others in case this Mac cannot deliver it.
+            // (macOS picks among them; the format that arrived is shown in the status and log.)
             var fmts = [FrameFormat.pixelFormat(forCodec: subtype)]
-            for f in [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_32BGRA] where !fmts.contains(f) {
-                fmts.append(f)
+            if !FrameFormat.bgra {   // --bgra: BGRA only, so the comparison is real
+                for f in [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_32BGRA] where !fmts.contains(f) {
+                    fmts.append(f)
+                }
             }
             self.outputs = its.map { it in
                 let out = AVPlayerItemVideoOutput(pixelBufferAttributes: [

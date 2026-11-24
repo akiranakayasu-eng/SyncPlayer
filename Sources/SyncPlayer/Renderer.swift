@@ -8,6 +8,11 @@ import CoreMedia
 /// RGB in the shader, so no separate conversion pass is needed per frame. BGRA is kept for tests.
 enum FrameFormat {
     static var bgra = false
+    static func name(_ t: OSType) -> String {
+        let b = [24, 16, 8, 0].map { UInt8((t >> UInt32($0)) & 0xff) }
+        return String(bytes: b, encoding: .ascii) ?? String(t)
+    }
+
     /// Keep the movie's own chroma detail: ProRes 422 as 4:2:2, ProRes 4444 as 4:4:4, others 4:2:0.
     static func pixelFormat(forCodec c: FourCharCode?) -> OSType {
         if bgra { return kCVPixelFormatType_32BGRA }
@@ -174,6 +179,8 @@ final class FrameSource {
     /// 0 = BGRA, 1 = BT.709, 2 = BT.601, 3 = BT.2020 (for the shader).
     private(set) var yuvMatrix: Float = 0
     private(set) var aspect = 0.0
+    /// Pixel format of the last frame, as four letters (e.g. 420v, 422v, BGRA).
+    private(set) var format = "-"
 
     init(node: SyncNode) { self.node = node }
 
@@ -204,6 +211,7 @@ final class FrameSource {
         guard let pb = out.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: &shown) else { return }
         count(shown.seconds)
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
+        format = FrameFormat.name(CVPixelBufferGetPixelFormatType(pb))
         if h > 0 { aspect = Double(w) / Double(h) }
         if CVPixelBufferGetPlaneCount(pb) >= 2 {
             var y: CVMetalTexture?, c: CVMetalTexture?
