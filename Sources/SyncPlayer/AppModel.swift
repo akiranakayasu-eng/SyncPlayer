@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import ServiceManagement
 
 /// Fast-changing numbers for the control window (kept apart so the whole window is not redrawn 5 times a second).
 final class StatusModel: ObservableObject {
@@ -148,14 +149,23 @@ final class AppModel: ObservableObject {
         }
         if let sc = opts.screen { show0.outputs[0].screen = sc }
         if opts.fullscreen { show0.outputs[0].fullscreen = true }
-        audioOn = opts.audio ?? show0.audioOn ?? opts.master
+        let startMaster = opts.roleGiven ? opts.master : (show0.startAsMaster ?? false)
+        audioOn = opts.audio ?? show0.audioOn ?? startMaster
         presetNames = ShowStore.presetNames()
 
         buildControlWindow()
         show = show0
         selectedOutput = show.outputs.first?.id
-        setRole(master: opts.master)
+        setRole(master: startMaster)
         installKeys()
+        // Exhibition: the master plays by itself a few seconds after opening (followers catch up).
+        if startMaster && show.autoPlay && opts.autoplay == nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self, let m = self.master, !m.schedule.playing else { return }
+                m.play()
+                self.notify("開いたので自動で再生しました")
+            }
+        }
         // Another app or a macOS dialog (e.g. the local network permission) in front: full-screen
         // outputs step down so it is not hidden behind them; back up when SyncPlayer is active again.
         NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
@@ -642,7 +652,31 @@ final class AppModel: ObservableObject {
         control?.title = "SyncPlayer — 操作 — \(isMaster ? "マスター" : "フォロワー") — \(opts.name)"
     }
 
-    func toggleRole() { setRole(master: master == nil) }
+    func toggleRole() { setRoleByUser(master: master == nil) }
+
+    /// Role chosen by hand (M, the switch): remembered in this Mac's show for the next start.
+    func setRoleByUser(master m: Bool) {
+        setRole(master: m)
+        let now = master != nil
+        if show.startAsMaster ?? false != now { show.startAsMaster = now }
+    }
+
+    /// Open SyncPlayer when this Mac's user logs in (macOS Login Items).
+    var openAtLogin: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set {
+            do {
+                if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            } catch {
+                notify("ログイン時に開く設定ができません: \(error.localizedDescription)")
+            }
+            if newValue && SMAppService.mainApp.status == .requiresApproval {
+                notify("システム設定 → 一般 → ログイン項目 で SyncPlayer を許可してください")
+                SMAppService.openSystemSettingsLoginItems()
+            }
+            objectWillChange.send()
+        }
+    }
 
     func applyAudio() { transport.setAudio(clipID: show.audioClip ?? show.clips.first?.id, on: audioOn) }
 

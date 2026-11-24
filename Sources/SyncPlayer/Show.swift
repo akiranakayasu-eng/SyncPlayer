@@ -79,6 +79,10 @@ struct Show: Codable, Equatable {
     /// This Mac plays sound (nil = not set: only a Mac started with --master). Saved with the
     /// show, since each Mac keeps its own show file.
     var audioOn: Bool?
+    /// This Mac starts as the master (remembered when M or the role switch is used). nil = follower.
+    var startAsMaster: Bool?
+    /// The master starts playing by itself when the app opens (for an exhibition after a restart).
+    var autoPlay = false
 
     init(clips: [Clip] = [], outputs: [OutputConfig] = [], audioClip: String? = nil) {
         self.clips = clips
@@ -96,6 +100,8 @@ struct Show: Codable, Equatable {
         loopLength = max(0, try c.decodeIfPresent(Double.self, forKey: .loopLength) ?? 0)
         if loopLength > 0 && loopLength < Show.minLoop { loopLength = Show.minLoop }
         audioOn = try c.decodeIfPresent(Bool.self, forKey: .audioOn)
+        startAsMaster = try c.decodeIfPresent(Bool.self, forKey: .startAsMaster)
+        autoPlay = try c.decodeIfPresent(Bool.self, forKey: .autoPlay) ?? false
     }
 
     func clip(_ id: String) -> Clip? { clips.first { $0.id == id } }

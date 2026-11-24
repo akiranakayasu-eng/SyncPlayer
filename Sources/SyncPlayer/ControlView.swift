@@ -70,7 +70,7 @@ struct TopBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Picker("", selection: Binding(get: { model.isMaster }, set: { model.setRole(master: $0) })) {
+            Picker("", selection: Binding(get: { model.isMaster }, set: { model.setRoleByUser(master: $0) })) {
                 Text("フォロワー").tag(false)
                 Text("マスター").tag(true)
             }
@@ -273,6 +273,8 @@ struct Inspector: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
+                exhibitSection
+                Divider()
                 if model.selectedLayerIndex == nil {
                     Text("レイヤーを選んでください").foregroundColor(.secondary)
                 } else {
@@ -283,6 +285,17 @@ struct Inspector: View {
             }
             .padding(10)
         }
+    }
+
+    /// Settings for an exhibition: after a restart the Mac comes back as it was.
+    @ViewBuilder private var exhibitSection: some View {
+        SectionTitle("展示（この Mac）")
+        Toggle("ログインしたら SyncPlayer を開く", isOn: Binding(get: { model.openAtLogin }, set: { model.openAtLogin = $0 }))
+        Toggle("この Mac はマスターで始める", isOn: Binding(get: { model.show.startAsMaster ?? false },
+                                                    set: { model.setRoleByUser(master: $0) }))
+        Toggle("開いたらすぐ再生（マスター）", isOn: Binding(get: { model.show.autoPlay }, set: { model.show.autoPlay = $0 }))
+        Text("ショーの全画面・音・マスクなどは、開くと前のまま戻る。再起動のあと電源を入れてログインするだけで、前と同じ展示の状態になる。")
+            .font(.caption).foregroundColor(.secondary)
     }
 
     @ViewBuilder private var layerSection: some View {

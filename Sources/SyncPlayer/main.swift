@@ -11,6 +11,8 @@ import AppKit
 
 struct Options {
     var master = false
+    /// --master or --follower was given (otherwise the show's remembered role is used).
+    var roleGiven = false
     var files: [String] = []
     var showFile: String?
     var name = Host.current().localizedName ?? "mac"
@@ -31,8 +33,8 @@ struct Options {
         func next() -> String { i += 1; return i < args.count ? args[i] : "" }
         while i < args.count {
             switch args[i] {
-            case "--master": master = true
-            case "--follower": master = false
+            case "--master": master = true; roleGiven = true
+            case "--follower": master = false; roleGiven = true
             case "--name": name = next()
             case "--fullscreen": fullscreen = true
             case "--screen": screen = Int(next())
