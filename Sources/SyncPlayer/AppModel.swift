@@ -26,7 +26,7 @@ final class AppModel: ObservableObject {
     @Published var audioOn = false
     @Published var presetNames: [String] = []
     @Published var lastPreset = ""
-    @Published var showFile: String? = nil
+    @Published var showFile: String? = nil { didSet { updateRepresented() } }
     @Published var screenNames: [String] = []
 
     var master: Master?
@@ -227,6 +227,14 @@ final class AppModel: ObservableObject {
 
     // MARK: outputs
 
+    /// The show file each window stands for (the last show in use when none was opened).
+    /// Accessibility tools read it as the window's document.
+    private func updateRepresented() {
+        let u = showFile.map { URL(fileURLWithPath: $0) } ?? ShowStore.currentURL
+        control?.representedURL = u
+        for w in outputs.values { w.window.representedURL = u }
+    }
+
     private func outputTitle(_ o: OutputConfig) -> String {
         "SyncPlayer — \(o.name) — \(isMaster ? "マスター" : "フォロワー") — \(opts.name)"
     }
@@ -239,6 +247,7 @@ final class AppModel: ObservableObject {
                 guard let w = OutputWindow(id: o.id) else { print("Metal is not available"); exit(1) }
                 configure(w)
                 outputs[o.id] = w
+                w.window.representedURL = showFile.map { URL(fileURLWithPath: $0) } ?? ShowStore.currentURL
                 w.apply(o, index: i, title: outputTitle(o))
                 w.window.makeKeyAndOrderFront(nil)
             } else {
@@ -556,6 +565,7 @@ final class AppModel: ObservableObject {
         win.contentView = NSHostingView(rootView: ControlView(model: self, status: status))
         win.title = "SyncPlayer — 操作"
         control = win
+        updateRepresented()
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

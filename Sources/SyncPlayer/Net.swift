@@ -68,13 +68,15 @@ final class UDPSocket {
         source = s
     }
 
+    /// Never blocks (MSG_DONTWAIT): a datagram that cannot go out at once is dropped. macOS can
+    /// hold a send while it asks about Local Network access; a blocking send then froze the app.
     func send(_ data: Data, to addr: sockaddr_in) {
         guard !closed else { return }
         var a = addr
         _ = data.withUnsafeBytes { raw in
             withUnsafePointer(to: &a) {
                 $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    sendto(fd, raw.baseAddress, data.count, 0, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    sendto(fd, raw.baseAddress, data.count, MSG_DONTWAIT, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
                 }
             }
         }

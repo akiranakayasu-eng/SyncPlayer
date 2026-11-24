@@ -84,11 +84,15 @@ final class Master {
         sock.close(); listen.close()
     }
 
+    private let sendQueue = DispatchQueue(label: "master.send", qos: .userInteractive)
+
+    /// Sent off the main thread, so the window never waits for the network.
     private func announce() {
         var m = Message(k: "b", s: schedule)
         m.mid = id; m.since = since; m.file = fileLabel()
         let data = m.encoded()
-        for t in targets { sock.send(data, to: t) }
+        let targets = self.targets, sock = self.sock
+        sendQueue.async { for t in targets { sock.send(data, to: t) } }
     }
 
     /// Keep the common loop length up to date (the longest clip on any Mac, or the show's fixed
@@ -280,11 +284,16 @@ final class Follower {
         pingID += 1
         let id = pingID
         lock.unlock()
-        var m = Message(k: "p")
-        m.id = id
-        m.dur = transport.longest > 0 ? transport.longest : nil
-        m.t1 = hostNow()
-        clockSock.send(m.encoded(), to: addr)
+        let dur = transport.longest
+        let sock = clockSock
+        // Stamp and send on the network queue (off the main thread, no wait between them).
+        queue.async {
+            var m = Message(k: "p")
+            m.id = id
+            m.dur = dur > 0 ? dur : nil
+            m.t1 = hostNow()
+            sock.send(m.encoded(), to: addr)
+        }
     }
 
     var stats: (offset: Double, rtt: Double, ready: Bool) {
