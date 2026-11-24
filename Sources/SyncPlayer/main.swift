@@ -50,7 +50,7 @@ struct Options {
             case "--bgra": FrameFormat.bgra = true   // test: frames as BGRA (the v0.3 way) instead of YUV
             case "--frames":   // test: 420v, 422v, x422, BGRA
                 let v = next()
-                if let c = FrameFormat.code(v) { FrameFormat.forced = c } else { print("--frames: not a 4-letter layout: \(v) (ignored)") }
+                if let c = FrameFormat.code(v) { FrameFormat.forced = c } else { print("--frames: not a 4-letter layout: \(v) (ignored)"); fflush(stdout) }
             default: if !args[i].hasPrefix("-") { files.append(args[i]) }   // skip -psn_… and other system flags
             }
             i += 1

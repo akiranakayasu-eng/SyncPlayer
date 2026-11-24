@@ -829,7 +829,7 @@ final class AppModel: ObservableObject {
                 if let f = transport.frames[id] {
                     s += String(format: "  %dx%d %@%@  dropped %d",
                                 Int(n.videoSize.width), Int(n.videoSize.height), f.format,
-                                f.fellBack ? "（形を下げた）" : "", f.framesDropped)
+                                f.gaveUp ? "（コマが届かない）" : f.fellBack ? "（形を下げた）" : "", f.framesDropped)
                 }
             }
         }
