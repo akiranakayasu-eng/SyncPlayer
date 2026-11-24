@@ -295,7 +295,7 @@ struct Inspector: View {
         Toggle("この Mac はマスターで始める", isOn: Binding(get: { model.show.startAsMaster ?? false },
                                                     set: { model.setRoleByUser(master: $0) }))
         Toggle("開いたらすぐ再生（マスター）", isOn: Binding(get: { model.show.autoPlay }, set: { model.show.autoPlay = $0 }))
-        Text("ショーの全画面・音・マスクなどは、開くと前のまま戻る。再起動のあと電源を入れてログインするだけで、前と同じ展示の状態になる。")
+        Text("ショーの全画面・音・マスクなどは、開くと前のまま戻る。再起動のあと電源を入れてログインするだけで、前と同じ展示の状態になる。マスターとフォロワーはどちらが先に開いても数秒でそろう。「マスターで始める」は全台のうち 1 台だけに入れる。")
             .font(.caption).foregroundColor(.secondary)
     }
 
