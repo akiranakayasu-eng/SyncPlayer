@@ -114,6 +114,9 @@ final class SyncNode {
         }
     }
 
+    /// The layout the current outputs ask for.
+    var currentFormat: OSType? { formatChain.indices.contains(formatIndex) ? formatChain[formatIndex] : nil }
+
     /// No frame arrived in this layout: try the next one. False when none is left.
     @discardableResult func useNextFormat() -> Bool {
         guard formatIndex + 1 < formatChain.count else { return false }

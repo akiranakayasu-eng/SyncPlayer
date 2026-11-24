@@ -827,8 +827,9 @@ final class AppModel: ObservableObject {
                 s += String(format: "\n%@: %.1f s  error %+.2f ms  avg %+.2f ms  jumps %d  loops %d",
                             name, n.duration, n.lastError * 1000, n.errorEMA * 1000, n.resyncCount, n.loopCount)
                 if let f = transport.frames[id] {
-                    s += String(format: "  %dx%d %@  dropped %d",
-                                Int(n.videoSize.width), Int(n.videoSize.height), f.format, f.framesDropped)
+                    s += String(format: "  %dx%d %@%@  dropped %d",
+                                Int(n.videoSize.width), Int(n.videoSize.height), f.format,
+                                f.fellBack ? "（形を下げた）" : "", f.framesDropped)
                 }
             }
         }

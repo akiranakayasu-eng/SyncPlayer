@@ -48,7 +48,9 @@ struct Options {
             case "--switch-after": switchAfter = Double(next())
             case "--show": showFile = next()
             case "--bgra": FrameFormat.bgra = true   // test: frames as BGRA (the v0.3 way) instead of YUV
-            case "--frames": FrameFormat.forced = FrameFormat.code(next())   // test: 420v, 422v, x422, BGRA
+            case "--frames":   // test: 420v, 422v, x422, BGRA
+                let v = next()
+                if let c = FrameFormat.code(v) { FrameFormat.forced = c } else { print("--frames: not a 4-letter layout: \(v) (ignored)") }
             default: if !args[i].hasPrefix("-") { files.append(args[i]) }   // skip -psn_… and other system flags
             }
             i += 1

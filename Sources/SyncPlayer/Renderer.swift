@@ -198,6 +198,8 @@ final class FrameSource {
     private(set) var format = "-"
     private var lastFrameAt = -1.0
     private var waitSince = -1.0
+    /// True once a layout gave no frames and the next one was used (shown in the status).
+    private(set) var fellBack = false
 
     init(node: SyncNode) { self.node = node }
 
@@ -224,10 +226,20 @@ final class FrameSource {
         let out = node.outputs[node.displayIndex(atLocal: now)]
         let t = out.itemTime(forHostTime: now)
         guard out.hasNewPixelBuffer(forItemTime: t) else {
-            // No frame at all in this layout 3 s after the movie was ready: try the next layout.
-            if node.ready, lastFrameAt < node.outputsSince {
+            // No frame at all in this layout after 3 s of playing: try the next layout. Counted
+            // only while the player runs (a stopped follower without a master gets no frames).
+            if node.ready, lastFrameAt < node.outputsSince, node.player.rate != 0 {
                 if waitSince < node.outputsSince { waitSince = now }
-                if now - waitSince > 3 { node.useNextFormat() }
+                if now - waitSince > 3 {
+                    let from = format
+                    if node.useNextFormat() {
+                        print("frames: no frame as \(FrameFormat.name(node.currentFormat ?? 0)) after 3 s, trying the next layout (was \(from))")
+                        fflush(stdout)
+                        fellBack = true
+                    }
+                }
+            } else if node.player.rate == 0 {
+                waitSince = now   // restart the count when playing starts
             }
             return
         }
