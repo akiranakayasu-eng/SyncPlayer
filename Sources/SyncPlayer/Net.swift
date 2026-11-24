@@ -29,8 +29,26 @@ final class UDPSocket {
                 bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
-        guard r == 0 else { close(fd); throw NSError(domain: "udp.bind", code: Int(errno)) }
+        guard r == 0 else { Darwin.close(fd); throw NSError(domain: "udp.bind", code: Int(errno)) }
     }
+
+    private var closed = false
+
+    /// Stop reading and release the port (needed when switching between master and follower).
+    func close() {
+        guard !closed else { return }
+        closed = true
+        if let s = source {
+            let f = fd
+            s.setCancelHandler { Darwin.close(f) }
+            s.cancel()
+            source = nil
+        } else {
+            Darwin.close(fd)
+        }
+    }
+
+    deinit { close() }
 
     func start(queue: DispatchQueue) {
         let s = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
@@ -51,6 +69,7 @@ final class UDPSocket {
     }
 
     func send(_ data: Data, to addr: sockaddr_in) {
+        guard !closed else { return }
         var a = addr
         _ = data.withUnsafeBytes { raw in
             withUnsafePointer(to: &a) {

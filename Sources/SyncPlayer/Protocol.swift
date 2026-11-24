@@ -28,6 +28,9 @@ struct Message: Codable {
     var t1: Double? = nil   // follower send time (follower clock)
     var t2: Double? = nil   // master receive time (master clock)
     var t3: Double? = nil   // master send time (master clock)
+    var mid: String? = nil  // master id (beacon)
+    var since: Double? = nil // when this master took over (wall clock); the newest master wins
+    var file: String? = nil // movie file name the master plays (beacon)
 
     func encoded() -> Data { (try? JSONEncoder().encode(self)) ?? Data() }
     static func decode(_ d: Data) -> Message? { try? JSONDecoder().decode(Message.self, from: d) }

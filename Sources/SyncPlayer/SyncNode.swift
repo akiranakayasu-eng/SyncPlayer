@@ -1,18 +1,21 @@
 import Foundation
 import AVFoundation
 import QuartzCore
+import CoreVideo
 
 /// One playback machine. The master runs this too (with clock offset 0).
 /// It follows a Schedule: start at a precise host time on the host clock, then watch the
 /// media position and re-schedule the start if it drifts more than a few ms.
 ///
 /// Two players take turns so the loop point has no gap: about a second before the end,
-/// the idle player is scheduled to start at 0 exactly at the loop's host time, and its
-/// layer is shown at that moment.
+/// the idle player is scheduled to start at 0 exactly at the loop's host time, and the
+/// renderer switches to its frames at that moment.
 final class SyncNode {
     let players: [AVPlayer]
     let items: [AVPlayerItem]
-    let layers: [AVPlayerLayer]
+    /// Frames for the Metal renderer (one per player).
+    let outputs: [AVPlayerItemVideoOutput]
+    let url: URL
     private(set) var active = 0
     var player: AVPlayer { players[active] }
     var item: AVPlayerItem { items[active] }
@@ -43,9 +46,14 @@ final class SyncNode {
     private var endObservers: [NSObjectProtocol] = []
 
     init(url: URL, muted: Bool) {
-        var ps: [AVPlayer] = [], its: [AVPlayerItem] = [], ls: [AVPlayerLayer] = []
+        self.url = url
+        var ps: [AVPlayer] = [], its: [AVPlayerItem] = [], os: [AVPlayerItemVideoOutput] = []
         for _ in 0..<2 {
             let it = AVPlayerItem(url: url)
+            let out = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferMetalCompatibilityKey as String: true])
+            it.add(out)
             let p = AVPlayer(playerItem: it)
             p.automaticallyWaitsToMinimizeStalling = false
             p.actionAtItemEnd = .pause
@@ -53,12 +61,9 @@ final class SyncNode {
             // Run playback on the host clock (the same clock the schedule uses), not the audio
             // device clock. Otherwise every player slowly drifts from the schedule (~1 ms / 90 s on Air).
             p.sourceClock = CMClockGetHostTimeClock()
-            let l = AVPlayerLayer(player: p)
-            l.videoGravity = .resizeAspect
-            ps.append(p); its.append(it); ls.append(l)
+            ps.append(p); its.append(it); os.append(out)
         }
-        players = ps; items = its; layers = ls
-        layers[1].isHidden = true
+        players = ps; items = its; outputs = os
 
         Task { @MainActor in
             let d = (try? await its[0].asset.load(.duration))?.seconds ?? 0
@@ -90,18 +95,19 @@ final class SyncNode {
         return wrap(s.anchorMedia + (m - s.anchorHost))
     }
 
-    private func show(_ i: Int) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layers[i].isHidden = false
-        layers[1 - i].isHidden = true
-        CATransaction.commit()
-    }
-
     private func disarm() {
         if armedAt != nil { players[1 - active].pause() }
         armedAt = nil
     }
+
+    func stop() {
+        disarm()
+        players.forEach { $0.pause() }
+        endObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        endObservers = []
+    }
+
+    func setMuted(_ m: Bool) { players.forEach { $0.isMuted = m } }
 
     func tick() {
         guard ready, let s = schedule, clockOffset() != nil else { return }
@@ -125,7 +131,6 @@ final class SyncNode {
         if let at = armedAt, now >= at + 0.005 {
             let old = active
             active = 1 - active
-            show(active)
             players[old].pause()
             armedAt = nil
             loopCount += 1
