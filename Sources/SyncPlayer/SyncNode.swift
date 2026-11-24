@@ -92,7 +92,9 @@ final class SyncNode {
         guard let s = schedule, let off = clockOffset() else { return nil }
         if !s.playing { return wrap(s.anchorMedia) }
         let m = h + off
-        return wrap(s.anchorMedia + (m - s.anchorHost))
+        // Before the scheduled start the media waits at the anchor (do not wrap backwards
+        // into the end of the movie).
+        return wrap(s.anchorMedia + max(0, m - s.anchorHost))
     }
 
     private func disarm() {
@@ -172,7 +174,10 @@ final class SyncNode {
     /// the schedule says for that moment.
     func resync() {
         disarm()
-        let startLocal = hostNow() + lead
+        var startLocal = hostNow() + lead
+        // If the schedule starts later than that (play / jump announce ~0.3 s ahead),
+        // start exactly at the scheduled moment instead of playing early.
+        if let s = schedule, let off = clockOffset() { startLocal = max(startLocal, s.anchorHost - off) }
         guard let media = expectedMedia(atLocal: startLocal) else { return }
         // Do not start in the last frames; begin at 0 a little early instead.
         let target = media > duration - 0.05 ? 0 : media
