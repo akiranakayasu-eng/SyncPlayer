@@ -93,7 +93,7 @@ final class OutputWindow: NSObject, NSWindowDelegate {
         info.textColor = .green
         info.backgroundColor = NSColor.black.withAlphaComponent(0.65)
         info.drawsBackground = true
-        info.maximumNumberOfLines = 14
+        info.maximumNumberOfLines = 22
         info.frame = NSRect(x: 10, y: 10, width: 700, height: 60)
         p.addSubview(info)
         ident.alignment = .center

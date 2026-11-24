@@ -371,7 +371,18 @@ final class AppModel: ObservableObject {
         // A new windowed output must not hide the control window (full-screen outputs stay above it anyway).
         // The control window also stays the key window, so activating the app does not bring the
         // output above it and the first S hides it.
-        if created, let c = control, c.isVisible { c.makeKeyAndOrderFront(nil) }
+        // With a full-screen output on the control window's screen, or with the control window hidden
+        // (S), an output takes the keys as before, so S, space and Q keep working.
+        if created {
+            if let c = control, c.isVisible,
+               !outputs.values.contains(where: { $0.isFull && $0.window.frame.intersects(c.frame) }) {
+                c.makeKeyAndOrderFront(nil)
+                c.makeFirstResponder(nil)      // not into a text field, so the keys are not typed there
+            } else if let w = show.outputs.compactMap({ outputs[$0.id] }).first(where: { $0.isFull })
+                        ?? show.outputs.first.flatMap({ outputs[$0.id] }) {
+                w.window.makeKeyAndOrderFront(nil)
+            }
+        }
         refreshInfo()
         updatePresentation()
     }
@@ -476,9 +487,10 @@ final class AppModel: ObservableObject {
 
     func removeOutput() {
         guard show.outputs.count > 1, let o = selectedOutputIndex else { notify("出力は 1 つ以上要ります"); return }
-        let name = show.outputs[o].name
-        guard confirm("出力「\(name)」を消しますか？", "この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます。") else { return }
-        show.outputs.remove(at: o)
+        let name = show.outputs[o].name, oid = show.outputs[o].id
+        guard confirm("出力「\(name)」を消しますか？", "この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます。"),
+              show.outputs.count > 1, let o2 = show.outputs.firstIndex(where: { $0.id == oid }) else { return }
+        show.outputs.remove(at: o2)
         notify("出力「\(name)」を消しました")
     }
 
@@ -514,8 +526,11 @@ final class AppModel: ObservableObject {
     func removeLayer() {
         guard let i = selectedLayerIndex else { return }
         let name = clipName(show.outputs[i.o].layers[i.l].clipID)
-        guard confirm("レイヤー「\(name)」を消しますか？", "このレイヤーの調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。") else { return }
-        show.outputs[i.o].layers.remove(at: i.l)
+        let oid = show.outputs[i.o].id, lid = show.outputs[i.o].layers[i.l].id
+        guard confirm("レイヤー「\(name)」を消しますか？", "このレイヤーの調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。"),
+              let o2 = show.outputs.firstIndex(where: { $0.id == oid }),
+              let l2 = show.outputs[o2].layers.firstIndex(where: { $0.id == lid }) else { return }
+        show.outputs[o2].layers.remove(at: l2)
     }
 
     /// Move the selected layer toward the front (+1) or back (-1).
@@ -576,7 +591,7 @@ final class AppModel: ObservableObject {
         let users = show.outputs.reduce(0) { $0 + $1.layers.filter { $0.clipID == id }.count }
         guard confirm("映像「\(clipName(id))」をショーから外しますか？",
                       users > 0 ? "この映像を使うレイヤー \(users) つと、その調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。"
-                                : "映像のファイルは消えません。") else { return }
+                                : "映像のファイルは消えません。", ok: "外す") else { return }
         var s = show
         s.clips.removeAll { $0.id == id }
         for o in s.outputs.indices { s.outputs[o].layers.removeAll { $0.clipID == id } }
@@ -655,6 +670,7 @@ final class AppModel: ObservableObject {
     }
 
     func deletePreset(_ name: String) {
+        guard confirm("プリセット「\(name)」を消しますか？", "キーやボタンで呼び出せなくなります。ショーそのものは変わりません。") else { return }
         ShowStore.deletePreset(name)
         presetNames = ShowStore.presetNames()
         notify("プリセット「\(name)」を削除")
@@ -836,11 +852,11 @@ final class AppModel: ObservableObject {
     /// while the panel is up (otherwise it could open behind them), also if the app is left and
     /// entered again meanwhile.
     /// Ask before something that cannot be undone (lowers full-screen outputs while the alert is up).
-    func confirm(_ title: String, _ detail: String) -> Bool {
+    func confirm(_ title: String, _ detail: String, ok: String = "消す") -> Bool {
         let a = NSAlert()
         a.messageText = title
         a.informativeText = detail
-        a.addButton(withTitle: "消す")
+        a.addButton(withTitle: ok)
         a.addButton(withTitle: "やめる")
         panelOpen = true
         refreshLevels()
@@ -1022,8 +1038,17 @@ final class AppModel: ObservableObject {
     /// so a narrow window cuts the details, not the state. Anything the detailed status warns
     /// about (⚠︎, cannot open, frames not arriving, a large offset) turns it orange and comes first.
     private func headlineNow() -> (String, Int) {
-        let (line, tone) = roleHeadline()
-        if let p = problemNow() { return ("⚠︎ \(p) ・ \(line)", 2) }
+        var (line, tone) = roleHeadline()
+        if let p = problemNow() {
+            // The state word stays first (a narrow window cuts the end), the problem right after it.
+            var parts = line.components(separatedBy: " ・ ")
+            parts.insert("⚠︎ \(p)", at: 1)
+            line = parts.joined(separator: " ・ "); tone = 2
+        }
+        // Each Mac may play its own movies on purpose, so a different name is only noted, not orange.
+        if let f = follower, let mf = f.masterFile, mf != show.fileLabel {
+            line += " ・ 映像の名前がマスターとちがう（Mac ごとに別の映像なら問題ない）"
+        }
         return (line, tone)
     }
 
@@ -1035,7 +1060,7 @@ final class AppModel: ObservableObject {
         guard let f = follower else { return ("準備中", 2) }
         let who = String((f.masterName ?? f.masterHost).prefix(16))
         if transport.schedule == nil {
-            return f.masterID != nil ? ("マスター（\(who)）と時計を合わせている…", 2)
+            return f.masterAlive ? ("マスター（\(who)）と時計を合わせている…", 2)
                                      : ("マスター待ち ・ マスターの Mac を開くと、そろって始まる", 2)
         }
         if !f.masterAlive {
@@ -1053,21 +1078,20 @@ final class AppModel: ObservableObject {
         if exhibitTakenOver && exhibitMaster && master == nil { return "ほかの Mac がマスター（展示のマスターは 1 台だけ）" }
         for (id, n) in transport.orderedNodes {
             if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
-                return "映像が開けない: \(clipName(id))"
+                return "映像が開けない: \(String(clipName(id).prefix(20)))"
             }
         }
-        if let f = follower, let mf = f.masterFile, mf != show.fileLabel { return "マスターと映像の名前がちがう" }
         for o in show.outputs {
             for l in o.layers {
                 guard let m = l.mask else { continue }
                 if missingFiles().contains(m) || GPU.shared?.maskReady(m) == false {
-                    return "マスクが読めない: \((m as NSString).lastPathComponent)"
+                    return "マスクが読めない: \(String((m as NSString).lastPathComponent.prefix(20)))"
                 }
             }
         }
         for (id, n) in transport.orderedNodes {
-            if !n.ready { return "読み込み中: \(clipName(id))" }
-            if transport.frames[id]?.gaveUp == true { return "コマが届かない: \(clipName(id))" }
+            if !n.ready { return "読み込み中: \(String(clipName(id).prefix(20)))" }
+            if transport.frames[id]?.gaveUp == true { return "コマが届かない: \(String(clipName(id).prefix(20)))" }
         }
         if (transport.schedule?.playing ?? false), follower?.stats.ready ?? isMaster,
            abs(transport.maxError) > 0.02 {
