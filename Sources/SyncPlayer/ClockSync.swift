@@ -1,7 +1,7 @@
 import Foundation
 
 /// NTP-style clock estimate: offset = master clock - local clock.
-/// Keeps recent samples and trusts the one with the shortest round trip.
+/// Keeps about a minute of samples and averages the ones with the shortest round trips.
 final class ClockSync {
     private struct Sample { let rtt: Double; let offset: Double; let at: Double }
     private var samples: [Sample] = []
@@ -18,11 +18,12 @@ final class ClockSync {
         let off = ((t2 - t1) + (t3 - t4)) / 2
         guard rtt >= 0, rtt < 0.5 else { return }
         samples.append(Sample(rtt: rtt, offset: off, at: t4))
-        if samples.count > 40 { samples.removeFirst(samples.count - 40) }
-        // Best = shortest round trip among recent samples (least queueing delay).
-        if let best = samples.min(by: { $0.rtt < $1.rtt }) {
-            offset = best.offset
-            self.rtt = best.rtt
-        }
+        // Keep about a minute of samples (pings every 0.5 s once settled).
+        if samples.count > 120 { samples.removeFirst(samples.count - 120) }
+        // Average the offsets of the 5 shortest round trips. Taking only the single best one
+        // made the offset step by 3–8 ms over a relayed internet link whenever it aged out.
+        let best = samples.sorted { $0.rtt < $1.rtt }.prefix(5)
+        offset = best.map(\.offset).reduce(0, +) / Double(best.count)
+        self.rtt = best.first?.rtt ?? 0
     }
 }
