@@ -127,9 +127,11 @@ final class OutputWindow: NSObject, NSWindowDelegate {
             window.styleMask = OutputWindow.windowed
             var f = windowedFrame ?? .zero
             if movedScreen || windowedFrame == nil || !screen.frame.intersects(f) {
+                // Top right and small, so it does not hide the control window (bottom left).
                 let vf = screen.visibleFrame
                 let off = CGFloat(index * 40)
-                f = NSRect(x: vf.minX + 60 + off, y: vf.maxY - 560 - off, width: 960, height: 540)
+                let w = min(640, vf.width / 2), h = w * 9 / 16
+                f = NSRect(x: vf.maxX - w - 20 - off, y: vf.maxY - h - 20 - off, width: w, height: h)
             }
             window.setFrame(f, display: true)
         }

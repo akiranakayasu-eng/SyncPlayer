@@ -653,6 +653,7 @@ final class AppModel: ObservableObject {
                                        fileLabel: { [weak self] in self?.show.fileLabel ?? "" },
                                        loopPolicy: { [weak self] in (self?.show.loopTogether ?? true, self?.show.loopLength ?? 0) })
                     m.ident = { [weak self] in self?.showIdent ?? false }
+                    m.name = opts.name
                     m.onDemote = { [weak self] in
                         // The exhibition-master mark stays: this Mac is still the one to start as master
                         // after a restart (another Mac took over by hand for now).
@@ -990,14 +991,15 @@ final class AppModel: ObservableObject {
         guard let f = follower else { return ("準備中", 2) }
         if transport.schedule == nil { return ("マスター待ち ・ マスターの Mac を開くと、そろって始まる", 2) }
         if !f.masterAlive { return ("マスターが見えない ・ この Mac はそのまま再生を続けている", 2) }
-        if !f.stats.ready { return ("マスター（\(f.masterHost)）と時計を合わせている…", 2) }
+        let who = f.masterName ?? f.masterHost
+        if !f.stats.ready { return ("マスター（\(who)）と時計を合わせている…", 2) }
         let err = String(format: "%.1f", abs(transport.maxError) * 1000)
-        return playing ? ("マスター（\(f.masterHost)）に合わせて再生中 ・ ずれ \(err) ms", 1)
-                       : ("マスター（\(f.masterHost)）が停止中", 0)
+        return playing ? ("マスター（\(who)）に合わせて再生中 ・ ずれ \(err) ms", 1)
+                       : ("マスター（\(who)）が停止中", 0)
     }
 
     private func roleLine() -> String {
-        String(format: "%@ %@  %@  pos %.3f s  error %+.1f ms  jumps %d",
+        String(format: "%@ %@  %@\npos %.3f s  error %+.1f ms  jumps %d",
                isMaster ? "MASTER" : "follower", opts.name, show.fileLabel, transport.displayTime(),
                transport.maxError * 1000, transport.resyncCount)
     }

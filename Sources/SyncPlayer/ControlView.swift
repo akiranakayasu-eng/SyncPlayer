@@ -205,6 +205,8 @@ struct Sidebar: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
+        // Scrolls when the window is low, so the top bar is never pushed out.
+        ScrollView {
         VStack(alignment: .leading, spacing: 6) {
             SectionTitle("出力（ディスプレイに出す絵）")
             List(selection: $model.selectedOutput) {
@@ -217,7 +219,7 @@ struct Sidebar: View {
                     .tag(Optional(o.id))
                 }
             }
-            .frame(height: 84)
+            .frame(height: listHeight(model.show.outputs.count, max: 4))
             HStack {
                 Button { model.addOutput() } label: { Label("足す", systemImage: "plus") }.help("出力を足す（別のディスプレイに出すとき）")
                 Button { model.removeOutput() } label: { Label("消す", systemImage: "minus") }.help("選んだ出力を消す")
@@ -251,17 +253,21 @@ struct Sidebar: View {
                     .tag(Optional(l.id))
                 }
             }
-            .frame(minHeight: 84)
+            .frame(height: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 6))
             HStack(spacing: 4) {
                 Button { model.addLayer() } label: { Label("足す", systemImage: "plus") }.help("レイヤーを足す")
                 Button { model.removeLayer() } label: { Label("消す", systemImage: "minus") }.help("選んだレイヤーを消す")
-                Button { model.moveLayer(1) } label: { Label("手前へ", systemImage: "arrow.up") }.help("選んだレイヤーを手前へ")
-                Button { model.moveLayer(-1) } label: { Label("奥へ", systemImage: "arrow.down") }.help("選んだレイヤーを奥へ")
+                Spacer()
             }
             .controlSize(.small)
-            Button("4 分割などに並べる") { model.arrangeGrid() }
-                .controlSize(.small)
-                .help("この出力のレイヤーを、数に合わせて 2×2 などの格子に並べる")
+            HStack(spacing: 4) {
+                Button { model.moveLayer(1) } label: { Label("手前へ", systemImage: "arrow.up") }.help("選んだレイヤーを手前へ")
+                Button { model.moveLayer(-1) } label: { Label("奥へ", systemImage: "arrow.down") }.help("選んだレイヤーを奥へ")
+                Spacer()
+                Button("4 分割などに並べる") { model.arrangeGrid() }
+                    .help("この出力のレイヤーを、数に合わせて 2×2 などの格子に並べる")
+            }
+            .controlSize(.small)
 
             Divider().padding(.vertical, 2)
             SectionTitle("映像")
@@ -278,7 +284,7 @@ struct Sidebar: View {
                     .controlSize(.small)
                 }
             }
-            .frame(minHeight: 70)
+            .frame(height: listHeight(model.show.clips.count, max: 6))
             HStack {
                 Button("映像を足す…") { model.addClips() }
                 Spacer()
@@ -304,6 +310,12 @@ struct Sidebar: View {
             .help("この Mac で音を出すとき、どの映像の音を出すか")
         }
         .padding(8)
+        }
+    }
+
+    /// A list just tall enough for its rows (up to max rows; more scroll inside the list).
+    private func listHeight(_ rows: Int, max m: Int) -> CGFloat {
+        CGFloat(Swift.min(Swift.max(rows, 2), m)) * 26 + 10
     }
 
     private var screenChoices: [Int] {
@@ -358,7 +370,8 @@ struct SliderRow: View {
 struct Inspector: View {
     @ObservedObject var model: AppModel
     @State private var presetName = ""
-    @AppStorage("inspectorTab") private var tab = 0
+    /// Opens on 画面の調整 every time (the exhibition settings are touched once, while setting up).
+    @State private var tab = 0
     @State private var openPlace = true
     @State private var openCrop = false
     @State private var openMask = false
