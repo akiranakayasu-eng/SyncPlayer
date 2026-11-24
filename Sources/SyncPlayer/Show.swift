@@ -65,6 +65,10 @@ struct Show: Codable, Equatable {
     var outputs: [OutputConfig] = []
     /// The clip whose sound is played (nil = the first clip).
     var audioClip: String?
+    /// Loop all clips on all Macs together (a shorter clip holds its last frame). Used on the master.
+    var loopTogether = true
+    /// Loop length in seconds when looping together; 0 = the longest clip on any Mac.
+    var loopLength = 0.0
 
     init(clips: [Clip] = [], outputs: [OutputConfig] = [], audioClip: String? = nil) {
         self.clips = clips
@@ -78,6 +82,8 @@ struct Show: Codable, Equatable {
         clips = try c.decode([Clip].self, forKey: .clips)          // required: tells a show from an old preset
         outputs = try c.decode([OutputConfig].self, forKey: .outputs)
         audioClip = try c.decodeIfPresent(String.self, forKey: .audioClip)
+        loopTogether = try c.decodeIfPresent(Bool.self, forKey: .loopTogether) ?? true
+        loopLength = max(0, try c.decodeIfPresent(Double.self, forKey: .loopLength) ?? 0)
     }
 
     func clip(_ id: String) -> Clip? { clips.first { $0.id == id } }

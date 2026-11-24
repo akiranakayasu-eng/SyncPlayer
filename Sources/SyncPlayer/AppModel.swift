@@ -489,6 +489,7 @@ final class AppModel: ObservableObject {
                     let m = try Master(transport: transport, broadcast: opts.broadcast, extraTargets: opts.extra,
                                        initial: initial, since: since)
                     m.fileLabel = { [weak self] in self?.show.fileLabel ?? "" }
+                    m.loopPolicy = { [weak self] in (self?.show.loopTogether ?? true, self?.show.loopLength ?? 0) }
                     m.onDemote = { [weak self] in
                         self?.notify("ほかの Mac がマスターになったので、フォロワーに戻りました")
                         self?.setRole(master: false)
@@ -692,6 +693,11 @@ final class AppModel: ObservableObject {
 
     private func clockLines() -> String {
         var s = ""
+        if let c = transport.schedule?.cycle, c > 0 {
+            s += String(format: "\nループ %.3f s（全員いっしょ、短い映像は最後のコマで待つ）", c)
+        } else if transport.schedule != nil {
+            s += "\nループ: 映像ごとの尺"
+        }
         if let f = follower {
             let st = f.stats
             s += String(format: "\nmaster %@  clock %@ offset %+.3f ms  rtt %.3f ms",

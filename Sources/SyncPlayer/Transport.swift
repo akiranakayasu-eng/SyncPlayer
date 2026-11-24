@@ -36,7 +36,13 @@ final class Transport {
 
     /// The longest clip: its length is the length shown, and the one jumps are measured by.
     var primary: SyncNode? { orderedNodes.map(\.node).max { $0.duration < $1.duration } }
-    var duration: Double { primary?.duration ?? 0 }
+    /// Length of this Mac's longest clip.
+    var longest: Double { primary?.duration ?? 0 }
+    /// Length of one loop: the common loop length from the master, else the longest clip.
+    var duration: Double {
+        if let c = schedule?.cycle, c > 0 { return c }
+        return longest
+    }
     var ready: Bool { nodes.values.contains { $0.ready } }
 
     func tick() { for n in nodes.values { n.tick() } }

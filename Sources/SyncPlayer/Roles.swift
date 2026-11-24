@@ -17,6 +17,13 @@ final class Master {
     var onDemote: (() -> Void)?
     /// Movie names, announced so followers can warn when theirs differ.
     var fileLabel: () -> String = { "" }
+    /// Loop policy from the show: together (common loop) and a fixed length (0 = automatic).
+    var loopPolicy: () -> (together: Bool, fixed: Double) = { (true, 0) }
+    /// Longest clip any follower reported (guarded by lock). Only grows, so a Mac that drops
+    /// out for a while does not change the loop for everyone.
+    private var reportedLongest = 0.0
+    private var longestSeen = 0.0
+    private let lock = NSLock()
 
     /// initial: the schedule to continue (already in this Mac's clock), so taking over is seamless.
     init(transport: Transport, broadcast: String, extraTargets: [String], initial: Schedule?, since: Double) throws {
@@ -33,6 +40,7 @@ final class Master {
         targets += extraTargets.map { UDPSocket.address($0, Ports.beacon) }
         if let initial {
             schedule = initial
+            longestSeen = initial.cycle ?? 0
         } else {
             schedule = Schedule(epoch: Int(Date().timeIntervalSince1970), playing: false,
                                 anchorHost: hostNow(), anchorMedia: transport.currentPosition())
@@ -43,6 +51,9 @@ final class Master {
         sock.onReceive = { [weak self] data, from in
             let t2 = hostNow()
             guard let self, let m = Message.decode(data), m.k == "p" else { return }
+            if let d = m.dur, d.isFinite, d > 0, d < 86_400 {
+                self.lock.lock(); self.reportedLongest = max(self.reportedLongest, d); self.lock.unlock()
+            }
             var reply = Message(k: "q")
             reply.id = m.id; reply.t1 = m.t1; reply.t2 = t2
             reply.t3 = hostNow()
@@ -61,8 +72,10 @@ final class Master {
         listen.start(queue: DispatchQueue(label: "master.listen"))
 
         timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            self?.updateCycle()
             self?.announce()
         }
+        updateCycle()
         announce()
     }
 
@@ -76,6 +89,32 @@ final class Master {
         m.mid = id; m.since = since; m.file = fileLabel()
         let data = m.encoded()
         for t in targets { sock.send(data, to: t) }
+    }
+
+    /// Keep the common loop length up to date (the longest clip on any Mac, or the show's fixed
+    /// length). When it changes, the loop restarts from the current position on every Mac.
+    private func updateCycle() {
+        let p = loopPolicy()
+        var want: Double? = nil
+        if p.together {
+            if p.fixed > 0 {
+                want = p.fixed
+            } else {
+                lock.lock(); let r = reportedLongest; lock.unlock()
+                longestSeen = max(longestSeen, r, transport.longest)
+                want = longestSeen > 0 ? longestSeen : nil
+            }
+        }
+        guard abs((schedule.cycle ?? 0) - (want ?? 0)) > 0.0005 else { return }
+        var s = schedule
+        s.epoch += 1
+        let at = hostNow() + (s.playing ? 0.3 : 0)
+        var t = transport.timeline(atLocal: at) ?? 0
+        if let c = want, c > 0 { t = t.truncatingRemainder(dividingBy: c) }
+        s.anchorMedia = max(0, t)
+        s.anchorHost = at
+        s.cycle = want
+        set(s)
     }
 
     private func set(_ s: Schedule) {
@@ -112,7 +151,7 @@ final class Master {
     func jump(to media: Double) {
         var s = schedule
         s.epoch += 1
-        // Wrap by the longest clip, so a jump past the end lands near the start.
+        // Wrap by the loop length, so a jump past the end lands near the start.
         let d = transport.duration
         var t = max(0, media)
         if d > 0 { t = t.truncatingRemainder(dividingBy: d) }
@@ -243,6 +282,7 @@ final class Follower {
         lock.unlock()
         var m = Message(k: "p")
         m.id = id
+        m.dur = transport.longest > 0 ? transport.longest : nil
         m.t1 = hostNow()
         clockSock.send(m.encoded(), to: addr)
     }

@@ -177,6 +177,19 @@ struct Sidebar: View {
                 Button("映像を足す…") { model.addClips() }
                 Spacer()
             }
+            Toggle("全部いっしょにループ", isOn: Binding(get: { model.show.loopTogether },
+                                                    set: { v in if model.show.loopTogether != v { model.show.loopTogether = v } }))
+                .help("すべての Mac の映像が同じ長さで頭へ戻る。短い映像は最後のコマで待つ（マスターの設定が使われる）")
+            if model.show.loopTogether {
+                HStack {
+                    Text("長さ")
+                    TextField("自動", value: Binding(get: { model.show.loopLength },
+                                                   set: { v in let x = max(0, v); if model.show.loopLength != x { model.show.loopLength = x } }),
+                              format: .number)
+                        .frame(width: 70)
+                    Text("秒（0 = いちばん長い映像）").font(.caption).foregroundColor(.secondary)
+                }
+            }
             Picker("音を出す映像", selection: Binding(get: { model.show.audioClip ?? model.show.clips.first?.id ?? "" },
                                                  set: { model.setAudioClip($0) })) {
                 ForEach(model.show.clips) { c in Text(c.name).tag(c.id) }

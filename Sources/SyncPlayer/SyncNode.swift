@@ -81,21 +81,38 @@ final class SyncNode {
 
     var ready: Bool { items.allSatisfy { $0.status == .readyToPlay } && duration > 0 }
 
-    private func wrap(_ t: Double) -> Double {
-        guard duration > 0 else { return t }
-        let r = t.truncatingRemainder(dividingBy: duration)
-        return r < 0 ? r + duration : r
+    /// Length of one loop. With a common loop (schedule.cycle, set by the master) every clip on
+    /// every Mac restarts together; a shorter clip holds its last frame until then.
+    /// Without it each clip loops by its own length.
+    var period: Double {
+        if let c = schedule?.cycle, c > 0 { return c }
+        return duration
+    }
+
+    private func phase(_ t: Double) -> Double {
+        let p = period
+        guard p > 0 else { return t }
+        let r = t.truncatingRemainder(dividingBy: p)
+        return r < 0 ? r + p : r
+    }
+
+    /// Position in the current loop at a local host time (may be past the clip's end: holding).
+    func loopPosition(atLocal h: Double) -> Double? {
+        guard let s = schedule, let off = clockOffset() else { return nil }
+        if !s.playing { return phase(s.anchorMedia) }
+        // Before the scheduled start the media waits at the anchor.
+        return phase(s.anchorMedia + max(0, h + off - s.anchorHost))
     }
 
     /// Where the media should be at a local host time.
     func expectedMedia(atLocal h: Double) -> Double? {
-        guard let s = schedule, let off = clockOffset() else { return nil }
-        if !s.playing { return wrap(s.anchorMedia) }
-        let m = h + off
-        // Before the scheduled start the media waits at the anchor (do not wrap backwards
-        // into the end of the movie).
-        return wrap(s.anchorMedia + max(0, m - s.anchorHost))
+        loopPosition(atLocal: h).map { min($0, duration) }
     }
+
+    /// At (or within the last frames before) the clip's end: the last frame is shown until the next loop.
+    private func holding(_ pos: Double) -> Bool { pos >= duration - 0.05 }
+
+    private var endTime: CMTime { CMTime(seconds: max(0, duration - 0.001), preferredTimescale: 600_000) }
 
     /// Which player's frames to show at a local host time. The armed player takes over exactly
     /// at the loop point, not at the next 20 Hz tick (the old one is frozen on its last frame).
@@ -127,7 +144,8 @@ final class SyncNode {
             if player.rate != 0 { player.pause() }
             if needsResync {
                 needsResync = false
-                player.seek(to: CMTime(seconds: wrap(s.anchorMedia), preferredTimescale: 600),
+                let pos = loopPosition(atLocal: hostNow()) ?? 0
+                player.seek(to: holding(pos) ? endTime : CMTime(seconds: pos, preferredTimescale: 600),
                             toleranceBefore: .zero, toleranceAfter: .zero)
             }
             return
@@ -149,12 +167,10 @@ final class SyncNode {
         }
 
         if now < settleUntil { return }          // the scheduled start is still ahead
-        if player.rate == 0 && armedAt == nil { resync(); return }
+        guard let pos = loopPosition(atLocal: now) else { return }
 
-        guard let expected = expectedMedia(atLocal: now) else { return }
-
-        // Arm the idle player for the next loop point.
-        let remaining = duration - expected
+        // Arm the idle player to start at 0 exactly at the next loop point.
+        let remaining = period - pos
         if armedAt == nil && remaining < armAhead && remaining > 0.03 {
             let at = now + remaining
             let next = players[1 - active]
@@ -163,8 +179,12 @@ final class SyncNode {
             armedAt = at
         }
 
+        // Holding the last frame until the loop point: nothing to correct.
+        if holding(pos) { lastError = 0; return }
+        if player.rate == 0 && armedAt == nil { resync(); return }
+
         let actual = player.currentTime().seconds
-        var err = actual - expected
+        var err = actual - pos
         if duration > 0 {   // shortest way around the loop point
             if err > duration / 2 { err -= duration }
             if err < -duration / 2 { err += duration }
@@ -185,19 +205,20 @@ final class SyncNode {
         // If the schedule starts later than that (play / jump announce ~0.3 s ahead),
         // start exactly at the scheduled moment instead of playing early.
         if let s = schedule, let off = clockOffset() { startLocal = max(startLocal, s.anchorHost - off) }
-        guard let media = expectedMedia(atLocal: startLocal) else { return }
-        // Do not start in the last frames: start at 0 exactly at the loop point instead.
-        var target = media
-        if duration > 0 && media > duration - 0.05 {
-            startLocal += duration - media
-            target = 0
-        }
+        guard let pos = loopPosition(atLocal: startLocal) else { return }
         needsResync = false
         resyncCount += 1
         errorEMA = 0
+        if holding(pos) {
+            // Show the last frame; tick() arms the other player for the next loop point.
+            player.pause()
+            player.seek(to: endTime, toleranceBefore: .zero, toleranceAfter: .zero)
+            settleUntil = startLocal
+            return
+        }
         settleUntil = startLocal + 0.1
         player.setRate(1.0,
-                       time: CMTime(seconds: target, preferredTimescale: 600_000),
+                       time: CMTime(seconds: pos, preferredTimescale: 600_000),
                        atHostTime: CMTime(seconds: startLocal, preferredTimescale: 1_000_000_000))
     }
 }
