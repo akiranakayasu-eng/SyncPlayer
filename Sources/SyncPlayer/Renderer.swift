@@ -19,14 +19,15 @@ enum FrameFormat {
         return b.reduce(OSType(0)) { ($0 << 8) | OSType($1) }
     }
 
-    /// Layouts to try, best first. ProRes 422 keeps its 10-bit 4:2:2 (x422) if the Mac delivers it.
+    /// Layouts to try, best first. ProRes 422 as 8-bit 4:2:2: on an M1 Air the 10-bit x422 was
+    /// slower (65 against 86 frames/s for 4K x4), so x422 is only used with --frames x422.
     static func chain(forCodec c: FourCharCode?) -> [OSType] {
         if let f = forced { return [f] }
         var out: [OSType] = []
         switch c {
         case kCMVideoCodecType_AppleProRes422, kCMVideoCodecType_AppleProRes422HQ,
              kCMVideoCodecType_AppleProRes422LT, kCMVideoCodecType_AppleProRes422Proxy:
-            out = [kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange, kCVPixelFormatType_422YpCbCr8BiPlanarVideoRange]
+            out = [kCVPixelFormatType_422YpCbCr8BiPlanarVideoRange]
         case kCMVideoCodecType_AppleProRes4444, kCMVideoCodecType_AppleProRes4444XQ:
             out = [kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange]
         default:
