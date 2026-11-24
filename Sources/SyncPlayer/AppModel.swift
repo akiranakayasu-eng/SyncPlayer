@@ -47,6 +47,8 @@ final class AppModel: ObservableObject {
     /// Info text on full-screen outputs (hidden unless I or H shows it, so an exhibition shows only the picture).
     var infoOnFull = false
     private var cursorHidden = false
+    /// Keeps the display and the Mac awake while playing or while an output is full screen.
+    private var awake: NSObjectProtocol?
     /// Large Mac name and screen number on every output (N key). On the master it also shows them on every Mac.
     @Published var showIdent = false
     /// An open / save panel is up (full-screen outputs stay down meanwhile).
@@ -905,6 +907,13 @@ final class AppModel: ObservableObject {
         transport.tick()
         tickCount += 1
         updateCursor()
+        let keepAwake = (transport.schedule?.playing ?? false) || outputs.values.contains { $0.isFull }
+        if keepAwake && awake == nil {
+            awake = ProcessInfo.processInfo.beginActivity(options: [.idleDisplaySleepDisabled, .idleSystemSleepDisabled],
+                                                          reason: "SyncPlayer: playing or showing full screen")
+        } else if !keepAwake, let a = awake {
+            ProcessInfo.processInfo.endActivity(a); awake = nil
+        }
         guard tickCount % 4 == 0 else { return }
         status.position = transport.displayTime()
         status.duration = transport.duration
