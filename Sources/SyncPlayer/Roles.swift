@@ -4,7 +4,7 @@ import Darwin
 /// Master: owns the schedule, answers clock pings, announces the schedule.
 /// Any Mac can become master. If it hears a newer master, it steps down (onDemote).
 final class Master {
-    let node: SyncNode
+    let transport: Transport
     let id = UUID().uuidString
     /// Priority: the newest master wins. Given by the caller as larger than any master this
     /// Mac has heard of, so a Mac whose wall clock is behind can still take over.
@@ -15,10 +15,12 @@ final class Master {
     private(set) var schedule: Schedule
     private var timer: Timer?
     var onDemote: (() -> Void)?
+    /// Movie names, announced so followers can warn when theirs differ.
+    var fileLabel: () -> String = { "" }
 
     /// initial: the schedule to continue (already in this Mac's clock), so taking over is seamless.
-    init(node: SyncNode, broadcast: String, extraTargets: [String], initial: Schedule?, since: Double) throws {
-        self.node = node
+    init(transport: Transport, broadcast: String, extraTargets: [String], initial: Schedule?, since: Double) throws {
+        self.transport = transport
         self.since = since
         sock = try UDPSocket(port: Ports.clock, broadcast: true)
         do {
@@ -32,12 +34,11 @@ final class Master {
         if let initial {
             schedule = initial
         } else {
-            let pos = node.ready ? node.player.currentTime().seconds : 0
             schedule = Schedule(epoch: Int(Date().timeIntervalSince1970), playing: false,
-                                anchorHost: hostNow(), anchorMedia: pos.isFinite ? pos : 0)
+                                anchorHost: hostNow(), anchorMedia: transport.currentPosition())
         }
-        node.clockOffset = { 0 }
-        node.schedule = schedule
+        transport.clockOffset = { 0 }
+        transport.schedule = schedule
 
         sock.onReceive = { [weak self] data, from in
             let t2 = hostNow()
@@ -72,19 +73,19 @@ final class Master {
 
     private func announce() {
         var m = Message(k: "b", s: schedule)
-        m.mid = id; m.since = since; m.file = node.url.lastPathComponent
+        m.mid = id; m.since = since; m.file = fileLabel()
         let data = m.encoded()
         for t in targets { sock.send(data, to: t) }
     }
 
     private func set(_ s: Schedule) {
         schedule = s
-        node.schedule = s
+        transport.schedule = s
         announce()
     }
 
-    /// Current media position by the schedule.
-    func position() -> Double { node.expectedMedia(atLocal: hostNow()) ?? 0 }
+    /// Current timeline position by the schedule (not wrapped: each clip wraps by its own length).
+    func position() -> Double { transport.timeline(atLocal: hostNow()) ?? 0 }
 
     func togglePlay() { schedule.playing ? pause() : play() }
 
@@ -111,8 +112,11 @@ final class Master {
     func jump(to media: Double) {
         var s = schedule
         s.epoch += 1
-        let d = node.duration
-        s.anchorMedia = d > 0 ? min(max(0, media), d - 0.05) : max(0, media)
+        // Wrap by the longest clip, so a jump past the end lands near the start.
+        let d = transport.duration
+        var t = max(0, media)
+        if d > 0 { t = t.truncatingRemainder(dividingBy: d) }
+        s.anchorMedia = t
         s.anchorHost = hostNow() + 0.3
         set(s)
     }
@@ -124,7 +128,7 @@ final class Master {
 /// Follows the newest master; switches to another only if that one is newer or the
 /// current one has been silent for more than 1 s.
 final class Follower {
-    let node: SyncNode
+    let transport: Transport
     let clock = ClockSync()
     private let beaconSock: UDPSocket
     private let clockSock: UDPSocket
@@ -149,12 +153,12 @@ final class Follower {
 
     /// provisionalOffset: the offset the node's current schedule is in (0 when this Mac was
     /// the master), so playback continues while the clock to the new master is learned.
-    init(node: SyncNode, provisionalOffset: Double?) throws {
-        self.node = node
+    init(transport: Transport, provisionalOffset: Double?) throws {
+        self.transport = transport
         provisional = provisionalOffset
         beaconSock = try UDPSocket(port: Ports.beacon, reusePort: true)
         clockSock = try UDPSocket(port: 0)
-        node.clockOffset = { [weak self] in
+        transport.clockOffset = { [weak self] in
             guard let self else { return nil }
             if !self.adopted { return self.provisional }
             self.lock.lock(); defer { self.lock.unlock() }
@@ -174,7 +178,7 @@ final class Follower {
                     guard self.masterID == nil || newer || silent else { return }
                     // Keep playing the current schedule with the offset it is in until the
                     // clock to the new master is known.
-                    self.provisional = node.schedule != nil ? node.clockOffset() : nil
+                    self.provisional = transport.schedule != nil ? transport.clockOffset() : nil
                     self.adopted = false
                     self.masterID = mid
                     self.masterSince = since
@@ -191,7 +195,7 @@ final class Follower {
                     self.lock.lock(); let ready = self.clock.ready; self.lock.unlock()
                     if ready { self.adopted = true; self.provisional = nil }
                 }
-                if self.adopted && node.schedule != s { node.schedule = s }
+                if self.adopted && transport.schedule != s { transport.schedule = s }
             }
         }
         clockSock.onReceive = { [weak self] data, _ in
@@ -219,7 +223,7 @@ final class Follower {
 
     /// The master's schedule converted to this Mac's clock (to take over as master).
     func localSchedule() -> Schedule? {
-        guard var s = node.schedule, let off = node.clockOffset() else { return nil }
+        guard var s = transport.schedule, let off = transport.clockOffset() else { return nil }
         s.anchorHost -= off
         return s
     }
