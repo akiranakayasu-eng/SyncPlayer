@@ -147,6 +147,12 @@ final class AppModel: ObservableObject {
         selectedOutput = show.outputs.first?.id
         setRole(master: opts.master)
         installKeys()
+        // Another app or a macOS dialog (e.g. the local network permission) in front: full-screen
+        // outputs step down so it is not hidden behind them; back up when SyncPlayer is active again.
+        NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
+                                               object: nil, queue: .main) { [weak self] _ in self?.setFullLevel(up: false) }
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
+                                               object: nil, queue: .main) { [weak self] _ in self?.setFullLevel(up: true) }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in self?.screensChanged() }
 
@@ -681,14 +687,19 @@ final class AppModel: ObservableObject {
     func toggleControl() {
         guard let c = control else { return }
         let anyFull = outputs.values.contains { $0.isFull }
+        let coveredScreen = outputs.values.contains { $0.isFull && $0.window.screen == c.screen }
         // Hide only when it is really in front (it may hold the keys while a full-screen output covers it).
-        if c.isVisible && c.isKeyWindow && (!anyFull || c.level > OutputWindow.fullLevel) {
+        if c.isVisible && c.isKeyWindow && (!coveredScreen || c.level.rawValue > OutputWindow.fullLevel.rawValue) {
             c.orderOut(nil); c.level = .normal; return
         }
         // Above full-screen outputs while it is up; S again hides it.
         c.level = anyFull ? NSWindow.Level(rawValue: OutputWindow.fullLevel.rawValue + 1) : .normal
         c.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func setFullLevel(up: Bool) {
+        for w in outputs.values where w.isFull { w.window.level = up ? OutputWindow.fullLevel : .normal }
     }
 
     /// Run an open / save panel. Full-screen outputs sit above the menu bar, so they are lowered
@@ -902,7 +913,20 @@ final class AppModel: ObservableObject {
 
     /// Text in the control window: each clip's state as well.
     private func statusText() -> String {
-        var s = roleLine() + clockLines()
+        var s = roleLine()
+        // Warnings first: the status box shows about 8 lines.
+        for o in show.outputs {
+            for l in o.layers {
+                guard let m = l.mask else { continue }
+                let name = (m as NSString).lastPathComponent
+                if missingFiles().contains(m) {
+                    s += "\n⚠︎ マスク \(name) が見つかりません（\(o.name)）— マスクなしで映っています"
+                } else if GPU.shared?.maskReady(m) == false {
+                    s += "\n⚠︎ マスク \(name) を読めません（\(o.name)）— マスクなしで映っています"
+                }
+            }
+        }
+        s += clockLines()
         for (id, n) in transport.orderedNodes {
             let name = clipName(id)
             if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
@@ -916,17 +940,6 @@ final class AppModel: ObservableObject {
                     s += String(format: "  %dx%d %@%@  dropped %d",
                                 Int(n.videoSize.width), Int(n.videoSize.height), f.format,
                                 f.gaveUp ? "（コマが届かない）" : f.fellBack ? "（形を下げた）" : "", f.framesDropped)
-                }
-            }
-        }
-        for o in show.outputs {
-            for l in o.layers {
-                guard let m = l.mask else { continue }
-                let name = (m as NSString).lastPathComponent
-                if missingFiles().contains(m) {
-                    s += "\n⚠︎ マスク \(name) が見つかりません（\(o.name)）— マスクなしで映っています"
-                } else if GPU.shared?.maskReady(m) == false {
-                    s += "\n⚠︎ マスク \(name) を読めません（\(o.name)）— マスクなしで映っています"
                 }
             }
         }
