@@ -122,7 +122,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             chosen = u.path
         }
-        guard let path = chosen else { exit(1) }
+        guard let given = chosen else { exit(1) }
+        // Remember an absolute path: a relative one given on the command line would not be
+        // found when the app is next started by double-click (its working directory is /).
+        let path = URL(fileURLWithPath: given).standardizedFileURL.path
         UserDefaults.standard.set(path, forKey: "lastMovie")
         if let p = opts.preset, let s = PresetStore.load(p) { settings = s; lastPreset = p }
         else if let s = PresetStore.loadLast() { settings = s }
@@ -470,9 +473,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func printLog() {
-        var line = String(format: "%.3f\t%@\t%@\terr_ms=%+.2f\tavg_ms=%+.2f\trate=%.4f\tjumps=%d\tloops=%d",
+        let pos = node.player.currentTime().seconds
+        var line = String(format: "%.3f\t%@\t%@\tpos=%.3f\terr_ms=%+.2f\tavg_ms=%+.2f\trate=%.4f\tjumps=%d\tloops=%d",
                           Date().timeIntervalSince1970, opts.name, master != nil ? "M" : "F",
-                          node.lastError * 1000, node.errorEMA * 1000, node.player.rate,
+                          pos.isFinite ? pos : 0, node.lastError * 1000, node.errorEMA * 1000, node.player.rate,
                           node.resyncCount, node.loopCount)
         if let st = follower?.stats {
             line += String(format: "\toffset_ms=%+.3f\trtt_ms=%.3f", st.offset * 1000, st.rtt * 1000)
