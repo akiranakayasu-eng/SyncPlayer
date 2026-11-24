@@ -106,12 +106,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         buildMenu()
         // Started by double-click (no file given): use the last movie, or ask for one.
-        var path = opts.file
-        if path == nil, let last = UserDefaults.standard.string(forKey: "lastMovie"),
+        var chosen = opts.file
+        if chosen == nil, let last = UserDefaults.standard.string(forKey: "lastMovie"),
            FileManager.default.fileExists(atPath: last) {
-            path = last
+            chosen = last
         }
-        if path == nil || !FileManager.default.fileExists(atPath: path!) {
+        if chosen == nil || !FileManager.default.fileExists(atPath: chosen!) {
             NSApp.activate(ignoringOtherApps: true)
             let p = NSOpenPanel()
             p.message = "同期再生する映像を選んでください"
@@ -120,9 +120,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 print("usage: SyncPlayer [--master|--follower] <movie> [--preset NAME] [--audio|--mute] ...")
                 exit(1)
             }
-            path = u.path
+            chosen = u.path
         }
-        guard let path else { exit(1) }
+        guard let path = chosen else { exit(1) }
         UserDefaults.standard.set(path, forKey: "lastMovie")
         if let p = opts.preset, let s = PresetStore.load(p) { settings = s; lastPreset = p }
         else if let s = PresetStore.loadLast() { settings = s }
