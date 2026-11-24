@@ -121,8 +121,6 @@ struct TopBar: View {
                 .disabled(!status.isMaster)
                 .help("位置を打って Return: 全台がその位置へ（分:秒 か 秒）")
 
-            Toggle("名前と番号", isOn: $model.showIdent)
-                .help("N キー。出力にこの Mac の名前と画面の番号を大きく出す（設営のとき用）")
             Toggle("音", isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) }))
                 .help("A キー。この Mac で音を出すか")
             Button("ショーを開く…") { model.openShow() }
@@ -290,6 +288,9 @@ struct Inspector: View {
     /// Settings for an exhibition: after a restart the Mac comes back as it was.
     @ViewBuilder private var exhibitSection: some View {
         SectionTitle("展示（この Mac）")
+        Toggle("名前とディスプレイの番号を大きく出す（N）", isOn: $model.showIdent)
+            .help("設営のとき用。マスターで入れると全台に出る")
+        Toggle("動作確認の文字を出す（I）", isOn: Binding(get: { model.infoShownNow }, set: { model.setInfoShown($0) }))
         Toggle("ログインしたら SyncPlayer を開く", isOn: Binding(get: { model.openAtLogin }, set: { model.openAtLogin = $0 }))
         Toggle("この Mac はマスターで始める", isOn: Binding(get: { model.show.startAsMaster ?? false },
                                                     set: { model.setRoleByUser(master: $0) }))

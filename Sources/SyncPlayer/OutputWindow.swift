@@ -1,6 +1,11 @@
 import AppKit
 import MetalKit
 
+/// A text label that lets clicks through, so the edit points under it can still be dragged.
+final class PassThroughLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// A borderless (full-screen) window can still take the keys.
 final class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
@@ -59,9 +64,9 @@ final class OutputWindow: NSObject, NSWindowDelegate {
     let id: String
     let window: KeyableWindow
     let picture: PictureView
-    let info = NSTextField(labelWithString: "")
+    let info = PassThroughLabel(labelWithString: "")
     /// Large Mac name and screen number in the middle (N key), to tell screens apart when setting up.
-    let ident = NSTextField(labelWithString: "")
+    let ident = PassThroughLabel(labelWithString: "")
     var onBecomeKey: (() -> Void)?
     private var windowedFrame: NSRect?
     private(set) var isFull = false
@@ -152,7 +157,14 @@ final class OutputWindow: NSObject, NSWindowDelegate {
     func layoutIdent(_ text: String?) {
         guard let text else { if !ident.isHidden { ident.isHidden = true }; return }
         let b = picture.bounds
-        let size = max(24, min(b.height / 7, b.width / 12))
+        // As large as fits: start from the window's height and shrink until the longest line fits.
+        var size = max(18, min(b.height / 7, b.width / 12))
+        let longest = text.split(separator: "\n").max { $0.count < $1.count }.map(String.init) ?? text
+        while size > 18 {
+            let w = (longest as NSString).size(withAttributes: [.font: NSFont.boldSystemFont(ofSize: size)]).width
+            if w + size <= b.width - 20 { break }
+            size *= 0.9
+        }
         if ident.font?.pointSize != size { ident.font = .boldSystemFont(ofSize: size) }
         if ident.stringValue != text { ident.stringValue = text }
         let fit = ident.sizeThatFits(NSSize(width: b.width - 40, height: b.height))

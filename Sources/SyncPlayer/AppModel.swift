@@ -391,6 +391,17 @@ final class AppModel: ObservableObject {
         NSApp.presentationOptions = coversMain ? [.hideDock, .hideMenuBar] : []
     }
 
+    /// Whether the info text is shown now (on full-screen outputs when there are any).
+    var infoShownNow: Bool { outputs.values.contains(where: { $0.isFull }) ? infoOnFull : !infoHidden }
+
+    /// One switch for every output (I key and the control window).
+    func setInfoShown(_ on: Bool) {
+        infoOnFull = on; infoHidden = !on
+        helpSaved = nil
+        refreshInfo()
+        objectWillChange.send()
+    }
+
     /// Show or hide the info text on each output (full-screen ones follow infoOnFull).
     private func refreshInfo() {
         for w in outputs.values { w.info.isHidden = w.isFull ? !infoOnFull : infoHidden }
@@ -854,12 +865,7 @@ final class AppModel: ObservableObject {
         case "r": master?.jump(to: 0)
         case "m": toggleRole()
         case "s": toggleControl()
-        case "i":
-            // One switch for every output: with a full-screen output, start from its state.
-            let shown = outputs.values.contains(where: { $0.isFull }) ? infoOnFull : !infoHidden
-            infoOnFull = !shown; infoHidden = shown
-            helpSaved = nil
-            refreshInfo()
+        case "i": setInfoShown(!infoShownNow)
         case "h", "?":
             showHelp.toggle()
             if showHelp {
@@ -925,8 +931,12 @@ final class AppModel: ObservableObject {
         for (id, w) in outputs {
             // Shown when N is on here, or when the master has N on (every Mac at once).
             guard showIdent || (follower.map { $0.masterIdent && $0.masterAlive } ?? false), let o = show.outputs.first(where: { $0.id == id }) else { w.layoutIdent(nil); continue }
-            // The physical display (as numbered in the control window's screen list) and the output's name.
-            w.layoutIdent("\(opts.name)\nディスプレイ \(o.screen + 1)\n\(o.name)")
+            // The display the window is really on (numbered as in the control window's screen list);
+            // when that differs from the setting (not plugged in, moved by hand), both are shown.
+            let real = w.window.screen.flatMap { NSScreen.screens.firstIndex(of: $0) }.map { $0 + 1 }
+            let set = o.screen + 1
+            let disp = real == nil || real == set ? "ディスプレイ \(set)" : "ディスプレイ \(real!)（設定は \(set)）"
+            w.layoutIdent("\(opts.name)\n\(disp)\n\(o.name)")
         }
         previewBox?.aspect = selectedOutputAspect
         if editMode != .none && tickCount % 20 == 0 { redrawOverlays() }
