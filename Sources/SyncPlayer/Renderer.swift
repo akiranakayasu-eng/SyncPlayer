@@ -2,34 +2,67 @@ import Foundation
 import MetalKit
 import AVFoundation
 import CoreVideo
+import CoreMedia
 
-/// Draws the playing picture with Metal: a fine grid of triangles carries the corner pin,
-/// mesh warp and content transform; the fragment shader does crop, edge blend and the test grid.
-/// Timing is untouched: the frame for "now" is taken from the active player's video output.
-final class VideoRenderer: NSObject, MTKViewDelegate {
+/// How video frames reach the GPU. YUV (two planes, the decoder's own layout) is converted to
+/// RGB in the shader, so no separate conversion pass is needed per frame. BGRA is kept for tests.
+enum FrameFormat {
+    /// Test: always ask for this layout (--bgra, --frames 420v / 422v / x422 / BGRA).
+    static var forced: OSType?
+    static var bgra: Bool {
+        get { forced == kCVPixelFormatType_32BGRA }
+        set { forced = newValue ? kCVPixelFormatType_32BGRA : nil }
+    }
+    static func code(_ s: String) -> OSType? {
+        let b = Array(s.utf8)
+        guard b.count == 4 else { return nil }
+        return b.reduce(OSType(0)) { ($0 << 8) | OSType($1) }
+    }
+
+    /// Layouts to try, best first. ProRes 422 as 8-bit 4:2:2: on an M1 Air the 10-bit x422 was
+    /// slower (65 against 86 frames/s for 4K x4), so x422 is only used with --frames x422.
+    static func chain(forCodec c: FourCharCode?) -> [OSType] {
+        if let f = forced { return [f] }
+        var out: [OSType] = []
+        switch c {
+        case kCMVideoCodecType_AppleProRes422, kCMVideoCodecType_AppleProRes422HQ,
+             kCMVideoCodecType_AppleProRes422LT, kCMVideoCodecType_AppleProRes422Proxy:
+            out = [kCVPixelFormatType_422YpCbCr8BiPlanarVideoRange]
+        case kCMVideoCodecType_AppleProRes4444, kCMVideoCodecType_AppleProRes4444XQ:
+            out = [kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange]
+        default:
+            break
+        }
+        out += [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_32BGRA]
+        return out
+    }
+    static func name(_ t: OSType) -> String {
+        let b = [24, 16, 8, 0].map { UInt8((t >> UInt32($0)) & 0xff) }
+        return String(bytes: b, encoding: .ascii) ?? String(t)
+    }
+
+}
+
+/// Metal objects shared by every view: device, pipeline (premultiplied alpha, so layers stack),
+/// texture cache for video frames, and the grid's index buffer.
+final class GPU {
+    static let shared = GPU()
+
     let device: MTLDevice
-    private let queue: MTLCommandQueue
-    private let pipeline: MTLRenderPipelineState
-    private var cache: CVMetalTextureCache?
-    private var vertexBuffer: MTLBuffer?
-    private var indexBuffer: MTLBuffer?
-    private var indexCount = 0
-    private var dirty = true
-    private var currentTexture: CVMetalTexture?
-    private var blank: MTLTexture?
-    private let N = 48   // grid subdivisions
-
-    weak var node: SyncNode?
-    var settings = DisplaySettings() { didSet { if settings != oldValue { dirty = true } } }
-    private(set) var viewAspect = 16.0 / 9.0
-    private(set) var videoAspect = 0.0 { didSet { if videoAspect != oldValue { dirty = true; onVideoAspect?() } } }
-    var onVideoAspect: (() -> Void)?
+    let queue: MTLCommandQueue
+    let pipeline: MTLRenderPipelineState
+    let cache: CVMetalTextureCache
+    let blank: MTLTexture
+    let indexBuffer: MTLBuffer
+    let indexCount: Int
+    static let N = 48   // grid subdivisions
 
     static let shader = """
     #include <metal_stdlib>
     using namespace metal;
     struct Out { float4 position [[position]]; float2 uv; float2 outPos; };
-    struct U { float4 crop; float4 blend; float gamma; float grid; float hasTex; float pad; };
+    struct U { float4 crop; float4 blend; float gamma; float grid; float hasTex; float opacity;
+               float yuv; float pad0; float pad1; float pad2; };
 
     vertex Out vmain(uint vid [[vertex_id]], const device float4* v [[buffer(0)]]) {
         Out o;
@@ -40,14 +73,31 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
         return o;
     }
 
-    fragment float4 fmain(Out in [[stage_in]], texture2d<float> tex [[texture(0)]], constant U& u [[buffer(0)]]) {
+    // Video-range Y'CbCr (8 bit) to RGB. m: 1 = BT.709, 2 = BT.601, 3 = BT.2020 (matrix only;
+    // the picture is not tone-mapped, so HDR movies look flat).
+    float3 toRGB(float y, float2 c, float m) {
+        y = (y - 16.0 / 255.0) * (255.0 / 219.0);
+        c = (c - 128.0 / 255.0) * (255.0 / 224.0);
+        float3 rgb;
+        if (m > 2.5)      rgb = float3(y + 1.4746 * c.y, y - 0.164553 * c.x - 0.571353 * c.y, y + 1.8814 * c.x);
+        else if (m > 1.5) rgb = float3(y + 1.402 * c.y, y - 0.344136 * c.x - 0.714136 * c.y, y + 1.772 * c.x);
+        else              rgb = float3(y + 1.5748 * c.y, y - 0.187324 * c.x - 0.468124 * c.y, y + 1.8556 * c.x);
+        return saturate(rgb);
+    }
+
+    fragment float4 fmain(Out in [[stage_in]], texture2d<float> tex [[texture(0)]],
+                          texture2d<float> chroma [[texture(1)]], constant U& u [[buffer(0)]]) {
         constexpr sampler s(filter::linear, address::clamp_to_edge);
         float2 uv = in.uv;
-        // crop: x=L y=R z=T w=B (uv y points up)
+        // crop: x=L y=R z=T w=B (uv y points up). Cropped parts show what is behind.
         if (uv.x < u.crop.x || uv.x > 1.0 - u.crop.y || uv.y > 1.0 - u.crop.z || uv.y < u.crop.w) {
-            return float4(0, 0, 0, 1);
+            discard_fragment();
         }
-        float4 c = u.hasTex > 0.5 ? tex.sample(s, float2(uv.x, 1.0 - uv.y)) : float4(0.1, 0.1, 0.1, 1);
+        float2 st = float2(uv.x, 1.0 - uv.y);
+        float4 c = float4(0.1, 0.1, 0.1, 1);
+        if (u.hasTex > 0.5) {
+            c = u.yuv > 0.5 ? float4(toRGB(tex.sample(s, st).r, chroma.sample(s, st).rg, u.yuv), 1.0) : tex.sample(s, st);
+        }
         if (u.grid > 0.5) {
             float2 g = uv * 10.0;
             float2 d = abs(fract(g - 0.5) - 0.5) / max(fwidth(g), float2(1e-5));
@@ -65,44 +115,59 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
         if (u.blend.y > 0.0) f *= pow(smoothstep(0.0, 1.0, clamp((1.0 - p.x) / u.blend.y, 0.0, 1.0)), ig);
         if (u.blend.z > 0.0) f *= pow(smoothstep(0.0, 1.0, clamp((1.0 - p.y) / u.blend.z, 0.0, 1.0)), ig);
         if (u.blend.w > 0.0) f *= pow(smoothstep(0.0, 1.0, clamp(p.y / u.blend.w, 0.0, 1.0)), ig);
-        return float4(c.rgb * f, 1.0);
+        // Premultiplied: over black this is the same as darkening; over another layer it fades into it.
+        float a = clamp(u.opacity, 0.0, 1.0) * f;
+        return float4(c.rgb * a, a);
     }
     """
 
-    init?(view: MTKView) {
+    private init?() {
         guard let dev = MTLCreateSystemDefaultDevice(), let q = dev.makeCommandQueue() else { return nil }
         device = dev
         queue = q
         do {
-            let lib = try dev.makeLibrary(source: VideoRenderer.shader, options: nil)
+            let lib = try dev.makeLibrary(source: GPU.shader, options: nil)
             let desc = MTLRenderPipelineDescriptor()
             desc.vertexFunction = lib.makeFunction(name: "vmain")
             desc.fragmentFunction = lib.makeFunction(name: "fmain")
-            desc.colorAttachments[0].pixelFormat = .bgra8Unorm
+            let ca = desc.colorAttachments[0]!
+            ca.pixelFormat = .bgra8Unorm
+            ca.isBlendingEnabled = true
+            ca.rgbBlendOperation = .add
+            ca.alphaBlendOperation = .add
+            ca.sourceRGBBlendFactor = .one
+            ca.sourceAlphaBlendFactor = .one
+            ca.destinationRGBBlendFactor = .oneMinusSourceAlpha
+            ca.destinationAlphaBlendFactor = .oneMinusSourceAlpha
             pipeline = try dev.makeRenderPipelineState(descriptor: desc)
         } catch {
             print("Metal setup failed: \(error)")
             return nil
         }
-        CVMetalTextureCacheCreate(nil, nil, dev, nil, &cache)
+        var c: CVMetalTextureCache?
+        CVMetalTextureCacheCreate(nil, nil, dev, nil, &c)
+        guard let c else { return nil }
+        cache = c
         let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: 1, height: 1, mipmapped: false)
-        blank = dev.makeTexture(descriptor: td)
-        super.init()
-        view.device = dev
-        view.colorPixelFormat = .bgra8Unorm
-        view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-        view.delegate = self
-        view.preferredFramesPerSecond = 120
-        let s = view.drawableSize
-        if s.height > 0 { viewAspect = Double(s.width / s.height) }
+        guard let b = dev.makeTexture(descriptor: td) else { return nil }
+        blank = b
+        let N = GPU.N
+        var idx: [UInt32] = []
+        idx.reserveCapacity(N * N * 6)
+        for j in 0..<N {
+            for i in 0..<N {
+                let a = UInt32(j * (N + 1) + i), b = a + 1, c = a + UInt32(N + 1), d = c + 1
+                idx += [a, b, d, a, d, c]
+            }
+        }
+        guard let ib = dev.makeBuffer(bytes: idx, length: idx.count * 4) else { return nil }
+        indexBuffer = ib
+        indexCount = idx.count
     }
 
-    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        if size.height > 0 { viewAspect = Double(size.width / size.height); dirty = true }
-    }
-
-    private func rebuild() {
-        let s = settings
+    /// Grid vertices (output x,y + source u,v) for one layer's look.
+    func vertices(_ s: DisplaySettings, viewAspect: Double, videoAspect: Double) -> MTLBuffer? {
+        let N = GPU.N
         let H = Warp.Homography(Warp.corners(s, viewAspect: viewAspect, videoAspect: videoAspect))
         let m = s.meshOffsets
         var verts: [SIMD4<Float>] = []
@@ -115,54 +180,189 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
                 verts.append(SIMD4(Float(o.x), Float(o.y), Float(src.x), Float(src.y)))
             }
         }
-        var idx: [UInt32] = []
-        idx.reserveCapacity(N * N * 6)
-        for j in 0..<N {
-            for i in 0..<N {
-                let a = UInt32(j * (N + 1) + i), b = a + 1, c = a + UInt32(N + 1), d = c + 1
-                idx += [a, b, d, a, d, c]
-            }
+        return device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<SIMD4<Float>>.stride)
+    }
+}
+
+/// The latest video frame of one clip, shared by every view that shows the clip.
+/// Timing is untouched: the frame for "now" is taken from the node's active player.
+final class FrameSource {
+    let node: SyncNode
+    /// BGRA: the picture. YUV: the Y plane; chromaTexture holds CbCr.
+    private(set) var texture: CVMetalTexture?
+    private(set) var chromaTexture: CVMetalTexture?
+    /// 0 = BGRA, 1 = BT.709, 2 = BT.601, 3 = BT.2020 (for the shader).
+    private(set) var yuvMatrix: Float = 0
+    private(set) var aspect = 0.0
+    /// Pixel format of the last frame, as four letters (e.g. 420v, 422v, BGRA).
+    private(set) var format = "-"
+    private var lastFrameAt = -1.0
+    private var waitSince = -1.0
+    /// True once a layout gave no frames and the next one was used (shown in the status).
+    private(set) var fellBack = false
+    /// True when even the last layout gave no frames (shown in the status).
+    private(set) var gaveUp = false
+
+    init(node: SyncNode) { self.node = node }
+
+    // Load check: frames shown and frames skipped (a gap larger than one frame in the movie's time).
+    private(set) var framesShown = 0
+    private(set) var framesDropped = 0
+    private var lastShown = -1.0
+
+    private func count(_ t: Double) {
+        guard t.isFinite else { return }
+        framesShown += 1
+        let fd = node.frameDuration
+        if lastShown >= 0, fd > 0 {
+            let gap = t - lastShown
+            // Ignore loop points, jumps and restarts.
+            if gap > fd * 1.5 && gap < 0.5 { framesDropped += Int((gap / fd).rounded()) - 1 }
         }
-        vertexBuffer = device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<SIMD4<Float>>.stride)
-        indexBuffer = device.makeBuffer(bytes: idx, length: idx.count * 4)
-        indexCount = idx.count
-        dirty = false
+        lastShown = t
     }
 
-    private func fetchFrame() {
-        guard let node, let cache else { return }
-        let now = CACurrentMediaTime()
+    func fetch(now: Double) {
+        guard let gpu = GPU.shared else { return }
+        guard node.outputs.count == 2 else { return }
         let out = node.outputs[node.displayIndex(atLocal: now)]
         let t = out.itemTime(forHostTime: now)
-        guard out.hasNewPixelBuffer(forItemTime: t),
-              let pb = out.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: nil) else { return }
+        guard out.hasNewPixelBuffer(forItemTime: t) else {
+            // No frame at all in this layout after 6 s of playing: try the next layout. Counted
+            // only while the player runs (a stopped follower without a master gets no frames).
+            if node.ready, lastFrameAt < node.outputsSince, node.player.rate != 0 {
+                if waitSince < node.outputsSince { waitSince = now }
+                if now - waitSince > 6 && !gaveUp {
+                    let tried = FrameFormat.name(node.currentFormat ?? 0)
+                    if node.useNextFormat() {
+                        print("frames: no frame as \(tried) after 6 s of playing, trying \(FrameFormat.name(node.currentFormat ?? 0))")
+                        fellBack = true
+                    } else {
+                        print("frames: no frame as \(tried) after 6 s of playing, no other layout left")
+                        gaveUp = true
+                    }
+                    fflush(stdout)
+                }
+            } else if node.player.rate == 0 {
+                waitSince = now   // restart the count when playing starts
+            }
+            return
+        }
+        lastFrameAt = now
+        gaveUp = false   // a late frame did come
+        var shown = CMTime.invalid
+        guard let pb = out.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: &shown) else { return }
+        count(shown.seconds)
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
-        if h > 0 { videoAspect = Double(w) / Double(h) }
-        var tex: CVMetalTexture?
-        CVMetalTextureCacheCreateTextureFromImage(nil, cache, pb, nil, .bgra8Unorm, w, h, 0, &tex)
-        if tex != nil { currentTexture = tex }
+        format = FrameFormat.name(CVPixelBufferGetPixelFormatType(pb))
+        if h > 0 { aspect = Double(w) / Double(h) }
+        if CVPixelBufferGetPlaneCount(pb) >= 2 {
+            // 10-bit layouts keep each value in the top bits of 16, so the same math applies.
+            let wide = CVPixelBufferGetPixelFormatType(pb) == kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange
+                    || CVPixelBufferGetPixelFormatType(pb) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+            var y: CVMetalTexture?, c: CVMetalTexture?
+            CVMetalTextureCacheCreateTextureFromImage(nil, gpu.cache, pb, nil, wide ? .r16Unorm : .r8Unorm,
+                                                      CVPixelBufferGetWidthOfPlane(pb, 0), CVPixelBufferGetHeightOfPlane(pb, 0), 0, &y)
+            CVMetalTextureCacheCreateTextureFromImage(nil, gpu.cache, pb, nil, wide ? .rg16Unorm : .rg8Unorm,
+                                                      CVPixelBufferGetWidthOfPlane(pb, 1), CVPixelBufferGetHeightOfPlane(pb, 1), 1, &c)
+            guard y != nil, c != nil else { return }
+            texture = y; chromaTexture = c
+            // The movie's matrix; without one, SD (below 720 lines) is BT.601 and the rest BT.709.
+            let m = CVBufferCopyAttachment(pb, kCVImageBufferYCbCrMatrixKey, nil) as? String
+            if m == (kCVImageBufferYCbCrMatrix_ITU_R_601_4 as String) {
+                yuvMatrix = 2
+            } else if m == (kCVImageBufferYCbCrMatrix_ITU_R_2020 as String) {
+                yuvMatrix = 3
+            } else if m == (kCVImageBufferYCbCrMatrix_ITU_R_709_2 as String)
+                        || m == (kCVImageBufferYCbCrMatrix_SMPTE_240M_1995 as String) {   // 240M is close to 709
+                yuvMatrix = 1
+            } else {
+                yuvMatrix = h < 720 ? 2 : 1
+            }
+        } else {
+            var tex: CVMetalTexture?
+            CVMetalTextureCacheCreateTextureFromImage(nil, gpu.cache, pb, nil, .bgra8Unorm, w, h, 0, &tex)
+            guard tex != nil else { return }
+            texture = tex; chromaTexture = nil; yuvMatrix = 0
+        }
+    }
+
+    var mtlTexture: MTLTexture? { texture.flatMap { CVMetalTextureGetTexture($0) } }
+    var mtlChroma: MTLTexture? { chromaTexture.flatMap { CVMetalTextureGetTexture($0) } }
+}
+
+/// Draws an output's layers into one MTKView (an output window or the preview).
+final class OutputRenderer: NSObject, MTKViewDelegate {
+    /// Supplied by the controller: the layers to draw (back to front) and each clip's frames.
+    var layers: () -> [Layer] = { [] }
+    var frames: (String) -> FrameSource? = { _ in nil }
+    private(set) var viewAspect = 16.0 / 9.0
+    /// Frames drawn in the last full second (load check).
+    private(set) var drawRate = 0.0
+    private var drawCount = 0
+    private var drawSince = CACurrentMediaTime()
+
+    private struct Key: Equatable { var look: DisplaySettings; var view: Double; var video: Double }
+    private var buffers: [String: (key: Key, buf: MTLBuffer)] = [:]
+
+    init?(view: MTKView, fps: Int) {
+        guard let gpu = GPU.shared else { return nil }
+        super.init()
+        view.device = gpu.device
+        view.colorPixelFormat = .bgra8Unorm
+        view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        view.delegate = self
+        view.preferredFramesPerSecond = fps
+        let s = view.drawableSize
+        if s.height > 0 { viewAspect = Double(s.width / s.height) }
+    }
+
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        if size.height > 0 { viewAspect = Double(size.width / size.height) }
+    }
+
+    private func buffer(for l: Layer, video: Double) -> MTLBuffer? {
+        let k = Key(look: l.look, view: viewAspect, video: video)
+        if let c = buffers[l.id], c.key == k { return c.buf }
+        guard let b = GPU.shared?.vertices(l.look, viewAspect: viewAspect, videoAspect: video) else { return nil }
+        buffers[l.id] = (k, b)
+        return b
     }
 
     func draw(in view: MTKView) {
-        fetchFrame()
-        if dirty { rebuild() }
-        guard let rpd = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
-              let cb = queue.makeCommandBuffer(), let enc = cb.makeRenderCommandEncoder(descriptor: rpd),
-              let vb = vertexBuffer, let ib = indexBuffer else { return }
-        let s = settings
-        var u: [Float] = [Float(s.cropL), Float(s.cropR), Float(s.cropT), Float(s.cropB),
-                          Float(s.blendL), Float(s.blendR), Float(s.blendT), Float(s.blendB),
-                          Float(s.blendGamma), s.showGrid ? 1 : 0, 0, 0]
-        let texture = currentTexture.flatMap { CVMetalTextureGetTexture($0) }
-        u[10] = texture == nil ? 0 : 1
-        enc.setRenderPipelineState(pipeline)
-        enc.setVertexBuffer(vb, offset: 0, index: 0)
-        enc.setFragmentBytes(&u, length: u.count * 4, index: 0)
-        enc.setFragmentTexture(texture ?? blank, index: 0)
-        enc.drawIndexedPrimitives(type: .triangle, indexCount: indexCount, indexType: .uint32,
-                                  indexBuffer: ib, indexBufferOffset: 0)
+        guard let gpu = GPU.shared, let rpd = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
+              let cb = gpu.queue.makeCommandBuffer(), let enc = cb.makeRenderCommandEncoder(descriptor: rpd) else { return }
+        let now = CACurrentMediaTime()
+        drawCount += 1
+        if now - drawSince >= 1 { drawRate = Double(drawCount) / (now - drawSince); drawCount = 0; drawSince = now }
+        let ls = layers().filter { $0.visible && $0.opacity > 0 }
+        var keep: [CVMetalTexture] = []
+        enc.setRenderPipelineState(gpu.pipeline)
+        for l in ls {
+            let fs = frames(l.clipID)
+            fs?.fetch(now: now)
+            guard let vb = buffer(for: l, video: fs?.aspect ?? 0) else { continue }
+            let tex = fs?.mtlTexture
+            let chroma = fs?.mtlChroma
+            if let t = fs?.texture { keep.append(t) }
+            if let t = fs?.chromaTexture { keep.append(t) }
+            let s = l.look
+            var u: [Float] = [Float(s.cropL), Float(s.cropR), Float(s.cropT), Float(s.cropB),
+                              Float(s.blendL), Float(s.blendR), Float(s.blendT), Float(s.blendB),
+                              Float(s.blendGamma), s.showGrid ? 1 : 0, tex == nil ? 0 : 1, Float(l.opacity),
+                              chroma == nil ? 0 : (fs?.yuvMatrix ?? 0), 0, 0, 0]
+            enc.setVertexBuffer(vb, offset: 0, index: 0)
+            enc.setFragmentBytes(&u, length: u.count * 4, index: 0)
+            enc.setFragmentTexture(tex ?? gpu.blank, index: 0)
+            enc.setFragmentTexture(chroma ?? gpu.blank, index: 1)
+            enc.drawIndexedPrimitives(type: .triangle, indexCount: gpu.indexCount, indexType: .uint32,
+                                      indexBuffer: gpu.indexBuffer, indexBufferOffset: 0)
+        }
         enc.endEncoding()
-        let keep = currentTexture
+        if buffers.count > ls.count + 4 {
+            let ids = Set(ls.map(\.id))
+            buffers = buffers.filter { ids.contains($0.key) }
+        }
         cb.addCompletedHandler { _ in _ = keep }
         cb.present(drawable)
         cb.commit()

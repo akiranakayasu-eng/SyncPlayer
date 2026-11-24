@@ -3,15 +3,21 @@ import simd
 
 enum EditMode { case none, corners, mesh }
 
-/// Transparent layer over the picture: shows and drags corner-pin and mesh handles.
+/// Transparent layer over a picture: shows and drags the corner-pin and mesh handles of the
+/// selected layer. Several overlays (the output window and the preview) share one state.
 final class EditOverlay: NSView {
-    var mode: EditMode = .none { didSet { selected = 0; needsDisplay = true } }
-    var selected = 0
     /// Supplied by the controller.
-    var settings: () -> DisplaySettings = { DisplaySettings() }
+    var modeOf: () -> EditMode = { .none }
+    var selectedOf: () -> Int = { 0 }
+    var select: (Int) -> Void = { _ in }
+    /// The selected layer's look, nil when this overlay's output has no selected layer.
+    var settings: () -> DisplaySettings? = { nil }
     var aspects: () -> (view: Double, video: Double) = { (16.0 / 9.0, 16.0 / 9.0) }
     var onChange: ((DisplaySettings) -> Void)?
     private var dragging: Int?
+
+    var mode: EditMode { settings() == nil ? .none : modeOf() }
+    var selected: Int { selectedOf() }
 
     override var isFlipped: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { mode == .none ? nil : super.hitTest(point) }
@@ -23,7 +29,8 @@ final class EditOverlay: NSView {
 
     /// Handle positions in normalized window coordinates.
     func handles() -> [SIMD2<Double>] {
-        let s = settings(), a = aspects()
+        guard let s = settings() else { return [] }
+        let a = aspects()
         let q = Warp.corners(s, viewAspect: a.view, videoAspect: a.video)
         switch mode {
         case .none: return []
@@ -40,16 +47,18 @@ final class EditOverlay: NSView {
 
     /// Move handle k by d (normalized).
     func move(_ k: Int, by d: SIMD2<Double>) {
-        var s = settings()
+        guard var s = settings() else { return }
         let a = aspects()
         switch mode {
         case .none: return
         case .corners:
             var q = Warp.corners(s, viewAspect: a.view, videoAspect: a.video)
+            guard k >= 0, k * 2 + 1 < q.count else { return }
             q[k * 2] += d.x; q[k * 2 + 1] += d.y
             s.corners = q
         case .mesh:
             var m = s.meshOffsets
+            guard k >= 0, k * 2 + 1 < m.count else { return }
             m[k * 2] += d.x; m[k * 2 + 1] += d.y
             s.mesh = m
         }
@@ -66,8 +75,7 @@ final class EditOverlay: NSView {
     func selectNext(_ step: Int = 1) {
         let n = handleCount
         guard n > 0 else { return }
-        selected = (selected + step + n) % n
-        needsDisplay = true
+        select((selected + step + n) % n)
     }
 
     override func mouseDown(with e: NSEvent) {
@@ -78,7 +86,7 @@ final class EditOverlay: NSView {
             let d = hypot(v.x - p.x, v.y - p.y)
             if d < bestD { bestD = d; best = k }
         }
-        if best >= 0 { dragging = best; selected = best; needsDisplay = true }
+        if best >= 0 { dragging = best; select(best) }
     }
 
     override func mouseDragged(with e: NSEvent) {
@@ -89,8 +97,8 @@ final class EditOverlay: NSView {
     override func mouseUp(with e: NSEvent) { dragging = nil }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard mode != .none else { return }
-        let s = settings(), a = aspects()
+        guard mode != .none, let s = settings() else { return }
+        let a = aspects()
         let q = Warp.corners(s, viewAspect: a.view, videoAspect: a.video)
         let H = Warp.Homography(q), m = s.meshOffsets
 

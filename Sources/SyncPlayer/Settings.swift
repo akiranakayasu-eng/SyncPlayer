@@ -47,6 +47,8 @@ struct DisplaySettings: Codable, Equatable {
         screen = try c.decodeIfPresent(Int.self, forKey: .screen) ?? 0
         fullscreen = try c.decodeIfPresent(Bool.self, forKey: .fullscreen) ?? false
         if corners?.count != 8 { corners = nil }
+        // Values from a hand-edited file: keep the mesh in the range the controls allow.
+        if !(2...8).contains(meshCols) || !(2...8).contains(meshRows) { meshCols = d.meshCols; meshRows = d.meshRows; mesh = [] }
     }
 
     var meshPointCount: Int { (meshCols + 1) * (meshRows + 1) }
@@ -60,55 +62,4 @@ struct DisplaySettings: Codable, Equatable {
     mutating func resetCorners() { corners = nil }
     mutating func resetMesh() { mesh = [] }
     mutating func setMeshSize(_ n: Int) { meshCols = n; meshRows = n; mesh = [] }
-}
-
-/// Presets live in ~/Library/Application Support/SyncPlayer/presets/<name>.json.
-/// "last.json" next to that folder holds the settings in use, saved on every change.
-enum PresetStore {
-    static var base: URL {
-        let u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("SyncPlayer", isDirectory: true)
-        try? FileManager.default.createDirectory(at: u.appendingPathComponent("presets"),
-                                                 withIntermediateDirectories: true)
-        return u
-    }
-    static var dir: URL { base.appendingPathComponent("presets", isDirectory: true) }
-
-    static func safe(_ name: String) -> String {
-        let bad = CharacterSet(charactersIn: "/\\:?*\"<>|")
-        return name.components(separatedBy: bad).joined(separator: "_").trimmingCharacters(in: .whitespaces)
-    }
-
-    static func list() -> [String] {
-        let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-        return files.filter { $0.hasSuffix(".json") }.map { String($0.dropLast(5)) }
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-    }
-
-    static func save(_ s: DisplaySettings, as name: String) {
-        let n = safe(name)
-        guard !n.isEmpty else { return }
-        write(s, to: dir.appendingPathComponent(n + ".json"))
-    }
-
-    static func load(_ name: String) -> DisplaySettings? {
-        read(dir.appendingPathComponent(safe(name) + ".json"))
-    }
-
-    static func delete(_ name: String) {
-        try? FileManager.default.removeItem(at: dir.appendingPathComponent(safe(name) + ".json"))
-    }
-
-    static func saveLast(_ s: DisplaySettings) { write(s, to: base.appendingPathComponent("last.json")) }
-    static func loadLast() -> DisplaySettings? { read(base.appendingPathComponent("last.json")) }
-
-    private static func write(_ s: DisplaySettings, to url: URL) {
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let d = try? enc.encode(s) { try? d.write(to: url, options: .atomic) }
-    }
-    private static func read(_ url: URL) -> DisplaySettings? {
-        guard let d = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(DisplaySettings.self, from: d)
-    }
 }

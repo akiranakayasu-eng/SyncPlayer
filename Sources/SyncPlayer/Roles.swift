@@ -4,7 +4,7 @@ import Darwin
 /// Master: owns the schedule, answers clock pings, announces the schedule.
 /// Any Mac can become master. If it hears a newer master, it steps down (onDemote).
 final class Master {
-    let node: SyncNode
+    let transport: Transport
     let id = UUID().uuidString
     /// Priority: the newest master wins. Given by the caller as larger than any master this
     /// Mac has heard of, so a Mac whose wall clock is behind can still take over.
@@ -15,11 +15,26 @@ final class Master {
     private(set) var schedule: Schedule
     private var timer: Timer?
     var onDemote: (() -> Void)?
+    /// Movie names, announced so followers can warn when theirs differ.
+    var fileLabel: () -> String = { "" }
+    /// Loop policy from the show: together (common loop) and a fixed length (0 = automatic).
+    var loopPolicy: () -> (together: Bool, fixed: Double) = { (true, 0) }
+    /// Each follower's longest clip and when it was last heard (guarded by lock). A Mac silent
+    /// for `forgetAfter` drops out, so the automatic length can shrink again (clip replaced,
+    /// Mac removed). Long enough that a Mac restarting or a short network drop does not change
+    /// the loop for everyone. The previous master's loop is kept that long too.
+    private var reported: [String: (dur: Double, at: Double)] = [:]
+    private let forgetAfter = 300.0
+    private var inherited: (dur: Double, until: Double)?
+    private let lock = NSLock()
 
     /// initial: the schedule to continue (already in this Mac's clock), so taking over is seamless.
-    init(node: SyncNode, broadcast: String, extraTargets: [String], initial: Schedule?, since: Double) throws {
-        self.node = node
+    init(transport: Transport, broadcast: String, extraTargets: [String], initial: Schedule?, since: Double,
+         fileLabel: @escaping () -> String, loopPolicy: @escaping () -> (together: Bool, fixed: Double)) throws {
+        self.transport = transport
         self.since = since
+        self.fileLabel = fileLabel
+        self.loopPolicy = loopPolicy
         sock = try UDPSocket(port: Ports.clock, broadcast: true)
         do {
             listen = try UDPSocket(port: Ports.beacon, reusePort: true)
@@ -31,17 +46,21 @@ final class Master {
         targets += extraTargets.map { UDPSocket.address($0, Ports.beacon) }
         if let initial {
             schedule = initial
+            if let c = initial.cycle, c > 0 { inherited = (c, hostNow() + forgetAfter) }
         } else {
-            let pos = node.ready ? node.player.currentTime().seconds : 0
             schedule = Schedule(epoch: Int(Date().timeIntervalSince1970), playing: false,
-                                anchorHost: hostNow(), anchorMedia: pos.isFinite ? pos : 0)
+                                anchorHost: hostNow(), anchorMedia: transport.currentPosition())
         }
-        node.clockOffset = { 0 }
-        node.schedule = schedule
+        transport.clockOffset = { 0 }
+        transport.schedule = schedule
 
         sock.onReceive = { [weak self] data, from in
             let t2 = hostNow()
             guard let self, let m = Message.decode(data), m.k == "p" else { return }
+            if let d = m.dur, d.isFinite, d > 0, d < 86_400 {
+                let key = UDPSocket.hostString(from) + ":" + String(from.sin_port)
+                self.lock.lock(); self.reported[key] = (d, t2); self.lock.unlock()
+            }
             var reply = Message(k: "q")
             reply.id = m.id; reply.t1 = m.t1; reply.t2 = t2
             reply.t3 = hostNow()
@@ -60,8 +79,12 @@ final class Master {
         listen.start(queue: DispatchQueue(label: "master.listen"))
 
         timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            self?.updateCycle()
             self?.announce()
         }
+        // Keep announcing while a panel is open or a slider is held.
+        if let t = timer { RunLoop.main.add(t, forMode: .common) }
+        updateCycle()
         announce()
     }
 
@@ -70,21 +93,59 @@ final class Master {
         sock.close(); listen.close()
     }
 
+    private let sendQueue = DispatchQueue(label: "master.send", qos: .userInteractive)
+
+    /// Sent off the main thread, so the window never waits for the network.
     private func announce() {
         var m = Message(k: "b", s: schedule)
-        m.mid = id; m.since = since; m.file = node.url.lastPathComponent
+        m.mid = id; m.since = since; m.file = fileLabel()
         let data = m.encoded()
-        for t in targets { sock.send(data, to: t) }
+        let targets = self.targets, sock = self.sock
+        sendQueue.async { for t in targets { sock.send(data, to: t) } }
+    }
+
+    /// Keep the common loop length up to date (the longest clip on any Mac, or the show's fixed
+    /// length). When it changes, the loop restarts from the current position on every Mac.
+    private func updateCycle() {
+        let p = loopPolicy()
+        var want: Double? = nil
+        if p.together {
+            if p.fixed > 0 {
+                want = max(p.fixed, Show.minLoop)
+            } else {
+                let now = hostNow()
+                lock.lock()
+                reported = reported.filter { now - $0.value.at < forgetAfter }
+                var longest = reported.values.map(\.dur).max() ?? 0
+                lock.unlock()
+                longest = max(longest, transport.longest)
+                if let i = inherited { if now < i.until { longest = max(longest, i.dur) } else { inherited = nil } }
+                want = longest > 0 ? longest : nil
+            }
+        }
+        guard abs((schedule.cycle ?? 0) - (want ?? 0)) > 0.0005 else { return }
+        var s = schedule
+        s.epoch += 1
+        let at = hostNow() + (s.playing ? 0.3 : 0)
+        // Continue from where the loop is now: the timeline wrapped by the old loop length.
+        var t = transport.timeline(atLocal: at) ?? 0
+        let old = (schedule.cycle ?? 0) > 0 ? schedule.cycle! : transport.longest
+        if old > 0 { t = t.truncatingRemainder(dividingBy: old) }
+        if let c = want, c > 0 { t = t.truncatingRemainder(dividingBy: c) }
+        s.anchorMedia = max(0, t)
+        s.anchorHost = at
+        s.cycle = want
+        set(s)
     }
 
     private func set(_ s: Schedule) {
         schedule = s
-        node.schedule = s
+        transport.schedule = s
         announce()
     }
 
-    /// Current media position by the schedule.
-    func position() -> Double { node.expectedMedia(atLocal: hostNow()) ?? 0 }
+    /// Current timeline position by the schedule (not wrapped: each clip wraps by its own length).
+    func position() -> Double { transport.timeline(atLocal: hostNow()) ?? 0 }
 
     func togglePlay() { schedule.playing ? pause() : play() }
 
@@ -111,8 +172,11 @@ final class Master {
     func jump(to media: Double) {
         var s = schedule
         s.epoch += 1
-        let d = node.duration
-        s.anchorMedia = d > 0 ? min(max(0, media), d - 0.05) : max(0, media)
+        // Wrap by the loop length, so a jump past the end lands near the start.
+        let d = transport.duration
+        var t = max(0, media)
+        if d > 0 { t = t.truncatingRemainder(dividingBy: d) }
+        s.anchorMedia = t
         s.anchorHost = hostNow() + 0.3
         set(s)
     }
@@ -124,7 +188,7 @@ final class Master {
 /// Follows the newest master; switches to another only if that one is newer or the
 /// current one has been silent for more than 1 s.
 final class Follower {
-    let node: SyncNode
+    let transport: Transport
     let clock = ClockSync()
     private let beaconSock: UDPSocket
     private let clockSock: UDPSocket
@@ -149,12 +213,12 @@ final class Follower {
 
     /// provisionalOffset: the offset the node's current schedule is in (0 when this Mac was
     /// the master), so playback continues while the clock to the new master is learned.
-    init(node: SyncNode, provisionalOffset: Double?) throws {
-        self.node = node
+    init(transport: Transport, provisionalOffset: Double?) throws {
+        self.transport = transport
         provisional = provisionalOffset
         beaconSock = try UDPSocket(port: Ports.beacon, reusePort: true)
         clockSock = try UDPSocket(port: 0)
-        node.clockOffset = { [weak self] in
+        transport.clockOffset = { [weak self] in
             guard let self else { return nil }
             if !self.adopted { return self.provisional }
             self.lock.lock(); defer { self.lock.unlock() }
@@ -174,7 +238,7 @@ final class Follower {
                     guard self.masterID == nil || newer || silent else { return }
                     // Keep playing the current schedule with the offset it is in until the
                     // clock to the new master is known.
-                    self.provisional = node.schedule != nil ? node.clockOffset() : nil
+                    self.provisional = transport.schedule != nil ? transport.clockOffset() : nil
                     self.adopted = false
                     self.masterID = mid
                     self.masterSince = since
@@ -191,7 +255,7 @@ final class Follower {
                     self.lock.lock(); let ready = self.clock.ready; self.lock.unlock()
                     if ready { self.adopted = true; self.provisional = nil }
                 }
-                if self.adopted && node.schedule != s { node.schedule = s }
+                if self.adopted && transport.schedule != s { transport.schedule = s }
             }
         }
         clockSock.onReceive = { [weak self] data, _ in
@@ -210,6 +274,7 @@ final class Follower {
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             self?.pingIfDue()
         }
+        if let t = timer { RunLoop.main.add(t, forMode: .common) }
     }
 
     func stop() {
@@ -219,7 +284,7 @@ final class Follower {
 
     /// The master's schedule converted to this Mac's clock (to take over as master).
     func localSchedule() -> Schedule? {
-        guard var s = node.schedule, let off = node.clockOffset() else { return nil }
+        guard var s = transport.schedule, let off = transport.clockOffset() else { return nil }
         s.anchorHost -= off
         return s
     }
@@ -237,10 +302,16 @@ final class Follower {
         pingID += 1
         let id = pingID
         lock.unlock()
-        var m = Message(k: "p")
-        m.id = id
-        m.t1 = hostNow()
-        clockSock.send(m.encoded(), to: addr)
+        let dur = transport.longest
+        let sock = clockSock
+        // Stamp and send on the network queue (off the main thread, no wait between them).
+        queue.async {
+            var m = Message(k: "p")
+            m.id = id
+            m.dur = dur > 0 ? dur : nil
+            m.t1 = hostNow()
+            sock.send(m.encoded(), to: addr)
+        }
     }
 
     var stats: (offset: Double, rtt: Double, ready: Bool) {
