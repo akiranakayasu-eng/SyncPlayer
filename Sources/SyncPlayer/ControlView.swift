@@ -43,7 +43,7 @@ struct ControlView: View {
                     .padding(8)
                     .frame(minHeight: 200)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("詳しい状態（映像ごと）・下の線を上下に動かすと広がる")
+                        Text("詳しい状態（映像ごと）・すぐ上の境の線を上へ動かすと広がる")
                             .font(.caption).foregroundColor(.secondary)
                         StatusText(status: status)
                     }
@@ -111,7 +111,7 @@ struct StatusBadge: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 4)
         .background(Capsule().fill(Color.secondary.opacity(0.12)))
-        .help("\(status.headline)\n（この Mac がいま何をしているか。映像ごとの数字は真ん中の下の「詳しい状態」）")
+        .help("\(status.headline)\n（この Mac がいま何をしているか。緑はそろって再生中、灰色は停止中、橙は確かめること。映像ごとの数字は真ん中の下の「詳しい状態」。「マスター待ち」が続くときは、同じネットワークにつながっているか、マスターの Mac で SyncPlayer が開いているか、初めて開いたときのローカルネットワークの許可を確かめる）")
     }
 }
 
@@ -205,7 +205,8 @@ struct Sidebar: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        // Scrolls when the window is low, so the top bar is never pushed out.
+        // Scrolls when the window is low, so the top bar is never pushed out. The lists are as tall
+        // as their rows (they do not scroll themselves), so the wheel moves this column.
         ScrollView {
         VStack(alignment: .leading, spacing: 6) {
             SectionTitle("出力（ディスプレイに出す絵）")
@@ -219,7 +220,7 @@ struct Sidebar: View {
                     .tag(Optional(o.id))
                 }
             }
-            .frame(height: listHeight(model.show.outputs.count, max: 4))
+            .frame(height: listHeight(model.show.outputs.count, max: 8))
             HStack {
                 Button { model.addOutput() } label: { Label("足す", systemImage: "plus") }.help("出力を足す（別のディスプレイに出すとき）")
                 Button { model.removeOutput() } label: { Label("消す", systemImage: "minus") }.help("選んだ出力を消す")
@@ -253,7 +254,7 @@ struct Sidebar: View {
                     .tag(Optional(l.id))
                 }
             }
-            .frame(height: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 6))
+            .frame(height: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 12))
             HStack(spacing: 4) {
                 Button { model.addLayer() } label: { Label("足す", systemImage: "plus") }.help("レイヤーを足す")
                 Button { model.removeLayer() } label: { Label("消す", systemImage: "minus") }.help("選んだレイヤーを消す")
@@ -275,18 +276,20 @@ struct Sidebar: View {
             SectionTitle("映像")
             List {
                 ForEach(model.show.clips) { c in
-                    HStack(spacing: 4) {
-                        Text(c.name).lineLimit(1).truncationMode(.middle)
-                        Spacer()
-                        Button("差し替え") { model.replaceClip(c.id) }
-                            .help("別の映像と入れ替える（レイヤーの設定はそのまま）")
-                        Button("外す") { model.removeClip(c.id) }
-                            .help("この映像と、それを使うレイヤーをショーから外す（ファイルは消えない）")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(c.name).lineLimit(1).truncationMode(.middle).help(c.name)
+                        HStack(spacing: 4) {
+                            Spacer()
+                            Button("差し替え") { model.replaceClip(c.id) }
+                                .help("別の映像と入れ替える（レイヤーの設定はそのまま）")
+                            Button("外す") { model.removeClip(c.id) }
+                                .help("この映像と、それを使うレイヤーをショーから外す（確かめてから。ファイルは消えない）")
+                        }
+                        .controlSize(.small)
                     }
-                    .controlSize(.small)
                 }
             }
-            .frame(height: listHeight(model.show.clips.count, max: 6, row: 32))
+            .frame(height: listHeight(model.show.clips.count, max: 12, row: 46))
             HStack {
                 Button("映像を足す…") { model.addClips() }
                 Spacer()
@@ -313,6 +316,7 @@ struct Sidebar: View {
         }
         .padding(8)
         }
+        .scrollIndicators(.visible)
     }
 
     /// A list just tall enough for its rows (up to max rows; more scroll inside the list).
@@ -369,6 +373,22 @@ struct SliderRow: View {
     }
 }
 
+/// A fold's title that opens and closes when the words are clicked too (not only the triangle).
+struct FoldLabel: View {
+    let title: String
+    @Binding var isOpen: Bool
+    var warn = false
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title).font(.subheadline).bold()
+            if warn { Text("⚠︎ 読めない").font(.caption).foregroundColor(.red) }
+            Spacer()
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { withAnimation { isOpen.toggle() } }
+    }
+}
+
 struct Inspector: View {
     @ObservedObject var model: AppModel
     @State private var presetName = ""
@@ -409,6 +429,14 @@ struct Inspector: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        // Editing corners or the mesh: show where it is controlled.
+        .onChange(of: model.editMode) { m in if m != .none { tab = 0; openWarp = true } }
+    }
+
+    /// The selected layer's mask is set but missing or unreadable.
+    private var maskBroken: Bool {
+        guard let p = model.selectedLayerIndex.flatMap({ model.show.outputs[$0.o].layers[$0.l].mask }) else { return false }
+        return !FileManager.default.fileExists(atPath: p) || GPU.shared?.maskReady(p) == false
     }
 
     /// Settings for an exhibition: after a restart the Mac comes back as it was.
@@ -442,7 +470,7 @@ struct Inspector: View {
         if model.isMaster {
             Button("全台を頭からやり直す（R）") { model.master?.jump(to: 0) }
         }
-        Text("1 台だけ映らない・ずれるときは、その Mac で SyncPlayer を終了して開き直す（数秒でそろう）。全部止まったときは、展示のマスターの Mac を開き直す。")
+        Text("1 台だけ映らない・ずれるときは、その Mac で Q キーを押して SyncPlayer を終了し、開き直す（数秒でそろう）。全部止まったときは、展示のマスターの Mac を開き直す。")
             .font(.caption).foregroundColor(.secondary)
     }
 
@@ -453,14 +481,14 @@ struct Inspector: View {
         }
         SliderRow(label: "不透明度", value: model.layerBinding(\.opacity, 1), range: 0...1, unit: ValueText.percent)
 
-        DisclosureGroup("位置・大きさ・回転", isExpanded: $openPlace) {
+        DisclosureGroup(isExpanded: $openPlace) {
             VStack(alignment: .leading, spacing: 6) {
                 SliderRow(label: "横の位置", value: model.lookBinding(\.posX, 0), range: -1...1, unit: ValueText.signedPercent,
-                          help: "画面の幅に対する割合。＋で右へ")
+                          help: "レイヤーの枠（4 分割なら 1 ます）の幅に対する割合。＋で右へ")
                 SliderRow(label: "縦の位置", value: model.lookBinding(\.posY, 0), range: -1...1, unit: ValueText.signedPercent,
-                          help: "画面の高さに対する割合")
+                          help: "レイヤーの枠の高さに対する割合")
                 SliderRow(label: "大きさ", value: model.lookBinding(\.scale, 1), range: 0.1...4, unit: ValueText.percent,
-                          help: "100% で画面いっぱい")
+                          help: "100% でレイヤーの枠いっぱい")
                 SliderRow(label: "回転", value: model.lookBinding(\.rotation, 0), range: -180...180, unit: ValueText.degrees)
                 Button("位置・大きさ・回転を戻す（0）") {
                     guard var s = model.selectedLook else { return }
@@ -468,9 +496,9 @@ struct Inspector: View {
                 }
             }
             .padding(.top, 4)
-        }
+        } label: { FoldLabel(title: "位置・大きさ・回転", isOpen: $openPlace) }
 
-        DisclosureGroup("切り取り（映像の端を削る）", isExpanded: $openCrop) {
+        DisclosureGroup(isExpanded: $openCrop) {
             VStack(alignment: .leading, spacing: 6) {
                 SliderRow(label: "左", value: model.lookBinding(\.cropL, 0), range: 0...0.5, unit: ValueText.percent)
                 SliderRow(label: "右", value: model.lookBinding(\.cropR, 0), range: 0...0.5, unit: ValueText.percent)
@@ -478,9 +506,9 @@ struct Inspector: View {
                 SliderRow(label: "下", value: model.lookBinding(\.cropB, 0), range: 0...0.5, unit: ValueText.percent)
             }
             .padding(.top, 4)
-        }
+        } label: { FoldLabel(title: "切り取り（映像の端を削る）", isOpen: $openCrop) }
 
-        DisclosureGroup("マスク（白黒の画像で形を抜く）", isExpanded: $openMask) {
+        DisclosureGroup(isExpanded: $openMask) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Button("画像を選ぶ…") { model.pickMask() }
@@ -496,9 +524,9 @@ struct Inspector: View {
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
-        }
+        } label: { FoldLabel(title: "マスク（白黒の画像で形を抜く）", isOpen: $openMask, warn: maskBroken) }
 
-        DisclosureGroup("エッジブレンド（プロジェクターの重なり）", isExpanded: $openBlend) {
+        DisclosureGroup(isExpanded: $openBlend) {
             VStack(alignment: .leading, spacing: 6) {
                 SliderRow(label: "左", value: model.lookBinding(\.blendL, 0), range: 0...0.5, unit: ValueText.percent)
                 SliderRow(label: "右", value: model.lookBinding(\.blendR, 0), range: 0...0.5, unit: ValueText.percent)
@@ -509,9 +537,9 @@ struct Inspector: View {
                 Text("重なる幅を、画面の幅（高さ）に対する割合で。").font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
-        }
+        } label: { FoldLabel(title: "エッジブレンド（プロジェクターの重なり）", isOpen: $openBlend) }
 
-        DisclosureGroup("四隅・曲面（台形や曲がりを直す）", isExpanded: $openWarp) {
+        DisclosureGroup(isExpanded: $openWarp) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Button(model.editMode == .corners ? "四隅の編集を終える" : "四隅を動かす（E）") { model.toggleEdit(.corners) }
@@ -528,7 +556,7 @@ struct Inspector: View {
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
-        }
+        } label: { FoldLabel(title: "四隅・曲面（台形や曲がりを直す）", isOpen: $openWarp) }
     }
 
     private func meshSize(_ d: Int) {

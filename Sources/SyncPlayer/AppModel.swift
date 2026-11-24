@@ -75,11 +75,14 @@ final class AppModel: ObservableObject {
 
     static let keyHelp = """
     space 再生／停止（マスター）  R 頭へ  ← → 5 秒（shift 1 秒）
-    N この Mac の名前と画面の番号を大きく  M マスター⇔フォロワー  S 操作の窓（全画面の上にも出す／隠す）  I 情報（全画面では標準で隠す）  H キー一覧
-    O 次の出力  L 次のレイヤー  F 全画面  D 次の画面  A 音  G 格子
+    N 名前とディスプレイの番号  M マスター⇔フォロワー  A 音
+    S 操作の窓を出す／隠す  I 情報  H キー一覧  Q 終了
+    O 次の出力  L 次のレイヤー  F 全画面  D 次のディスプレイ  G 格子
     E 四隅の変形  W 曲面メッシュ  Tab 次の点  矢印 1 px（shift 10 px）
-    + − 大きさ  [ ] 回転  0 戻す（編集中はその変形、ほかは位置・大きさ・回転）
-    1〜9 プリセット呼び出し  ⌘1〜⌘9 プリセット保存  ⌘O ショーを開く  ⌘S ショーを保存  Q 終了
+    + − 大きさ  [ ] 回転
+    0 戻す（編集中はその変形、ほかは位置・大きさ・回転）
+    1〜9 プリセット呼び出し  ⌘1〜⌘9 プリセット保存
+    ⌘O ショーを開く  ⌘S ショーを保存
     """
 
     init(opts: Options) { self.opts = opts }
@@ -153,7 +156,7 @@ final class AppModel: ObservableObject {
             }
         }
         if show0.outputs.isEmpty, let c = show0.clips.first {
-            show0.outputs = [OutputConfig(name: "画面 1", layers: [Layer(clipID: c.id)])]
+            show0.outputs = [OutputConfig(name: "出力 1", layers: [Layer(clipID: c.id)])]
         }
         if let sc = opts.screen { show0.outputs[0].screen = sc }
         if opts.fullscreen { show0.outputs[0].fullscreen = true }
@@ -442,7 +445,7 @@ final class AppModel: ObservableObject {
         for (i, o) in show.outputs.enumerated() { outputs[o.id]?.replace(o, index: i, title: outputTitle(o)) }
         refreshInfo()
         updatePresentation()
-        notify("画面のつながりが変わりました（\(NSScreen.screens.count) 枚）")
+        notify("ディスプレイのつながりが変わりました（\(NSScreen.screens.count) 枚）")
     }
 
     func refreshScreens() {
@@ -462,16 +465,17 @@ final class AppModel: ObservableObject {
     func addOutput() {
         let used = Set(show.outputs.map(\.screen))
         let screen = (0..<NSScreen.screens.count).first { !used.contains($0) } ?? 0
-        var o = OutputConfig(name: "画面 \(show.outputs.count + 1)", screen: screen)
+        var o = OutputConfig(name: "出力 \(show.outputs.count + 1)", screen: screen)
         if let c = show.clips.first { o.layers = [Layer(clipID: c.id)] }
         show.outputs.append(o)
         selectedOutput = o.id
-        notify("出力「\(o.name)」を足しました（画面 \(screen + 1)）")
+        notify("出力「\(o.name)」を足しました（ディスプレイ \(screen + 1)）")
     }
 
     func removeOutput() {
         guard show.outputs.count > 1, let o = selectedOutputIndex else { notify("出力は 1 つ以上要ります"); return }
         let name = show.outputs[o].name
+        guard confirm("出力「\(name)」を消しますか？", "この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます。") else { return }
         show.outputs.remove(at: o)
         notify("出力「\(name)」を消しました")
     }
@@ -493,7 +497,7 @@ final class AppModel: ObservableObject {
         guard let o = selectedOutputIndex else { return }
         let n = max(1, NSScreen.screens.count)
         show.outputs[o].screen = (show.outputs[o].screen + 1) % n
-        notify("\(show.outputs[o].name) を画面 \(show.outputs[o].screen + 1) へ")
+        notify("\(show.outputs[o].name) をディスプレイ \(show.outputs[o].screen + 1) へ")
     }
 
     // MARK: layers
@@ -507,6 +511,8 @@ final class AppModel: ObservableObject {
 
     func removeLayer() {
         guard let i = selectedLayerIndex else { return }
+        let name = clipName(show.outputs[i.o].layers[i.l].clipID)
+        guard confirm("レイヤー「\(name)」を消しますか？", "このレイヤーの調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。") else { return }
         show.outputs[i.o].layers.remove(at: i.l)
     }
 
@@ -565,6 +571,10 @@ final class AppModel: ObservableObject {
 
     func removeClip(_ id: String) {
         guard show.clips.count > 1 else { notify("映像は 1 つ以上要ります"); return }
+        let users = show.outputs.reduce(0) { $0 + $1.layers.filter { $0.clipID == id }.count }
+        guard confirm("映像「\(clipName(id))」をショーから外しますか？",
+                      users > 0 ? "この映像を使うレイヤー \(users) つと、その調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。"
+                                : "映像のファイルは消えません。") else { return }
         var s = show
         s.clips.removeAll { $0.id == id }
         for o in s.outputs.indices { s.outputs[o].layers.removeAll { $0.clipID == id } }
@@ -817,6 +827,20 @@ final class AppModel: ObservableObject {
     /// Run an open / save panel. Full-screen outputs sit above the menu bar, so they are lowered
     /// while the panel is up (otherwise it could open behind them), also if the app is left and
     /// entered again meanwhile.
+    /// Ask before something that cannot be undone (lowers full-screen outputs while the alert is up).
+    func confirm(_ title: String, _ detail: String) -> Bool {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = detail
+        a.addButton(withTitle: "消す")
+        a.addButton(withTitle: "やめる")
+        panelOpen = true
+        refreshLevels()
+        defer { panelOpen = false; refreshLevels() }
+        NSApp.activate(ignoringOtherApps: true)
+        return a.runModal() == .alertFirstButtonReturn
+    }
+
     func runPanel(_ p: NSSavePanel) -> NSApplication.ModalResponse {
         panelOpen = true
         refreshLevels()
@@ -986,20 +1010,62 @@ final class AppModel: ObservableObject {
         if editMode != .none && tickCount % 20 == 0 { redrawOverlays() }
     }
 
-    /// The state in plain words for the top of the control window.
+    /// The state in plain words for the top of the control window. The state word comes first,
+    /// so a narrow window cuts the details, not the state. Anything the detailed status warns
+    /// about (⚠︎, cannot open, frames not arriving, a large offset) turns it orange and comes first.
     private func headlineNow() -> (String, Int) {
+        let (line, tone) = roleHeadline()
+        if let p = problemNow() { return ("⚠︎ \(p) ・ \(line)", 2) }
+        return (line, tone)
+    }
+
+    private func roleHeadline() -> (String, Int) {
         let playing = transport.schedule?.playing ?? false
         if isMaster {
             return playing ? ("再生中 ・ この Mac がマスター", 1) : ("停止中 ・ この Mac がマスター（space で再生）", 0)
         }
         guard let f = follower else { return ("準備中", 2) }
-        if transport.schedule == nil { return ("マスター待ち ・ マスターの Mac を開くと、そろって始まる", 2) }
-        if !f.masterAlive { return ("マスターが見えない ・ この Mac はそのまま再生を続けている", 2) }
-        let who = f.masterName ?? f.masterHost
+        let who = String((f.masterName ?? f.masterHost).prefix(16))
+        if transport.schedule == nil {
+            return f.masterID != nil ? ("マスター（\(who)）と時計を合わせている…", 2)
+                                     : ("マスター待ち ・ マスターの Mac を開くと、そろって始まる", 2)
+        }
+        if !f.masterAlive {
+            return playing ? ("再生中 ・ マスターが見えない（この Mac だけで続けている）", 2)
+                           : ("停止中 ・ マスターが見えない", 2)
+        }
         if !f.stats.ready { return ("マスター（\(who)）と時計を合わせている…", 2) }
         let err = String(format: "%.1f", abs(transport.maxError) * 1000)
-        return playing ? ("マスター（\(who)）に合わせて再生中 ・ ずれ \(err) ms", 1)
-                       : ("マスター（\(who)）が停止中", 0)
+        return playing ? ("再生中 ・ マスター（\(who)）に合わせている ・ ずれ \(err) ms", 1)
+                       : ("停止中 ・ マスター（\(who)）が止めている", 0)
+    }
+
+    /// The first thing the detailed status warns about, in a few words (nil when all is well).
+    private func problemNow() -> String? {
+        if exhibitTakenOver && exhibitMaster && master == nil { return "ほかの Mac がマスター（展示のマスターは 1 台だけ）" }
+        for (id, n) in transport.orderedNodes {
+            if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
+                return "映像が開けない: \(clipName(id))"
+            }
+        }
+        if let f = follower, let mf = f.masterFile, mf != show.fileLabel { return "マスターと映像の名前がちがう" }
+        for o in show.outputs {
+            for l in o.layers {
+                guard let m = l.mask else { continue }
+                if missingFiles().contains(m) || GPU.shared?.maskReady(m) == false {
+                    return "マスクが読めない: \((m as NSString).lastPathComponent)"
+                }
+            }
+        }
+        for (id, n) in transport.orderedNodes {
+            if !n.ready { return "読み込み中: \(clipName(id))" }
+            if transport.frames[id]?.gaveUp == true { return "コマが届かない: \(clipName(id))" }
+        }
+        if (transport.schedule?.playing ?? false), follower?.stats.ready ?? isMaster,
+           abs(transport.maxError) > 0.02 {
+            return String(format: "ずれが大きい %.0f ms", abs(transport.maxError) * 1000)
+        }
+        return nil
     }
 
     private func roleLine() -> String {
