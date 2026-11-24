@@ -151,7 +151,8 @@ final class AppModel: ObservableObject {
         }
         if let sc = opts.screen { show0.outputs[0].screen = sc }
         if opts.fullscreen { show0.outputs[0].fullscreen = true }
-        let startMaster = opts.roleGiven ? opts.master : (show0.startAsMaster ?? false)
+        // The exhibition master (kept per Mac, not in the show) opens as master and plays.
+        let startMaster = opts.roleGiven ? opts.master : exhibitMaster
         audioOn = opts.audio ?? show0.audioOn ?? startMaster
         presetNames = ShowStore.presetNames()
 
@@ -161,7 +162,7 @@ final class AppModel: ObservableObject {
         setRole(master: startMaster)
         installKeys()
         // Exhibition: the master plays by itself a few seconds after opening (followers catch up).
-        if startMaster && show.autoPlay && opts.autoplay == nil {
+        if !opts.roleGiven && exhibitMaster && opts.autoplay == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
                 guard let self, let m = self.master, !m.schedule.playing else { return }
                 m.play()
@@ -639,7 +640,11 @@ final class AppModel: ObservableObject {
                                        loopPolicy: { [weak self] in (self?.show.loopTogether ?? true, self?.show.loopLength ?? 0) })
                     m.ident = { [weak self] in self?.showIdent ?? false }
                     m.onDemote = { [weak self] in
-                        self?.notify("ほかの Mac がマスターになったので、フォロワーに戻りました")
+                        // The exhibition-master mark stays: this Mac is still the one to start as master
+                        // after a restart (another Mac took over by hand for now).
+                        self?.notify(self?.exhibitMaster == true
+                            ? "ほかの Mac がマスターになりました（この Mac は「展示のマスター」のままで、次に開くとマスターで始まります）"
+                            : "ほかの Mac がマスターになったので、フォロワーに戻りました")
                         self?.setRole(master: false)
                     }
                     master = m
@@ -665,18 +670,24 @@ final class AppModel: ObservableObject {
         control?.title = "SyncPlayer — 操作 — \(isMaster ? "マスター" : "フォロワー") — \(opts.name)"
     }
 
-    func toggleRole() { setRoleByUser(master: master == nil) }
+    func toggleRole() { setRole(master: master == nil) }
 
-    /// Role chosen by hand (M, the switch): remembered in this Mac's show for the next start.
-    func setRoleByUser(master m: Bool) {
-        setRole(master: m)
-        let now = master != nil
-        if show.startAsMaster ?? false != now { show.startAsMaster = now }
+    /// This Mac is the exhibition master: it opens as master and starts playing by itself.
+    /// Kept for this Mac (UserDefaults), not in the show, so copying a show to other Macs does not
+    /// make them masters too.
+    @Published var exhibitMaster = UserDefaults.standard.bool(forKey: "exhibitMaster") {
+        didSet { UserDefaults.standard.set(exhibitMaster, forKey: "exhibitMaster") }
     }
 
-    /// Open SyncPlayer when this Mac's user logs in (macOS Login Items).
+    func setExhibitMaster(_ on: Bool) {
+        exhibitMaster = on
+        if on && master == nil { setRole(master: true) }
+    }
+
+    /// Open SyncPlayer when this Mac's user logs in (macOS Login Items). Read once and after changes.
+    @Published private(set) var loginItemOn = SMAppService.mainApp.status == .enabled
     var openAtLogin: Bool {
-        get { SMAppService.mainApp.status == .enabled }
+        get { loginItemOn }
         set {
             do {
                 if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
@@ -687,7 +698,7 @@ final class AppModel: ObservableObject {
                 notify("システム設定 → 一般 → ログイン項目 で SyncPlayer を許可してください")
                 SMAppService.openSystemSettingsLoginItems()
             }
-            objectWillChange.send()
+            loginItemOn = SMAppService.mainApp.status == .enabled
         }
     }
 

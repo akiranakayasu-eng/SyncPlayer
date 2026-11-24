@@ -159,9 +159,12 @@ final class OutputWindow: NSObject, NSWindowDelegate {
         let b = picture.bounds
         // As large as fits: start from the window's height and shrink until the longest line fits.
         var size = max(18, min(b.height / 7, b.width / 12))
-        let longest = text.components(separatedBy: "\n").max { $0.count < $1.count } ?? text
+        let lines = text.components(separatedBy: "\n")
+        func width(_ l: String, _ sz: CGFloat) -> CGFloat {
+            (l as NSString).size(withAttributes: [.font: NSFont.boldSystemFont(ofSize: sz)]).width
+        }
         while size > 18 {
-            let w = (longest as NSString).size(withAttributes: [.font: NSFont.boldSystemFont(ofSize: size)]).width
+            let w = lines.map { width($0, size) }.max() ?? 0   // widest line, by measured width
             if w + size <= b.width - 20 { break }
             size *= 0.9
         }

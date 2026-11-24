@@ -70,7 +70,7 @@ struct TopBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Picker("", selection: Binding(get: { model.isMaster }, set: { model.setRoleByUser(master: $0) })) {
+            Picker("", selection: Binding(get: { model.isMaster }, set: { model.setRole(master: $0) })) {
                 Text("フォロワー").tag(false)
                 Text("マスター").tag(true)
             }
@@ -292,10 +292,9 @@ struct Inspector: View {
             .help("設営のとき用。マスターで入れると全台に出る")
         Toggle("動作確認の文字を出す（I）", isOn: Binding(get: { model.infoShownNow }, set: { model.setInfoShown($0) }))
         Toggle("ログインしたら SyncPlayer を開く", isOn: Binding(get: { model.openAtLogin }, set: { model.openAtLogin = $0 }))
-        Toggle("この Mac はマスターで始める", isOn: Binding(get: { model.show.startAsMaster ?? false },
-                                                    set: { model.setRoleByUser(master: $0) }))
-        Toggle("開いたらすぐ再生（マスター）", isOn: Binding(get: { model.show.autoPlay }, set: { model.show.autoPlay = $0 }))
-        Text("ショーの全画面・音・マスクなどは、開くと前のまま戻る。再起動のあと電源を入れてログインするだけで、前と同じ展示の状態になる。マスターとフォロワーはどちらが先に開いても数秒でそろう。「マスターで始める」は全台のうち 1 台だけに入れる。")
+        Toggle("この Mac を展示のマスターにする", isOn: Binding(get: { model.exhibitMaster }, set: { model.setExhibitMaster($0) }))
+            .help("入れるとすぐマスターになる。次から開くとマスターで始まり、3 秒後に自動で再生する。全台のうち 1 台だけに入れる")
+        Text("ショーの全画面・音・マスクなどは、開くと前のまま戻る。再起動のあと電源を入れてログインするだけで、前と同じ展示の状態になる。「展示のマスター」は全台のうち 1 台だけに入れる（入れるとすぐマスターになり、次から開くとマスターで始まって 3 秒後に自動で再生する）。ほかの Mac は何もしなくても、開くとフォロワーになり、どちらが先に開いても数秒でそろう。")
             .font(.caption).foregroundColor(.secondary)
     }
 
