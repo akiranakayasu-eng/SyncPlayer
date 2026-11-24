@@ -10,6 +10,10 @@ final class StatusModel: ObservableObject {
     @Published var playing = false
     @Published var isMaster = false
     @Published var text = ""
+    /// One line at the top of the control window: what this Mac is doing now, in words.
+    @Published var headline = ""
+    /// 0 stopped / idle, 1 playing in step, 2 needs a look (waiting, master gone, clock still learning).
+    @Published var tone = 0
 }
 
 /// The app: the show, the playback (transport + master/follower), the output windows and the control window.
@@ -34,6 +38,8 @@ final class AppModel: ObservableObject {
     /// What showFile holds now (so opening a file does not rewrite it unchanged).
     private var fileShow: Show?
     @Published var screenNames: [String] = []
+    /// "ディスプレイ 1（1920×1080）" for the picker (the full names are too long for the side column).
+    @Published var screenShort: [String] = []
 
     var master: Master?
     var follower: Follower?
@@ -438,6 +444,9 @@ final class AppModel: ObservableObject {
     func refreshScreens() {
         screenNames = NSScreen.screens.enumerated().map { i, s in
             "\(i + 1): \(s.localizedName)  \(Int(s.frame.width))×\(Int(s.frame.height))"
+        }
+        screenShort = NSScreen.screens.enumerated().map { i, s in
+            "ディスプレイ \(i + 1)（\(Int(s.frame.width))×\(Int(s.frame.height))）"
         }
     }
 
@@ -953,6 +962,9 @@ final class AppModel: ObservableObject {
         status.playing = transport.schedule?.playing ?? false
         let text = statusText()
         if status.text != text { status.text = text }
+        let (headline, tone) = headlineNow()
+        if status.headline != headline { status.headline = headline }
+        if status.tone != tone { status.tone = tone }
         let short = outputInfo()
         for w in outputs.values { w.layoutInfo(short) }
         for (id, w) in outputs {
@@ -967,6 +979,21 @@ final class AppModel: ObservableObject {
         }
         previewBox?.aspect = selectedOutputAspect
         if editMode != .none && tickCount % 20 == 0 { redrawOverlays() }
+    }
+
+    /// The state in plain words for the top of the control window.
+    private func headlineNow() -> (String, Int) {
+        let playing = transport.schedule?.playing ?? false
+        if isMaster {
+            return playing ? ("再生中 ・ この Mac がマスター", 1) : ("停止中 ・ この Mac がマスター（space で再生）", 0)
+        }
+        guard let f = follower else { return ("準備中", 2) }
+        if transport.schedule == nil { return ("マスター待ち ・ マスターの Mac を開くと、そろって始まる", 2) }
+        if !f.masterAlive { return ("マスターが見えない ・ この Mac はそのまま再生を続けている", 2) }
+        if !f.stats.ready { return ("マスター（\(f.masterHost)）と時計を合わせている…", 2) }
+        let err = String(format: "%.1f", abs(transport.maxError) * 1000)
+        return playing ? ("マスター（\(f.masterHost)）に合わせて再生中 ・ ずれ \(err) ms", 1)
+                       : ("マスター（\(f.masterHost)）が停止中", 0)
     }
 
     private func roleLine() -> String {
