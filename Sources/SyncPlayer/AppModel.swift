@@ -46,6 +46,10 @@ final class AppModel: ObservableObject {
     /// Info text on full-screen outputs (hidden unless I or H shows it, so an exhibition shows only the picture).
     var infoOnFull = false
     private var cursorHidden = false
+    /// An open / save panel is up (full-screen outputs stay down meanwhile).
+    private var panelOpen = false
+    /// S brought the control window above a full-screen output on its screen.
+    private var controlRaised = false
     /// Info settings before H showed the key list (restored when it is closed).
     private var helpSaved: (Bool, Bool)?
     private var message = ""
@@ -150,9 +154,9 @@ final class AppModel: ObservableObject {
         // Another app or a macOS dialog (e.g. the local network permission) in front: full-screen
         // outputs step down so it is not hidden behind them; back up when SyncPlayer is active again.
         NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
-                                               object: nil, queue: .main) { [weak self] _ in self?.setFullLevel(up: false) }
+                                               object: nil, queue: .main) { [weak self] _ in self?.refreshLevels() }
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
-                                               object: nil, queue: .main) { [weak self] _ in self?.setFullLevel(up: true) }
+                                               object: nil, queue: .main) { [weak self] _ in self?.refreshLevels() }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in self?.screensChanged() }
 
@@ -373,8 +377,7 @@ final class AppModel: ObservableObject {
     /// Show or hide the info text on each output (full-screen ones follow infoOnFull).
     private func refreshInfo() {
         for w in outputs.values { w.info.isHidden = w.isFull ? !infoOnFull : infoHidden }
-        // No full-screen output left: the control window goes back to an ordinary window.
-        if let c = control, c.level != .normal, !outputs.values.contains(where: { $0.isFull }) { c.level = .normal }
+        refreshLevels()
     }
 
     /// Hide the pointer while the front-most window under it is a full-screen output (so it shows
@@ -686,33 +689,44 @@ final class AppModel: ObservableObject {
 
     func toggleControl() {
         guard let c = control else { return }
-        let anyFull = outputs.values.contains { $0.isFull }
         let coveredScreen = outputs.values.contains { $0.isFull && $0.window.screen == c.screen }
         // Hide only when it is really in front (it may hold the keys while a full-screen output covers it).
-        if c.isVisible && c.isKeyWindow && (!coveredScreen || c.level.rawValue > OutputWindow.fullLevel.rawValue) {
-            c.orderOut(nil); c.level = .normal; return
+        if c.isVisible && c.isKeyWindow && (!coveredScreen || controlRaised) {
+            c.orderOut(nil); controlRaised = false; refreshLevels(); return
         }
-        // Above full-screen outputs while it is up; S again hides it.
-        c.level = anyFull ? NSWindow.Level(rawValue: OutputWindow.fullLevel.rawValue + 1) : .normal
-        c.makeKeyAndOrderFront(nil)
+        // Above a full-screen output on its screen while it is up; S again hides it.
+        controlRaised = coveredScreen
         NSApp.activate(ignoringOtherApps: true)
+        refreshLevels()
+        c.makeKeyAndOrderFront(nil)
     }
 
-    private func setFullLevel(up: Bool) {
-        for w in outputs.values where w.isFull { w.window.level = up ? OutputWindow.fullLevel : .normal }
+    /// The one place that sets window levels. A full-screen output is above the menu bar while
+    /// SyncPlayer is in front and no open / save panel is up. When another app or a macOS dialog
+    /// comes to the front, only the outputs on the main screen (where dialogs and the menu bar
+    /// appear) step down; outputs on other screens stay up.
+    func refreshLevels() {
+        let active = NSApp.isActive
+        let main = NSScreen.screens.first
+        for w in outputs.values {
+            let up = w.isFull && !panelOpen && (active || w.window.screen != main)
+            let level: NSWindow.Level = up ? OutputWindow.fullLevel : .normal
+            if w.window.level != level { w.window.level = level }
+        }
+        if let c = control {
+            let raise = controlRaised && active && !panelOpen && outputs.values.contains { $0.isFull }
+            let level: NSWindow.Level = raise ? NSWindow.Level(rawValue: OutputWindow.fullLevel.rawValue + 1) : .normal
+            if c.level != level { c.level = level }
+        }
     }
 
     /// Run an open / save panel. Full-screen outputs sit above the menu bar, so they are lowered
-    /// while the panel is up (otherwise it could open behind them).
+    /// while the panel is up (otherwise it could open behind them), also if the app is left and
+    /// entered again meanwhile.
     func runPanel(_ p: NSSavePanel) -> NSApplication.ModalResponse {
-        let full = outputs.values.filter { $0.isFull }
-        let controlLevel = control?.level ?? .normal
-        for w in full { w.window.level = .normal }
-        control?.level = .normal   // the panel opens at its own level, below a raised control window
-        defer {
-            for w in full where w.isFull { w.window.level = OutputWindow.fullLevel }
-            if outputs.values.contains(where: { $0.isFull }) { control?.level = controlLevel }
-        }
+        panelOpen = true
+        refreshLevels()
+        defer { panelOpen = false; refreshLevels() }
         NSApp.activate(ignoringOtherApps: true)
         return p.runModal()
     }
