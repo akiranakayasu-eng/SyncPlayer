@@ -351,6 +351,7 @@ final class AppModel: ObservableObject {
     private func syncOutputs() {
         let ids = Set(show.outputs.map(\.id))
         for (id, w) in outputs where !ids.contains(id) { w.close(); outputs[id] = nil }
+        var created = false
         for (i, o) in show.outputs.enumerated() {
             if outputs[o.id] == nil {
                 guard let w = OutputWindow(id: o.id) else { print("Metal is not available"); exit(1) }
@@ -359,10 +360,13 @@ final class AppModel: ObservableObject {
                 w.window.representedURL = showFile.map { URL(fileURLWithPath: $0) } ?? ShowStore.currentURL
                 w.apply(o, index: i, title: outputTitle(o))
                 w.window.makeKeyAndOrderFront(nil)
+                created = true
             } else {
                 outputs[o.id]?.apply(o, index: i, title: outputTitle(o))
             }
         }
+        // A new windowed output must not hide the control window (full-screen outputs stay above it anyway).
+        if created, let c = control, c.isVisible { c.orderFront(nil) }
         refreshInfo()
         updatePresentation()
     }
@@ -1014,7 +1018,7 @@ final class AppModel: ObservableObject {
         if let f = follower {
             let st = f.stats
             s += String(format: "\nmaster %@  clock %@ offset %+.3f ms  rtt %.3f ms",
-                        f.masterHost, st.ready ? "ok" : "learning", st.offset * 1000, st.rtt * 1000)
+                        f.masterName.map { "\($0) (\(f.masterHost))" } ?? f.masterHost, st.ready ? "ok" : "learning", st.offset * 1000, st.rtt * 1000)
             if transport.schedule == nil { s += "  (waiting for master)" }
             if let mf = f.masterFile, mf != show.fileLabel { s += "\n⚠︎ マスターの映像は \(mf)" }
         } else if let m = master {

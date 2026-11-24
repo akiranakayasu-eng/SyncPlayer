@@ -111,7 +111,6 @@ struct StatusBadge: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 4)
         .background(Capsule().fill(Color.secondary.opacity(0.12)))
-        .layoutPriority(1)
         .help("\(status.headline)\n（この Mac がいま何をしているか。映像ごとの数字は真ん中の下の「詳しい状態」）")
     }
 }
@@ -138,6 +137,7 @@ struct TopBar: View {
                 .frame(width: 170)
                 .help("M キー。マスターが再生を決め、ほかの Mac（フォロワー）は付いてくる。マスターは全台で 1 台だけ")
                 Toggle("この Mac で音を出す", isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) }))
+                    .fixedSize()
                     .help("A キー")
                 Button("ショーを開く…") { model.openShow() }
                     .help("保存したショー（.syncshow）を開く")
@@ -264,10 +264,12 @@ struct Sidebar: View {
                 Button { model.moveLayer(1) } label: { Label("手前へ", systemImage: "arrow.up") }.help("選んだレイヤーを手前へ")
                 Button { model.moveLayer(-1) } label: { Label("奥へ", systemImage: "arrow.down") }.help("選んだレイヤーを奥へ")
                 Spacer()
-                Button("4 分割などに並べる") { model.arrangeGrid() }
-                    .help("この出力のレイヤーを、数に合わせて 2×2 などの格子に並べる")
             }
             .controlSize(.small)
+            Button("4 分割などに並べる") { model.arrangeGrid() }
+                .controlSize(.small)
+                .fixedSize()
+                .help("この出力のレイヤーを、数に合わせて 2×2 などの格子に並べる")
 
             Divider().padding(.vertical, 2)
             SectionTitle("映像")
@@ -284,7 +286,7 @@ struct Sidebar: View {
                     .controlSize(.small)
                 }
             }
-            .frame(height: listHeight(model.show.clips.count, max: 6))
+            .frame(height: listHeight(model.show.clips.count, max: 6, row: 32))
             HStack {
                 Button("映像を足す…") { model.addClips() }
                 Spacer()
@@ -314,8 +316,8 @@ struct Sidebar: View {
     }
 
     /// A list just tall enough for its rows (up to max rows; more scroll inside the list).
-    private func listHeight(_ rows: Int, max m: Int) -> CGFloat {
-        CGFloat(Swift.min(Swift.max(rows, 2), m)) * 26 + 10
+    private func listHeight(_ rows: Int, max m: Int, row: CGFloat = 28) -> CGFloat {
+        CGFloat(Swift.min(Swift.max(rows, 2), m)) * row + 12
     }
 
     private var screenChoices: [Int] {
