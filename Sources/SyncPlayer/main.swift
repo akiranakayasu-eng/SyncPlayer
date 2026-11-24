@@ -55,7 +55,14 @@ struct Options {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model: AppModel
     init(opts: Options) { model = AppModel(opts: opts) }
-    func applicationDidFinishLaunching(_ n: Notification) { model.start() }
+    private var started = false
+    func applicationDidFinishLaunching(_ n: Notification) { model.start(); started = true }
+    /// A .syncshow double-clicked in Finder (or dropped on the app): open it. At launch it is
+    /// read instead of the last show.
+    func application(_ sender: NSApplication, open urls: [URL]) {
+        guard let u = urls.first(where: { $0.pathExtension.lowercased() == "syncshow" }) else { return }
+        if started { model.openShow(at: u) } else { model.opts.showFile = u.path }
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
     func applicationWillTerminate(_ n: Notification) { model.willTerminate() }
 }

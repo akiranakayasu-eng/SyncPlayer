@@ -13,7 +13,7 @@ final class StatusModel: ObservableObject {
 
 /// The app: the show, the playback (transport + master/follower), the output windows and the control window.
 final class AppModel: ObservableObject {
-    let opts: Options
+    var opts: Options
     let transport = Transport()
     let status = StatusModel()
 
@@ -425,6 +425,10 @@ final class AppModel: ObservableObject {
         p.allowedContentTypes = [ShowStore.fileType, .json]
         p.message = "ショーのファイル（.syncshow）を開く"
         guard p.runModal() == .OK, let u = p.url else { return }
+        openShow(at: u)
+    }
+
+    func openShow(at u: URL) {
         guard let s = ShowStore.read(u) else { notify("開けませんでした: \(u.lastPathComponent)"); return }
         applyShow(s)
         showFile = u.path

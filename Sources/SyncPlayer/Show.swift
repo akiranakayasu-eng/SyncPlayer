@@ -141,7 +141,7 @@ enum ShowStore {
     }
     static var presetDir: URL { base.appendingPathComponent("presets", isDirectory: true) }
     static var currentURL: URL { base.appendingPathComponent("current.syncshow") }
-    static let fileType = UTType(filenameExtension: "syncshow", conformingTo: .json) ?? .json
+    static let fileType = UTType("com.nakayasu.syncshow") ?? UTType(filenameExtension: "syncshow", conformingTo: .json) ?? .json
 
     static func write(_ show: Show, to url: URL) -> Bool {
         let enc = JSONEncoder()
