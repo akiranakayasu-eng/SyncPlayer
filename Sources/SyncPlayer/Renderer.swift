@@ -2,6 +2,7 @@ import Foundation
 import MetalKit
 import AVFoundation
 import CoreVideo
+import CoreMedia
 
 /// Metal objects shared by every view: device, pipeline (premultiplied alpha, so layers stack),
 /// texture cache for video frames, and the grid's index buffer.
@@ -135,12 +136,33 @@ final class FrameSource {
 
     init(node: SyncNode) { self.node = node }
 
+    // Load check: frames shown and frames skipped (a gap larger than one frame in the movie's time).
+    private(set) var framesShown = 0
+    private(set) var framesDropped = 0
+    private var lastShown = -1.0
+
+    private func count(_ t: Double) {
+        guard t.isFinite else { return }
+        framesShown += 1
+        let fd = node.frameDuration
+        if lastShown >= 0, fd > 0 {
+            let gap = t - lastShown
+            // Ignore loop points, jumps and restarts.
+            if gap > fd * 1.5 && gap < 0.5 { framesDropped += Int((gap / fd).rounded()) - 1 }
+        }
+        lastShown = t
+    }
+
+    func resetCounts() { framesShown = 0; framesDropped = 0; lastShown = -1 }
+
     func fetch(now: Double) {
         guard let gpu = GPU.shared else { return }
         let out = node.outputs[node.displayIndex(atLocal: now)]
         let t = out.itemTime(forHostTime: now)
-        guard out.hasNewPixelBuffer(forItemTime: t),
-              let pb = out.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: nil) else { return }
+        guard out.hasNewPixelBuffer(forItemTime: t) else { return }
+        var shown = CMTime.invalid
+        guard let pb = out.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: &shown) else { return }
+        count(shown.seconds)
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
         if h > 0 { aspect = Double(w) / Double(h) }
         var tex: CVMetalTexture?
@@ -157,6 +179,10 @@ final class OutputRenderer: NSObject, MTKViewDelegate {
     var layers: () -> [Layer] = { [] }
     var frames: (String) -> FrameSource? = { _ in nil }
     private(set) var viewAspect = 16.0 / 9.0
+    /// Frames drawn in the last full second (load check).
+    private(set) var drawRate = 0.0
+    private var drawCount = 0
+    private var drawSince = CACurrentMediaTime()
 
     private struct Key: Equatable { var look: DisplaySettings; var view: Double; var video: Double }
     private var buffers: [String: (key: Key, buf: MTLBuffer)] = [:]
@@ -189,6 +215,8 @@ final class OutputRenderer: NSObject, MTKViewDelegate {
         guard let gpu = GPU.shared, let rpd = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
               let cb = gpu.queue.makeCommandBuffer(), let enc = cb.makeRenderCommandEncoder(descriptor: rpd) else { return }
         let now = CACurrentMediaTime()
+        drawCount += 1
+        if now - drawSince >= 1 { drawRate = Double(drawCount) / (now - drawSince); drawCount = 0; drawSince = now }
         let ls = layers().filter { $0.visible && $0.opacity > 0 }
         var keep: [CVMetalTexture] = []
         enc.setRenderPipelineState(gpu.pipeline)

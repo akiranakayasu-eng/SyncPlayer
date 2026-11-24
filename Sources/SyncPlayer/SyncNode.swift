@@ -21,6 +21,9 @@ final class SyncNode {
     var item: AVPlayerItem { items[active] }
 
     private(set) var duration: Double = 0
+    /// Length of one frame (s), 0 until known.
+    private(set) var frameDuration: Double = 0
+    private(set) var videoSize = CGSize.zero
     var schedule: Schedule?
     /// master clock - local clock, nil while unknown.
     var clockOffset: () -> Double? = { 0 }
@@ -68,6 +71,11 @@ final class SyncNode {
         Task { @MainActor in
             let d = (try? await its[0].asset.load(.duration))?.seconds ?? 0
             self.duration = d
+            if let track = try? await its[0].asset.loadTracks(withMediaType: .video).first {
+                let fps = (try? await track.load(.nominalFrameRate)) ?? 0
+                if fps > 0 { self.frameDuration = 1 / Double(fps) }
+                if let sz = try? await track.load(.naturalSize) { self.videoSize = sz }
+            }
         }
         for (i, it) in its.enumerated() {
             endObservers.append(NotificationCenter.default.addObserver(

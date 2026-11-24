@@ -744,8 +744,14 @@ final class AppModel: ObservableObject {
             } else {
                 s += String(format: "\n%@: %.1f s  error %+.2f ms  avg %+.2f ms  jumps %d  loops %d",
                             name, n.duration, n.lastError * 1000, n.errorEMA * 1000, n.resyncCount, n.loopCount)
+                if let f = transport.frames[id] {
+                    s += String(format: "  %dx%d  shown %d  dropped %d",
+                                Int(n.videoSize.width), Int(n.videoSize.height), f.framesShown, f.framesDropped)
+                }
             }
         }
+        let draws = show.outputs.compactMap { o in outputs[o.id].map { String(format: "%@ %.0f fps", o.name, $0.picture.renderer.drawRate) } }
+        if !draws.isEmpty { s += "\n描画: " + draws.joined(separator: "  ") }
         if hostNow() < messageUntil { s += "\n" + message }
         return s
     }
@@ -760,6 +766,11 @@ final class AppModel: ObservableObject {
         if let st = follower?.stats {
             line += String(format: "\toffset_ms=%+.3f\trtt_ms=%.3f", st.offset * 1000, st.rtt * 1000)
         }
+        // Load check: frames shown / skipped over all clips, and the slowest output's draw rate.
+        let fs = Array(transport.frames.values)
+        let rates = outputs.values.map { $0.picture.renderer.drawRate }
+        line += String(format: "\tshown=%d\tdropped=%d\tdraw_fps=%.1f",
+                       fs.reduce(0) { $0 + $1.framesShown }, fs.reduce(0) { $0 + $1.framesDropped }, rates.min() ?? 0)
         print(line); fflush(stdout)
     }
 
