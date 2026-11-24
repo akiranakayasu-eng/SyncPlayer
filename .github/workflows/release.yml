@@ -1,0 +1,41 @@
+# Builds SyncPlayer.app for Apple silicon and Intel and publishes it as a GitHub Release.
+# Run it from the Actions tab ("Run workflow") with a version such as 0.2.0.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (e.g. 0.2.0). The release tag is v<version>."
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build universal app
+        run: UNIVERSAL=1 VERSION="${{ inputs.version }}" sh tools/make-app.sh dist
+      - name: Check the app
+        run: |
+          lipo -info dist/SyncPlayer.app/Contents/MacOS/SyncPlayer
+          codesign --verify --verbose dist/SyncPlayer.app
+      - name: Zip
+        run: |
+          ZIP="SyncPlayer-${{ inputs.version }}-macOS.zip"
+          ditto -c -k --keepParent dist/SyncPlayer.app "$ZIP"
+          shasum -a 256 "$ZIP" | tee "$ZIP.sha256"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ inputs.version }}" "$ZIP" "$ZIP.sha256" \
+            --target "$GITHUB_SHA" \
+            --title "SyncPlayer ${{ inputs.version }}" \
+            --notes-file tools/release-notes.md
