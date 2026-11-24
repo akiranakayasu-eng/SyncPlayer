@@ -882,7 +882,8 @@ final class AppModel: ObservableObject {
         for (id, w) in outputs {
             // Shown when N is on here, or when the master has N on (every Mac at once).
             guard showIdent || (follower.map { $0.masterIdent && $0.masterAlive } ?? false), let o = show.outputs.first(where: { $0.id == id }) else { w.layoutIdent(nil); continue }
-            w.layoutIdent("\(opts.name)\n画面 \(o.screen + 1)　\(o.name)")
+            // The physical display (as numbered in the control window's screen list) and the output's name.
+            w.layoutIdent("\(opts.name)\nディスプレイ \(o.screen + 1)\n\(o.name)")
         }
         previewBox?.aspect = selectedOutputAspect
         if editMode != .none && tickCount % 20 == 0 { redrawOverlays() }
