@@ -14,7 +14,8 @@ final class SyncNode {
     let players: [AVPlayer]
     let items: [AVPlayerItem]
     /// Frames for the Metal renderer (one per player).
-    let outputs: [AVPlayerItemVideoOutput]
+    /// Added once the movie's format is known (the frame layout follows it), empty until then.
+    private(set) var outputs: [AVPlayerItemVideoOutput] = []
     let url: URL
     private(set) var active = 0
     var player: AVPlayer { players[active] }
@@ -50,13 +51,9 @@ final class SyncNode {
 
     init(url: URL, muted: Bool) {
         self.url = url
-        var ps: [AVPlayer] = [], its: [AVPlayerItem] = [], os: [AVPlayerItemVideoOutput] = []
+        var ps: [AVPlayer] = [], its: [AVPlayerItem] = []
         for _ in 0..<2 {
             let it = AVPlayerItem(url: url)
-            let out = AVPlayerItemVideoOutput(pixelBufferAttributes: [
-                kCVPixelBufferPixelFormatTypeKey as String: FrameFormat.pixelFormat,
-                kCVPixelBufferMetalCompatibilityKey as String: true])
-            it.add(out)
             let p = AVPlayer(playerItem: it)
             p.automaticallyWaitsToMinimizeStalling = false
             p.actionAtItemEnd = .pause
@@ -64,18 +61,28 @@ final class SyncNode {
             // Run playback on the host clock (the same clock the schedule uses), not the audio
             // device clock. Otherwise every player slowly drifts from the schedule (~1 ms / 90 s on Air).
             p.sourceClock = CMClockGetHostTimeClock()
-            ps.append(p); its.append(it); os.append(out)
+            ps.append(p); its.append(it)
         }
-        players = ps; items = its; outputs = os
+        players = ps; items = its
 
         Task { @MainActor in
-            let d = (try? await its[0].asset.load(.duration))?.seconds ?? 0
-            self.duration = d
+            var subtype: FourCharCode? = nil
             if let track = try? await its[0].asset.loadTracks(withMediaType: .video).first {
                 let fps = (try? await track.load(.nominalFrameRate)) ?? 0
                 if fps > 0 { self.frameDuration = 1 / Double(fps) }
                 if let sz = try? await track.load(.naturalSize) { self.videoSize = sz }
+                if let f = (try? await track.load(.formatDescriptions))?.first { subtype = CMFormatDescriptionGetMediaSubType(f) }
             }
+            let fmt = FrameFormat.pixelFormat(forCodec: subtype)
+            self.outputs = its.map { it in
+                let out = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+                    kCVPixelBufferPixelFormatTypeKey as String: fmt,
+                    kCVPixelBufferMetalCompatibilityKey as String: true])
+                it.add(out)
+                return out
+            }
+            // Ready (duration > 0) only once the outputs exist.
+            self.duration = (try? await its[0].asset.load(.duration))?.seconds ?? 0
         }
         for (i, it) in its.enumerated() {
             endObservers.append(NotificationCenter.default.addObserver(

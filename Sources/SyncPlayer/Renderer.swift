@@ -8,8 +8,18 @@ import CoreMedia
 /// RGB in the shader, so no separate conversion pass is needed per frame. BGRA is kept for tests.
 enum FrameFormat {
     static var bgra = false
-    static var pixelFormat: OSType {
-        bgra ? kCVPixelFormatType_32BGRA : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+    /// Keep the movie's own chroma detail: ProRes 422 as 4:2:2, ProRes 4444 as 4:4:4, others 4:2:0.
+    static func pixelFormat(forCodec c: FourCharCode?) -> OSType {
+        if bgra { return kCVPixelFormatType_32BGRA }
+        switch c {
+        case kCMVideoCodecType_AppleProRes422, kCMVideoCodecType_AppleProRes422HQ,
+             kCMVideoCodecType_AppleProRes422LT, kCMVideoCodecType_AppleProRes422Proxy:
+            return kCVPixelFormatType_422YpCbCr8BiPlanarVideoRange
+        case kCMVideoCodecType_AppleProRes4444, kCMVideoCodecType_AppleProRes4444XQ:
+            return kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange
+        default:
+            return kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        }
     }
 }
 
@@ -43,13 +53,15 @@ final class GPU {
         return o;
     }
 
-    // Video-range Y'CbCr (8 bit) to RGB. yuv: 1 = BT.709 (HD and up), 2 = BT.601 (SD).
+    // Video-range Y'CbCr (8 bit) to RGB. m: 1 = BT.709, 2 = BT.601, 3 = BT.2020 (matrix only;
+    // the picture is not tone-mapped, so HDR movies look flat).
     float3 toRGB(float y, float2 c, float m) {
         y = (y - 16.0 / 255.0) * (255.0 / 219.0);
         c = (c - 128.0 / 255.0) * (255.0 / 224.0);
-        float3 rgb = m > 1.5
-            ? float3(y + 1.402 * c.y, y - 0.344136 * c.x - 0.714136 * c.y, y + 1.772 * c.x)
-            : float3(y + 1.5748 * c.y, y - 0.187324 * c.x - 0.468124 * c.y, y + 1.8556 * c.x);
+        float3 rgb;
+        if (m > 2.5)      rgb = float3(y + 1.4746 * c.y, y - 0.164553 * c.x - 0.571353 * c.y, y + 1.8814 * c.x);
+        else if (m > 1.5) rgb = float3(y + 1.402 * c.y, y - 0.344136 * c.x - 0.714136 * c.y, y + 1.772 * c.x);
+        else              rgb = float3(y + 1.5748 * c.y, y - 0.187324 * c.x - 0.468124 * c.y, y + 1.8556 * c.x);
         return saturate(rgb);
     }
 
@@ -159,7 +171,7 @@ final class FrameSource {
     /// BGRA: the picture. YUV: the Y plane; chromaTexture holds CbCr.
     private(set) var texture: CVMetalTexture?
     private(set) var chromaTexture: CVMetalTexture?
-    /// 0 = BGRA, 1 = BT.709, 2 = BT.601 (for the shader).
+    /// 0 = BGRA, 1 = BT.709, 2 = BT.601, 3 = BT.2020 (for the shader).
     private(set) var yuvMatrix: Float = 0
     private(set) var aspect = 0.0
 
@@ -184,6 +196,7 @@ final class FrameSource {
 
     func fetch(now: Double) {
         guard let gpu = GPU.shared else { return }
+        guard node.outputs.count == 2 else { return }
         let out = node.outputs[node.displayIndex(atLocal: now)]
         let t = out.itemTime(forHostTime: now)
         guard out.hasNewPixelBuffer(forItemTime: t) else { return }
@@ -200,8 +213,17 @@ final class FrameSource {
                                                       CVPixelBufferGetWidthOfPlane(pb, 1), CVPixelBufferGetHeightOfPlane(pb, 1), 1, &c)
             guard y != nil, c != nil else { return }
             texture = y; chromaTexture = c
+            // The movie's matrix; without one, SD (below 720 lines) is BT.601 and the rest BT.709.
             let m = CVBufferCopyAttachment(pb, kCVImageBufferYCbCrMatrixKey, nil) as? String
-            yuvMatrix = m == (kCVImageBufferYCbCrMatrix_ITU_R_601_4 as String) ? 2 : 1
+            if m == (kCVImageBufferYCbCrMatrix_ITU_R_601_4 as String) || m == (kCVImageBufferYCbCrMatrix_SMPTE_240M_1995 as String) {
+                yuvMatrix = 2
+            } else if m == (kCVImageBufferYCbCrMatrix_ITU_R_2020 as String) {
+                yuvMatrix = 3
+            } else if m == (kCVImageBufferYCbCrMatrix_ITU_R_709_2 as String) {
+                yuvMatrix = 1
+            } else {
+                yuvMatrix = h < 720 ? 2 : 1
+            }
         } else {
             var tex: CVMetalTexture?
             CVMetalTextureCacheCreateTextureFromImage(nil, gpu.cache, pb, nil, .bgra8Unorm, w, h, 0, &tex)
