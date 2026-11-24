@@ -13,6 +13,8 @@
 
 ## 使い方
 
+ダブルクリックで使うときは `tools/make-app.sh` で `build/SyncPlayer.app` を作る。起動するとフォロワーになり（M キーでマスターに）、前に使った映像を開く（初めてのときは映像を選ぶ画面が出る）。
+
 ```
 swift build -c release
 .build/release/SyncPlayer --master   movie.mov

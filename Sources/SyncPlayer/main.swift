@@ -105,11 +105,25 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ n: Notification) {
         buildMenu()
-        guard let path = opts.file, FileManager.default.fileExists(atPath: path) else {
-            print("movie file not found: \(opts.file ?? "(none)")")
-            print("usage: SyncPlayer [--master|--follower] <movie> [--preset NAME] [--audio|--mute] ...")
-            exit(1)
+        // Started by double-click (no file given): use the last movie, or ask for one.
+        var path = opts.file
+        if path == nil, let last = UserDefaults.standard.string(forKey: "lastMovie"),
+           FileManager.default.fileExists(atPath: last) {
+            path = last
         }
+        if path == nil || !FileManager.default.fileExists(atPath: path!) {
+            NSApp.activate(ignoringOtherApps: true)
+            let p = NSOpenPanel()
+            p.message = "同期再生する映像を選んでください"
+            p.allowedContentTypes = [.movie, .video, .quickTimeMovie, .mpeg4Movie]
+            guard p.runModal() == .OK, let u = p.url else {
+                print("usage: SyncPlayer [--master|--follower] <movie> [--preset NAME] [--audio|--mute] ...")
+                exit(1)
+            }
+            path = u.path
+        }
+        guard let path else { exit(1) }
+        UserDefaults.standard.set(path, forKey: "lastMovie")
         if let p = opts.preset, let s = PresetStore.load(p) { settings = s; lastPreset = p }
         else if let s = PresetStore.loadLast() { settings = s }
         if let sc = opts.screen { settings.screen = sc }
@@ -278,6 +292,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         p.allowedContentTypes = [.movie, .video, .quickTimeMovie, .mpeg4Movie]
         p.allowsMultipleSelection = false
         guard p.runModal() == .OK, let url = p.url else { return }
+        UserDefaults.standard.set(url.path, forKey: "lastMovie")
         replaceMovie(url)
     }
 
