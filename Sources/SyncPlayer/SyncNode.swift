@@ -129,6 +129,13 @@ final class SyncNode {
         return active
     }
 
+    /// Schedule the idle player to start at 0 at the loop point (local host time).
+    private func arm(loopAt at: Double) {
+        players[1 - active].setRate(1.0, time: .zero,
+                                    atHostTime: CMTime(seconds: at, preferredTimescale: 1_000_000_000))
+        armedAt = at
+    }
+
     private func disarm() {
         if armedAt != nil { players[1 - active].pause() }
         armedAt = nil
@@ -179,20 +186,19 @@ final class SyncNode {
 
         // Arm the idle player to start at 0 exactly at the next loop point.
         let remaining = period - pos
-        if armedAt == nil && remaining < armAhead && remaining > 0.03 {
-            let at = now + remaining
-            let next = players[1 - active]
-            next.setRate(1.0, time: .zero,
-                         atHostTime: CMTime(seconds: at, preferredTimescale: 1_000_000_000))
-            armedAt = at
-        }
+        if armedAt == nil && remaining < armAhead && remaining > 0.03 { arm(loopAt: now + remaining) }
 
         // Holding the last frame until the loop point: nothing to correct.
         if holding(pos) { lastError = 0; return }
         if player.rate == 0 && armedAt == nil { resync(); return }
 
+        // Compare with where the media should be at the moment it was read (reading takes time;
+        // comparing with the tick's start would bias the error positive).
+        let t0 = hostNow()
         let actual = player.currentTime().seconds
-        var err = actual - pos
+        let t1 = hostNow()
+        guard let want = loopPosition(atLocal: (t0 + t1) / 2), !holding(want) else { return }
+        var err = actual - want
         if duration > 0 {   // shortest way around the loop point
             if err > duration / 2 { err -= duration }
             if err < -duration / 2 { err += duration }
@@ -215,15 +221,19 @@ final class SyncNode {
         if let s = schedule, let off = clockOffset() { startLocal = max(startLocal, s.anchorHost - off) }
         guard let pos = loopPosition(atLocal: startLocal) else { return }
         needsResync = false
-        resyncCount += 1
         errorEMA = 0
         if holding(pos) {
-            // Show the last frame; tick() arms the other player for the next loop point.
+            // Show the last frame until the loop point. Not counted as a jump: a shorter clip
+            // does this every loop. Arm the other player now if the loop point is close
+            // (tick() would be too late), otherwise tick() arms it.
             player.pause()
             player.seek(to: endTime, toleranceBefore: .zero, toleranceAfter: .zero)
-            settleUntil = startLocal
+            let at = startLocal + (period - pos), ahead = at - hostNow()
+            if ahead > 0.03 && ahead < armAhead + lead { arm(loopAt: at) }
+            settleUntil = hostNow()
             return
         }
+        resyncCount += 1
         settleUntil = startLocal + 0.1
         player.setRate(1.0,
                        time: CMTime(seconds: pos, preferredTimescale: 600_000),

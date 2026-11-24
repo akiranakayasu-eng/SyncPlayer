@@ -53,10 +53,12 @@ final class EditOverlay: NSView {
         case .none: return
         case .corners:
             var q = Warp.corners(s, viewAspect: a.view, videoAspect: a.video)
+            guard k >= 0, k * 2 + 1 < q.count else { return }
             q[k * 2] += d.x; q[k * 2 + 1] += d.y
             s.corners = q
         case .mesh:
             var m = s.meshOffsets
+            guard k >= 0, k * 2 + 1 < m.count else { return }
             m[k * 2] += d.x; m[k * 2 + 1] += d.y
             s.mesh = m
         }

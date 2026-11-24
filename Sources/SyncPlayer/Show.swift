@@ -84,12 +84,24 @@ struct Show: Codable, Equatable {
         audioClip = try c.decodeIfPresent(String.self, forKey: .audioClip)
         loopTogether = try c.decodeIfPresent(Bool.self, forKey: .loopTogether) ?? true
         loopLength = max(0, try c.decodeIfPresent(Double.self, forKey: .loopLength) ?? 0)
+        if loopLength > 0 && loopLength < Show.minLoop { loopLength = Show.minLoop }
     }
 
     func clip(_ id: String) -> Clip? { clips.first { $0.id == id } }
 
     /// Movie names, as the master announces them (followers warn when theirs differ).
-    var fileLabel: String { clips.map(\.name).joined(separator: " + ") }
+    /// Kept under ~400 bytes so the announcement fits one packet; long lists become a count,
+    /// the start of the names and a short hash (the same on every Mac with the same clips).
+    var fileLabel: String {
+        let full = clips.map(\.name).joined(separator: " + ")
+        guard full.utf8.count > 400 else { return full }
+        var h: UInt32 = 2_166_136_261
+        for b in full.utf8 { h = (h ^ UInt32(b)) &* 16_777_619 }
+        return "\(clips.count) 本（\(String(full.prefix(60)))… #\(String(h, radix: 16))）"
+    }
+
+    /// Shortest fixed loop length (s); shorter ones would keep restarting.
+    static let minLoop = 0.5
 
     func newClipID() -> String {
         var n = clips.count + 1

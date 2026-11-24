@@ -1,7 +1,8 @@
 import Foundation
 
 /// All clips of the show on one timeline. One SyncNode per clip, all following the same
-/// schedule and clock offset. The timeline is not wrapped: each clip loops by its own length.
+/// schedule and clock offset. The timeline is not wrapped: each clip wraps it by the common loop
+/// length (schedule.cycle) or, without one, by its own length.
 final class Transport {
     private(set) var nodes: [String: SyncNode] = [:]
     private(set) var frames: [String: FrameSource] = [:]

@@ -26,7 +26,12 @@ final class AppModel: ObservableObject {
     @Published var audioOn = false
     @Published var presetNames: [String] = []
     @Published var lastPreset = ""
-    @Published var showFile: String? = nil { didSet { updateRepresented() } }
+    /// The .syncshow opened or saved; changes are written to it as well as to current.syncshow.
+    @Published var showFile: String? = nil {
+        didSet { updateRepresented(); UserDefaults.standard.set(showFile, forKey: "showFile") }
+    }
+    /// What showFile holds now (so opening a file does not rewrite it unchanged).
+    private var fileShow: Show?
     @Published var screenNames: [String] = []
 
     var master: Master?
@@ -63,9 +68,15 @@ final class AppModel: ObservableObject {
         var s: Show?
         if let f = opts.showFile {
             s = ShowStore.read(URL(fileURLWithPath: f))
-            if s == nil { print("cannot read show: \(f)") } else { showFile = absolute(f) }
+            if s == nil { print("cannot read show: \(f)") } else { showFile = absolute(f); fileShow = s }
         }
-        if s == nil { s = ShowStore.loadCurrent() }
+        if s == nil {
+            s = ShowStore.loadCurrent()
+            // Keep writing to the show file opened last time, if it still holds the same show
+            // (not when it was changed elsewhere since).
+            if let cur = s, let f = UserDefaults.standard.string(forKey: "showFile"),
+               let fs = ShowStore.read(URL(fileURLWithPath: f)), fs == cur { showFile = f; fileShow = fs }
+        }
         if !opts.files.isEmpty {
             let paths = opts.files.map(absolute)
             if var cur = s, cur.clips.count == paths.count {
@@ -75,15 +86,28 @@ final class AppModel: ObservableObject {
                 s = Show.make(paths: paths, look: s?.outputs.first?.layers.first?.look ?? DisplaySettings())
             }
         }
-        if let cur = s, !cur.clips.contains(where: { FileManager.default.fileExists(atPath: $0.path) }) { s = nil }
-        if s == nil {
+        let missing = s.map { !$0.clips.contains(where: { FileManager.default.fileExists(atPath: $0.path) }) } ?? true
+        if missing {
             NSApp.activate(ignoringOtherApps: true)
-            let urls = pickMovies(message: "同期再生する映像を選んでください（複数選べます）", multiple: true)
+            let n = s?.clips.count ?? 0
+            let msg = n > 0 ? "映像が見つかりません。\(n) 本の映像を同じ順に選ぶと、今の配置のまま使えます"
+                            : "同期再生する映像を選んでください（複数選べます）"
+            let urls = pickMovies(message: msg, multiple: true)
             guard !urls.isEmpty else {
                 print("usage: SyncPlayer [--master|--follower] <movie>... [--show FILE] [--preset NAME] [--audio|--mute] ...")
                 exit(1)
             }
-            s = Show.make(paths: urls.map(\.path))
+            if var cur = s, cur.clips.count == urls.count {
+                for i in cur.clips.indices { cur.clips[i].path = urls[i].path }   // keep the layout
+                s = cur
+            } else {
+                // A different show: keep the old one aside and leave the opened file untouched.
+                let prev = ShowStore.base.appendingPathComponent("current.prev.syncshow")
+                try? FileManager.default.removeItem(at: prev)
+                try? FileManager.default.copyItem(at: ShowStore.currentURL, to: prev)
+                showFile = nil; fileShow = nil
+                s = Show.make(paths: urls.map(\.path))
+            }
         }
         guard var show0 = s else { exit(1) }
         if let p = opts.preset {
@@ -154,10 +178,8 @@ final class AppModel: ObservableObject {
     // MARK: show changes
 
     private func showDidChange(_ old: Show) {
-        if show.clips != old.clips {
-            transport.setClips(show.clips)
-            applyAudio()
-        }
+        if show.clips != old.clips { transport.setClips(show.clips) }
+        if show.clips != old.clips || show.audioClip != old.audioClip { applyAudio() }
         if show.outputs != old.outputs { syncOutputs() }
         fixSelection()
         redrawOverlays()
@@ -166,13 +188,19 @@ final class AppModel: ObservableObject {
 
     private func scheduleSave() {
         saveWork?.cancel()
-        let s = show
-        let w = DispatchWorkItem { _ = ShowStore.write(s, to: ShowStore.currentURL) }
+        let w = DispatchWorkItem { [weak self] in self?.saveNow() }
         saveWork = w
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: w)
     }
 
-    func saveNow() { saveWork?.cancel(); _ = ShowStore.write(show, to: ShowStore.currentURL) }
+    func saveNow() {
+        saveWork?.cancel()
+        _ = ShowStore.write(show, to: ShowStore.currentURL)
+        if let f = showFile, show != fileShow {
+            if ShowStore.write(show, to: URL(fileURLWithPath: f)) { fileShow = show }
+            else { notify("ショーのファイルに書けません: \((f as NSString).lastPathComponent)") }
+        }
+    }
 
     private func fixSelection() {
         if selectedOutput == nil || !show.outputs.contains(where: { $0.id == selectedOutput }) {
@@ -182,6 +210,8 @@ final class AppModel: ObservableObject {
         if selectedLayer == nil || !layers.contains(where: { $0.id == selectedLayer }) {
             selectedLayer = layers.last?.id
         }
+        // The mesh may have fewer points now (size changed, show or preset loaded).
+        if let n = nudgeOverlay?.handleCount, selectedHandle >= n { selectedHandle = 0 }
     }
 
     var selectedOutputIndex: Int? { show.outputs.firstIndex { $0.id == selectedOutput } }
@@ -439,8 +469,10 @@ final class AppModel: ObservableObject {
 
     func openShow(at u: URL) {
         guard let s = ShowStore.read(u) else { notify("開けませんでした: \(u.lastPathComponent)"); return }
-        applyShow(s)
+        saveNow()   // finish writing the previous file first
         showFile = u.path
+        fileShow = s
+        applyShow(s)
         notify("ショー: \(u.lastPathComponent)")
     }
 
@@ -450,7 +482,7 @@ final class AppModel: ObservableObject {
         p.nameFieldStringValue = showFile.map { ($0 as NSString).lastPathComponent } ?? "show.syncshow"
         p.message = "ショーを保存（映像は同じフォルダに置くと、ほかの Mac でもそのまま開けます）"
         guard p.runModal() == .OK, let u = p.url else { return }
-        if ShowStore.write(show, to: u) { showFile = u.path; notify("保存: \(u.lastPathComponent)") }
+        if ShowStore.write(show, to: u) { showFile = u.path; fileShow = show; notify("保存: \(u.lastPathComponent)") }
         else { notify("保存できませんでした") }
     }
 
@@ -496,9 +528,9 @@ final class AppModel: ObservableObject {
                 follower?.stop(); follower = nil
                 do {
                     let m = try Master(transport: transport, broadcast: opts.broadcast, extraTargets: opts.extra,
-                                       initial: initial, since: since)
-                    m.fileLabel = { [weak self] in self?.show.fileLabel ?? "" }
-                    m.loopPolicy = { [weak self] in (self?.show.loopTogether ?? true, self?.show.loopLength ?? 0) }
+                                       initial: initial, since: since,
+                                       fileLabel: { [weak self] in self?.show.fileLabel ?? "" },
+                                       loopPolicy: { [weak self] in (self?.show.loopTogether ?? true, self?.show.loopLength ?? 0) })
                     m.onDemote = { [weak self] in
                         self?.notify("ほかの Mac がマスターになったので、フォロワーに戻りました")
                         self?.setRole(master: false)
@@ -732,12 +764,23 @@ final class AppModel: ObservableObject {
         return s
     }
 
+    private var missingCache: (at: Double, paths: Set<String>) = (-10, [])
+    /// Movies not found on disk, checked at most every 2 s (a sleeping disk can be slow to answer).
+    private func missingFiles() -> Set<String> {
+        let now = hostNow()
+        if now - missingCache.at > 2 {
+            missingCache = (now, Set(transport.orderedNodes.map(\.node.url.path)
+                                        .filter { !FileManager.default.fileExists(atPath: $0) }))
+        }
+        return missingCache.paths
+    }
+
     /// Text in the control window: each clip's state as well.
     private func statusText() -> String {
         var s = roleLine() + clockLines()
         for (id, n) in transport.orderedNodes {
             let name = clipName(id)
-            if n.items.contains(where: { $0.status == .failed }) || !FileManager.default.fileExists(atPath: n.url.path) {
+            if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
                 s += "\n\(name): 開けません"
             } else if !n.ready {
                 s += "\n\(name): 読み込み中"

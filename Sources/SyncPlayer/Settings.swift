@@ -47,6 +47,8 @@ struct DisplaySettings: Codable, Equatable {
         screen = try c.decodeIfPresent(Int.self, forKey: .screen) ?? 0
         fullscreen = try c.decodeIfPresent(Bool.self, forKey: .fullscreen) ?? false
         if corners?.count != 8 { corners = nil }
+        // Values from a hand-edited file: keep the mesh in the range the controls allow.
+        if !(2...8).contains(meshCols) || !(2...8).contains(meshRows) { meshCols = d.meshCols; meshRows = d.meshRows; mesh = [] }
     }
 
     var meshPointCount: Int { (meshCols + 1) * (meshRows + 1) }

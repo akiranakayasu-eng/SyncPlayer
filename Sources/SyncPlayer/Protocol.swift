@@ -13,7 +13,8 @@ func hostNow() -> Double {
 }
 
 /// The show state the master announces.
-/// Media position at master time m (while playing) = anchorMedia + (m - anchorHost), wrapped by the media length.
+/// Media position at master time m (while playing) = anchorMedia + (m - anchorHost), wrapped by
+/// cycle (the common loop) or, when cycle is nil, by each clip's own length.
 struct Schedule: Codable, Equatable {
     var epoch: Int          // bumps on every play / pause / jump
     var playing: Bool

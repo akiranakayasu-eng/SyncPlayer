@@ -19,16 +19,21 @@ final class Master {
     var fileLabel: () -> String = { "" }
     /// Loop policy from the show: together (common loop) and a fixed length (0 = automatic).
     var loopPolicy: () -> (together: Bool, fixed: Double) = { (true, 0) }
-    /// Longest clip any follower reported (guarded by lock). Only grows, so a Mac that drops
-    /// out for a while does not change the loop for everyone.
-    private var reportedLongest = 0.0
-    private var longestSeen = 0.0
+    /// Each follower's longest clip and when it was last heard (guarded by lock). A Mac silent
+    /// for `forgetAfter` drops out, so the automatic length can shrink again (clip replaced,
+    /// Mac removed). The previous master's loop is kept until then.
+    private var reported: [String: (dur: Double, at: Double)] = [:]
+    private let forgetAfter = 10.0
+    private var inherited: (dur: Double, until: Double)?
     private let lock = NSLock()
 
     /// initial: the schedule to continue (already in this Mac's clock), so taking over is seamless.
-    init(transport: Transport, broadcast: String, extraTargets: [String], initial: Schedule?, since: Double) throws {
+    init(transport: Transport, broadcast: String, extraTargets: [String], initial: Schedule?, since: Double,
+         fileLabel: @escaping () -> String, loopPolicy: @escaping () -> (together: Bool, fixed: Double)) throws {
         self.transport = transport
         self.since = since
+        self.fileLabel = fileLabel
+        self.loopPolicy = loopPolicy
         sock = try UDPSocket(port: Ports.clock, broadcast: true)
         do {
             listen = try UDPSocket(port: Ports.beacon, reusePort: true)
@@ -40,7 +45,7 @@ final class Master {
         targets += extraTargets.map { UDPSocket.address($0, Ports.beacon) }
         if let initial {
             schedule = initial
-            longestSeen = initial.cycle ?? 0
+            if let c = initial.cycle, c > 0 { inherited = (c, hostNow() + forgetAfter) }
         } else {
             schedule = Schedule(epoch: Int(Date().timeIntervalSince1970), playing: false,
                                 anchorHost: hostNow(), anchorMedia: transport.currentPosition())
@@ -52,7 +57,8 @@ final class Master {
             let t2 = hostNow()
             guard let self, let m = Message.decode(data), m.k == "p" else { return }
             if let d = m.dur, d.isFinite, d > 0, d < 86_400 {
-                self.lock.lock(); self.reportedLongest = max(self.reportedLongest, d); self.lock.unlock()
+                let key = UDPSocket.hostString(from) + ":" + String(from.sin_port)
+                self.lock.lock(); self.reported[key] = (d, t2); self.lock.unlock()
             }
             var reply = Message(k: "q")
             reply.id = m.id; reply.t1 = m.t1; reply.t2 = t2
@@ -75,6 +81,8 @@ final class Master {
             self?.updateCycle()
             self?.announce()
         }
+        // Keep announcing while a panel is open or a slider is held.
+        if let t = timer { RunLoop.main.add(t, forMode: .common) }
         updateCycle()
         announce()
     }
@@ -102,18 +110,26 @@ final class Master {
         var want: Double? = nil
         if p.together {
             if p.fixed > 0 {
-                want = p.fixed
+                want = max(p.fixed, Show.minLoop)
             } else {
-                lock.lock(); let r = reportedLongest; lock.unlock()
-                longestSeen = max(longestSeen, r, transport.longest)
-                want = longestSeen > 0 ? longestSeen : nil
+                let now = hostNow()
+                lock.lock()
+                reported = reported.filter { now - $0.value.at < forgetAfter }
+                var longest = reported.values.map(\.dur).max() ?? 0
+                lock.unlock()
+                longest = max(longest, transport.longest)
+                if let i = inherited { if now < i.until { longest = max(longest, i.dur) } else { inherited = nil } }
+                want = longest > 0 ? longest : nil
             }
         }
         guard abs((schedule.cycle ?? 0) - (want ?? 0)) > 0.0005 else { return }
         var s = schedule
         s.epoch += 1
         let at = hostNow() + (s.playing ? 0.3 : 0)
+        // Continue from where the loop is now: the timeline wrapped by the old loop length.
         var t = transport.timeline(atLocal: at) ?? 0
+        let old = (schedule.cycle ?? 0) > 0 ? schedule.cycle! : transport.longest
+        if old > 0 { t = t.truncatingRemainder(dividingBy: old) }
         if let c = want, c > 0 { t = t.truncatingRemainder(dividingBy: c) }
         s.anchorMedia = max(0, t)
         s.anchorHost = at
@@ -257,6 +273,7 @@ final class Follower {
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             self?.pingIfDue()
         }
+        if let t = timer { RunLoop.main.add(t, forMode: .common) }
     }
 
     func stop() {
