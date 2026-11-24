@@ -2,7 +2,7 @@
 
 新しい版が上。各版の .app は [Releases](https://github.com/akiranakayasu-eng/sync-player/releases) から落とせる（v0.1 は配っていない）。同期でつなぐ Mac は全台を同じ版にする。
 
-## v0.3.1（2026-11-25）
+## v0.3.1（2026-11-24）
 
 展示で使う学生さんの希望に合わせた版。
 
