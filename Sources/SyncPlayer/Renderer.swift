@@ -4,6 +4,15 @@ import AVFoundation
 import CoreVideo
 import CoreMedia
 
+/// How video frames reach the GPU. YUV (two planes, the decoder's own layout) is converted to
+/// RGB in the shader, so no separate conversion pass is needed per frame. BGRA is kept for tests.
+enum FrameFormat {
+    static var bgra = false
+    static var pixelFormat: OSType {
+        bgra ? kCVPixelFormatType_32BGRA : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+    }
+}
+
 /// Metal objects shared by every view: device, pipeline (premultiplied alpha, so layers stack),
 /// texture cache for video frames, and the grid's index buffer.
 final class GPU {
@@ -22,7 +31,8 @@ final class GPU {
     #include <metal_stdlib>
     using namespace metal;
     struct Out { float4 position [[position]]; float2 uv; float2 outPos; };
-    struct U { float4 crop; float4 blend; float gamma; float grid; float hasTex; float opacity; };
+    struct U { float4 crop; float4 blend; float gamma; float grid; float hasTex; float opacity;
+               float yuv; float pad0; float pad1; float pad2; };
 
     vertex Out vmain(uint vid [[vertex_id]], const device float4* v [[buffer(0)]]) {
         Out o;
@@ -33,14 +43,29 @@ final class GPU {
         return o;
     }
 
-    fragment float4 fmain(Out in [[stage_in]], texture2d<float> tex [[texture(0)]], constant U& u [[buffer(0)]]) {
+    // Video-range Y'CbCr (8 bit) to RGB. yuv: 1 = BT.709 (HD and up), 2 = BT.601 (SD).
+    float3 toRGB(float y, float2 c, float m) {
+        y = (y - 16.0 / 255.0) * (255.0 / 219.0);
+        c = (c - 128.0 / 255.0) * (255.0 / 224.0);
+        float3 rgb = m > 1.5
+            ? float3(y + 1.402 * c.y, y - 0.344136 * c.x - 0.714136 * c.y, y + 1.772 * c.x)
+            : float3(y + 1.5748 * c.y, y - 0.187324 * c.x - 0.468124 * c.y, y + 1.8556 * c.x);
+        return saturate(rgb);
+    }
+
+    fragment float4 fmain(Out in [[stage_in]], texture2d<float> tex [[texture(0)]],
+                          texture2d<float> chroma [[texture(1)]], constant U& u [[buffer(0)]]) {
         constexpr sampler s(filter::linear, address::clamp_to_edge);
         float2 uv = in.uv;
         // crop: x=L y=R z=T w=B (uv y points up). Cropped parts show what is behind.
         if (uv.x < u.crop.x || uv.x > 1.0 - u.crop.y || uv.y > 1.0 - u.crop.z || uv.y < u.crop.w) {
             discard_fragment();
         }
-        float4 c = u.hasTex > 0.5 ? tex.sample(s, float2(uv.x, 1.0 - uv.y)) : float4(0.1, 0.1, 0.1, 1);
+        float2 st = float2(uv.x, 1.0 - uv.y);
+        float4 c = float4(0.1, 0.1, 0.1, 1);
+        if (u.hasTex > 0.5) {
+            c = u.yuv > 0.5 ? float4(toRGB(tex.sample(s, st).r, chroma.sample(s, st).rg, u.yuv), 1.0) : tex.sample(s, st);
+        }
         if (u.grid > 0.5) {
             float2 g = uv * 10.0;
             float2 d = abs(fract(g - 0.5) - 0.5) / max(fwidth(g), float2(1e-5));
@@ -131,7 +156,11 @@ final class GPU {
 /// Timing is untouched: the frame for "now" is taken from the node's active player.
 final class FrameSource {
     let node: SyncNode
+    /// BGRA: the picture. YUV: the Y plane; chromaTexture holds CbCr.
     private(set) var texture: CVMetalTexture?
+    private(set) var chromaTexture: CVMetalTexture?
+    /// 0 = BGRA, 1 = BT.709, 2 = BT.601 (for the shader).
+    private(set) var yuvMatrix: Float = 0
     private(set) var aspect = 0.0
 
     init(node: SyncNode) { self.node = node }
@@ -163,12 +192,26 @@ final class FrameSource {
         count(shown.seconds)
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
         if h > 0 { aspect = Double(w) / Double(h) }
-        var tex: CVMetalTexture?
-        CVMetalTextureCacheCreateTextureFromImage(nil, gpu.cache, pb, nil, .bgra8Unorm, w, h, 0, &tex)
-        if tex != nil { texture = tex }
+        if CVPixelBufferGetPlaneCount(pb) >= 2 {
+            var y: CVMetalTexture?, c: CVMetalTexture?
+            CVMetalTextureCacheCreateTextureFromImage(nil, gpu.cache, pb, nil, .r8Unorm,
+                                                      CVPixelBufferGetWidthOfPlane(pb, 0), CVPixelBufferGetHeightOfPlane(pb, 0), 0, &y)
+            CVMetalTextureCacheCreateTextureFromImage(nil, gpu.cache, pb, nil, .rg8Unorm,
+                                                      CVPixelBufferGetWidthOfPlane(pb, 1), CVPixelBufferGetHeightOfPlane(pb, 1), 1, &c)
+            guard y != nil, c != nil else { return }
+            texture = y; chromaTexture = c
+            let m = CVBufferCopyAttachment(pb, kCVImageBufferYCbCrMatrixKey, nil) as? String
+            yuvMatrix = m == (kCVImageBufferYCbCrMatrix_ITU_R_601_4 as String) ? 2 : 1
+        } else {
+            var tex: CVMetalTexture?
+            CVMetalTextureCacheCreateTextureFromImage(nil, gpu.cache, pb, nil, .bgra8Unorm, w, h, 0, &tex)
+            guard tex != nil else { return }
+            texture = tex; chromaTexture = nil; yuvMatrix = 0
+        }
     }
 
     var mtlTexture: MTLTexture? { texture.flatMap { CVMetalTextureGetTexture($0) } }
+    var mtlChroma: MTLTexture? { chromaTexture.flatMap { CVMetalTextureGetTexture($0) } }
 }
 
 /// Draws an output's layers into one MTKView (an output window or the preview).
@@ -223,14 +266,18 @@ final class OutputRenderer: NSObject, MTKViewDelegate {
             fs?.fetch(now: now)
             guard let vb = buffer(for: l, video: fs?.aspect ?? 0) else { continue }
             let tex = fs?.mtlTexture
+            let chroma = fs?.mtlChroma
             if let t = fs?.texture { keep.append(t) }
+            if let t = fs?.chromaTexture { keep.append(t) }
             let s = l.look
             var u: [Float] = [Float(s.cropL), Float(s.cropR), Float(s.cropT), Float(s.cropB),
                               Float(s.blendL), Float(s.blendR), Float(s.blendT), Float(s.blendB),
-                              Float(s.blendGamma), s.showGrid ? 1 : 0, tex == nil ? 0 : 1, Float(l.opacity)]
+                              Float(s.blendGamma), s.showGrid ? 1 : 0, tex == nil ? 0 : 1, Float(l.opacity),
+                              chroma == nil ? 0 : (fs?.yuvMatrix ?? 0), 0, 0, 0]
             enc.setVertexBuffer(vb, offset: 0, index: 0)
             enc.setFragmentBytes(&u, length: u.count * 4, index: 0)
             enc.setFragmentTexture(tex ?? gpu.blank, index: 0)
+            enc.setFragmentTexture(chroma ?? gpu.blank, index: 1)
             enc.drawIndexedPrimitives(type: .triangle, indexCount: gpu.indexCount, indexType: .uint32,
                                       indexBuffer: gpu.indexBuffer, indexBufferOffset: 0)
         }

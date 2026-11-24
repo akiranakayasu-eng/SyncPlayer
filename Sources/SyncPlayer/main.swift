@@ -6,6 +6,7 @@ import AppKit
 //          --broadcast 192.168.1.255  --to 192.168.1.23 (extra master->follower address, repeatable)
 //          --log  --log-interval 0.1  --autoplay 2 (master starts by itself)  --quit-after 60
 //          --switch-after 30 (test: switch master <-> follower after 30 s)
+//          --bgra (test: ask for BGRA frames instead of YUV, to compare the GPU load)
 
 struct Options {
     var master = false
@@ -45,6 +46,7 @@ struct Options {
             case "--preset": preset = next()
             case "--switch-after": switchAfter = Double(next())
             case "--show": showFile = next()
+            case "--bgra": FrameFormat.bgra = true   // test: frames as BGRA (the v0.3 way) instead of YUV
             default: if !args[i].hasPrefix("-") { files.append(args[i]) }   // skip -psn_… and other system flags
             }
             i += 1

@@ -54,7 +54,7 @@ final class SyncNode {
         for _ in 0..<2 {
             let it = AVPlayerItem(url: url)
             let out = AVPlayerItemVideoOutput(pixelBufferAttributes: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferPixelFormatTypeKey as String: FrameFormat.pixelFormat,
                 kCVPixelBufferMetalCompatibilityKey as String: true])
             it.add(out)
             let p = AVPlayer(playerItem: it)
