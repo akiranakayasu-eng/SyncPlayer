@@ -66,6 +66,9 @@ final class OutputWindow: NSObject, NSWindowDelegate {
     private(set) var screenIndex = -1
 
     static let windowed: NSWindow.StyleMask = [.titled, .resizable, .miniaturizable]
+    /// Full-screen outputs stay above ordinary windows (the control window unless S brings it up)
+    /// and the menu bar and Dock, on every screen. AppModel.refreshLevels sets the level.
+    static let fullLevel = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)   // above the menu bar's icons too
 
     init?(id: String) {
         guard let p = PictureView(fps: 120) else { return nil }

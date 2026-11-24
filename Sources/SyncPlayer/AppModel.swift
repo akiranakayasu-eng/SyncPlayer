@@ -41,7 +41,20 @@ final class AppModel: ObservableObject {
     var preview: PictureView?
     var previewBox: AspectBox?
     var showHelp = false
+    /// Info text on windowed outputs (shown unless I hides it).
     var infoHidden = false
+    /// Info text on full-screen outputs (hidden unless I or H shows it, so an exhibition shows only the picture).
+    var infoOnFull = false
+    private var cursorHidden = false
+    /// An open / save panel is up (full-screen outputs stay down meanwhile).
+    private var panelOpen = false
+    /// S brought the control window above a full-screen output on its screen.
+    private var controlRaised = false
+    /// Another app came to the front after SyncPlayer was (not set when it started in the back,
+    /// e.g. from the command line or at login, so outputs still cover the menu bar then).
+    private var leftFront = false
+    /// Info settings before H showed the key list (restored when it is closed).
+    private var helpSaved: (Bool, Bool)?
     private var message = ""
     private var messageUntil = 0.0
     private var saveWork: DispatchWorkItem?
@@ -51,7 +64,7 @@ final class AppModel: ObservableObject {
 
     static let keyHelp = """
     space 再生／停止（マスター）  R 頭へ  ← → 5 秒（shift 1 秒）
-    M マスター⇔フォロワー  S 操作の窓  I 情報  H キー一覧
+    M マスター⇔フォロワー  S 操作の窓（全画面の上にも出す／隠す）  I 情報（全画面では標準で隠す）  H キー一覧
     O 次の出力  L 次のレイヤー  F 全画面  D 次の画面  A 音  G 格子
     E 四隅の変形  W 曲面メッシュ  Tab 次の点  矢印 1 px（shift 10 px）
     + − 大きさ  [ ] 回転  0 戻す（編集中はその変形、ほかは位置・大きさ・回転）
@@ -133,7 +146,7 @@ final class AppModel: ObservableObject {
         }
         if let sc = opts.screen { show0.outputs[0].screen = sc }
         if opts.fullscreen { show0.outputs[0].fullscreen = true }
-        audioOn = opts.audio ?? opts.master
+        audioOn = opts.audio ?? show0.audioOn ?? opts.master
         presetNames = ShowStore.presetNames()
 
         buildControlWindow()
@@ -141,6 +154,12 @@ final class AppModel: ObservableObject {
         selectedOutput = show.outputs.first?.id
         setRole(master: opts.master)
         installKeys()
+        // Another app or a macOS dialog (e.g. the local network permission) in front: full-screen
+        // outputs step down so it is not hidden behind them; back up when SyncPlayer is active again.
+        NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
+                                               object: nil, queue: .main) { [weak self] _ in self?.leftFront = true; self?.refreshLevels() }
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
+                                               object: nil, queue: .main) { [weak self] _ in self?.leftFront = false; self?.refreshLevels() }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in self?.screensChanged() }
 
@@ -189,7 +208,10 @@ final class AppModel: ObservableObject {
 
     private func showDidChange(_ old: Show) {
         if show.clips != old.clips { transport.setClips(show.clips) }
-        if show.clips != old.clips || show.audioClip != old.audioClip { applyAudio() }
+        // A show opened or a preset loaded brings this Mac's sound setting with it.
+        var soundChanged = show.clips != old.clips || show.audioClip != old.audioClip
+        if show.audioOn != old.audioOn, let a = show.audioOn, a != audioOn, opts.audio == nil { audioOn = a; soundChanged = true }
+        if soundChanged { applyAudio() }
         if show.outputs != old.outputs { syncOutputs() }
         fixSelection()
         redrawOverlays()
@@ -314,8 +336,8 @@ final class AppModel: ObservableObject {
             } else {
                 outputs[o.id]?.apply(o, index: i, title: outputTitle(o))
             }
-            outputs[o.id]?.info.isHidden = infoHidden
         }
+        refreshInfo()
         updatePresentation()
     }
 
@@ -355,9 +377,29 @@ final class AppModel: ObservableObject {
         NSApp.presentationOptions = coversMain ? [.hideDock, .hideMenuBar] : []
     }
 
+    /// Show or hide the info text on each output (full-screen ones follow infoOnFull).
+    private func refreshInfo() {
+        for w in outputs.values { w.info.isHidden = w.isFull ? !infoOnFull : infoHidden }
+        refreshLevels()
+    }
+
+    /// Hide the pointer while the front-most window under it is a full-screen output (so it shows
+    /// over the control window, open / save panels and other apps' windows), not while editing points.
+    private func updateCursor() {
+        let p = NSEvent.mouseLocation
+        let top = NSWindow.windowNumber(at: p, belowWindowWithWindowNumber: 0)
+        let hide = NSApp.isActive && editMode == .none
+            && outputs.values.contains { $0.isFull && $0.window.isVisible && $0.window.windowNumber == top }
+        if hide != cursorHidden {
+            cursorHidden = hide
+            if hide { NSCursor.hide() } else { NSCursor.unhide() }
+        }
+    }
+
     private func screensChanged() {
         refreshScreens()
         for (i, o) in show.outputs.enumerated() { outputs[o.id]?.replace(o, index: i, title: outputTitle(o)) }
+        refreshInfo()
         updatePresentation()
         notify("画面のつながりが変わりました（\(NSScreen.screens.count) 枚）")
     }
@@ -453,7 +495,7 @@ final class AppModel: ObservableObject {
         p.message = message
         p.allowedContentTypes = [.movie, .video, .quickTimeMovie, .mpeg4Movie]
         p.allowsMultipleSelection = multiple
-        return p.runModal() == .OK ? p.urls : []
+        return runPanel(p) == .OK ? p.urls : []
     }
 
     /// Add movies; each also gets a layer on the selected output.
@@ -494,7 +536,7 @@ final class AppModel: ObservableObject {
         let p = NSOpenPanel()
         p.allowedContentTypes = [ShowStore.fileType, .json]
         p.message = "ショーのファイル（.syncshow）を開く"
-        guard p.runModal() == .OK, let u = p.url else { return }
+        guard runPanel(p) == .OK, let u = p.url else { return }
         openShow(at: u)
     }
 
@@ -512,7 +554,7 @@ final class AppModel: ObservableObject {
         p.allowedContentTypes = [ShowStore.fileType]
         p.nameFieldStringValue = showFile.map { ($0 as NSString).lastPathComponent } ?? "show.syncshow"
         p.message = "ショーを保存（映像は同じフォルダに置くと、ほかの Mac でもそのまま開けます）"
-        guard p.runModal() == .OK, let u = p.url else { return }
+        guard runPanel(p) == .OK, let u = p.url else { return }
         if ShowStore.write(show, to: u) { showFile = u.path; fileShow = show; notify("保存: \(u.lastPathComponent)") }
         else { notify("保存できませんでした") }
     }
@@ -604,6 +646,7 @@ final class AppModel: ObservableObject {
     func setAudio(_ on: Bool) {
         audioOn = on
         applyAudio()
+        if show.audioOn != on { show.audioOn = on }   // kept in this Mac's show
         notify(on ? "音を出します" : "消音")
     }
 
@@ -632,7 +675,7 @@ final class AppModel: ObservableObject {
         let win = NSWindow(contentRect: NSRect(x: vf.minX + 20, y: vf.minY + 20, width: w, height: h),
                            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         win.isReleasedWhenClosed = false
-        win.minSize = NSSize(width: 900, height: 600)
+        win.minSize = NSSize(width: 960, height: 600)
         win.contentView = NSHostingView(rootView: ControlView(model: self, status: status))
         win.title = "SyncPlayer — 操作"
         control = win
@@ -649,7 +692,62 @@ final class AppModel: ObservableObject {
 
     func toggleControl() {
         guard let c = control else { return }
-        if c.isVisible && c.isKeyWindow { c.orderOut(nil) } else { c.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+        // By frames: a hidden window may not report its screen.
+        let coveredScreen = outputs.values.contains { $0.isFull && $0.window.frame.intersects(c.frame) }
+        // Hide only when it is really in front (it may hold the keys while a full-screen output covers it).
+        if c.isVisible && c.isKeyWindow && (!coveredScreen || controlRaised) {
+            c.orderOut(nil); controlRaised = false; refreshLevels(); return
+        }
+        // Above a full-screen output on its screen while it is up; S again hides it.
+        controlRaised = coveredScreen
+        NSApp.activate(ignoringOtherApps: true)
+        refreshLevels()
+        c.makeKeyAndOrderFront(nil)
+    }
+
+    /// The one place that sets window levels. A full-screen output is above the menu bar while
+    /// SyncPlayer has not left the front and no open / save panel is up. When another app or a macOS
+    /// dialog comes to the front, only the outputs on the main screen (where dialogs and the menu bar
+    /// appear) step down; outputs on other screens stay up.
+    func refreshLevels() {
+        let main = NSScreen.screens.first
+        for w in outputs.values {
+            let up = w.isFull && !panelOpen && (!leftFront || w.window.screen != main)
+            let level: NSWindow.Level = up ? OutputWindow.fullLevel : .normal
+            if w.window.level != level { w.window.level = level }
+        }
+        if let c = control {
+            let raise = controlRaised && !leftFront && !panelOpen && outputs.values.contains { $0.isFull }
+            let level: NSWindow.Level = raise ? NSWindow.Level(rawValue: OutputWindow.fullLevel.rawValue + 1) : .normal
+            if c.level != level { c.level = level }
+        }
+    }
+
+    /// Run an open / save panel. Full-screen outputs sit above the menu bar, so they are lowered
+    /// while the panel is up (otherwise it could open behind them), also if the app is left and
+    /// entered again meanwhile.
+    func runPanel(_ p: NSSavePanel) -> NSApplication.ModalResponse {
+        panelOpen = true
+        refreshLevels()
+        defer { panelOpen = false; refreshLevels() }
+        NSApp.activate(ignoringOtherApps: true)
+        return p.runModal()
+    }
+
+    /// Pick a mask image for the selected layer.
+    func pickMask() {
+        guard let o0 = selectedOutput, let l0 = selectedLayer else { return }
+        let p = NSOpenPanel()
+        p.allowedContentTypes = [.image]
+        p.message = "マスクの画像（白は見える、黒は隠れる。映像と同じ縦横比にする。ショーと同じフォルダに置くと、ほかの Mac でもそのまま使えます）"
+        guard runPanel(p) == .OK, let u = p.url else { return }
+        guard let gpu = GPU.shared, GPU.loadMask(u.path, device: gpu.device) != nil else {
+            notify("画像を読めませんでした: \(u.lastPathComponent)"); return
+        }
+        // The show may have changed while the panel was open: find the layer again.
+        guard let o = show.outputs.firstIndex(where: { $0.id == o0 }),
+              let l = show.outputs[o].layers.firstIndex(where: { $0.id == l0 }) else { return }
+        show.outputs[o].layers[l].mask = u.path
     }
 
     func toggleEdit(_ m: EditMode) {
@@ -717,8 +815,22 @@ final class AppModel: ObservableObject {
         case "r": master?.jump(to: 0)
         case "m": toggleRole()
         case "s": toggleControl()
-        case "i": infoHidden.toggle(); for w in outputs.values { w.info.isHidden = infoHidden }
-        case "h", "?": showHelp.toggle(); infoHidden = false; for w in outputs.values { w.info.isHidden = false }
+        case "i":
+            // One switch for every output: with a full-screen output, start from its state.
+            let shown = outputs.values.contains(where: { $0.isFull }) ? infoOnFull : !infoHidden
+            infoOnFull = !shown; infoHidden = shown
+            helpSaved = nil
+            refreshInfo()
+        case "h", "?":
+            showHelp.toggle()
+            if showHelp {
+                helpSaved = (infoHidden, infoOnFull)
+                infoHidden = false; infoOnFull = true
+            } else if let h = helpSaved {
+                (infoHidden, infoOnFull) = h   // back to how it was before H
+                helpSaved = nil
+            }
+            refreshInfo()
         case "f": toggleFullscreen()
         case "d": moveToNextScreen()
         case "o": selectNextOutput()
@@ -754,6 +866,7 @@ final class AppModel: ObservableObject {
     private func tick() {
         transport.tick()
         tickCount += 1
+        updateCursor()
         guard tickCount % 4 == 0 else { return }
         status.position = transport.displayTime()
         status.duration = transport.duration
@@ -804,11 +917,12 @@ final class AppModel: ObservableObject {
     }
 
     private var missingCache: (at: Double, paths: Set<String>) = (-10, [])
-    /// Movies not found on disk, checked at most every 2 s (a sleeping disk can be slow to answer).
+    /// Movies and mask images not found on disk, checked at most every 2 s (a sleeping disk can be slow to answer).
     private func missingFiles() -> Set<String> {
         let now = hostNow()
         if now - missingCache.at > 2 {
-            missingCache = (now, Set(transport.orderedNodes.map(\.node.url.path)
+            let masks = show.outputs.flatMap { $0.layers.compactMap(\.mask) }
+            missingCache = (now, Set((transport.orderedNodes.map(\.node.url.path) + masks)
                                         .filter { !FileManager.default.fileExists(atPath: $0) }))
         }
         return missingCache.paths
@@ -816,7 +930,20 @@ final class AppModel: ObservableObject {
 
     /// Text in the control window: each clip's state as well.
     private func statusText() -> String {
-        var s = roleLine() + clockLines()
+        var s = roleLine()
+        // Warnings first: the status box shows about 8 lines.
+        for o in show.outputs {
+            for l in o.layers {
+                guard let m = l.mask else { continue }
+                let name = (m as NSString).lastPathComponent
+                if missingFiles().contains(m) {
+                    s += "\n⚠︎ マスク \(name) が見つかりません（\(o.name)）— マスクなしで映っています"
+                } else if GPU.shared?.maskReady(m) == false {
+                    s += "\n⚠︎ マスク \(name) を読めません（\(o.name)）— マスクなしで映っています"
+                }
+            }
+        }
+        s += clockLines()
         for (id, n) in transport.orderedNodes {
             let name = clipName(id)
             if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
