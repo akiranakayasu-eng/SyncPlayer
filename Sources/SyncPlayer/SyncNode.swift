@@ -89,7 +89,7 @@ final class SyncNode {
                 return out
             }
             // An output added later gets frames once the position moves: show the current one now.
-            for p in self.players { p.seek(to: p.currentTime(), toleranceBefore: .zero, toleranceAfter: .zero) }
+            for p in self.players { p.seek(to: p.currentTime(), toleranceBefore: .zero, toleranceAfter: .zero) { _ in } }
             // Ready (duration > 0) only once the outputs exist.
             self.duration = (try? await its[0].asset.load(.duration))?.seconds ?? 0
         }
