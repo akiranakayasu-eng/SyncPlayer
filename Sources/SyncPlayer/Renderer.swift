@@ -153,8 +153,6 @@ final class FrameSource {
         lastShown = t
     }
 
-    func resetCounts() { framesShown = 0; framesDropped = 0; lastShown = -1 }
-
     func fetch(now: Double) {
         guard let gpu = GPU.shared else { return }
         let out = node.outputs[node.displayIndex(atLocal: now)]

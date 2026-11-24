@@ -21,9 +21,10 @@ final class Master {
     var loopPolicy: () -> (together: Bool, fixed: Double) = { (true, 0) }
     /// Each follower's longest clip and when it was last heard (guarded by lock). A Mac silent
     /// for `forgetAfter` drops out, so the automatic length can shrink again (clip replaced,
-    /// Mac removed). The previous master's loop is kept until then.
+    /// Mac removed). Long enough that a Mac restarting or a short network drop does not change
+    /// the loop for everyone. The previous master's loop is kept that long too.
     private var reported: [String: (dur: Double, at: Double)] = [:]
-    private let forgetAfter = 10.0
+    private let forgetAfter = 300.0
     private var inherited: (dur: Double, until: Double)?
     private let lock = NSLock()
 

@@ -190,7 +190,10 @@ final class SyncNode {
 
         // Holding the last frame until the loop point: nothing to correct.
         if holding(pos) { lastError = 0; return }
-        if player.rate == 0 && armedAt == nil { resync(); return }
+        if player.rate == 0 {
+            if armedAt == nil { resync() } else { lastError = 0 }   // held on the last frame, next one armed
+            return
+        }
 
         // Compare with where the media should be at the moment it was read (reading takes time;
         // comparing with the tick's start would bias the error positive).
@@ -235,6 +238,9 @@ final class SyncNode {
         }
         resyncCount += 1
         settleUntil = startLocal + 0.1
+        // Near the end: tick() waits until settleUntil, which may be past the loop point, so arm now.
+        let at = startLocal + (period - pos), ahead = at - hostNow()
+        if ahead > 0.03 && ahead < armAhead + lead + 0.1 { arm(loopAt: at) }
         player.setRate(1.0,
                        time: CMTime(seconds: pos, preferredTimescale: 600_000),
                        atHostTime: CMTime(seconds: startLocal, preferredTimescale: 1_000_000_000))

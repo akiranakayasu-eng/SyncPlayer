@@ -184,7 +184,8 @@ struct Sidebar: View {
                 HStack {
                     Text("長さ")
                     TextField("自動", value: Binding(get: { model.show.loopLength },
-                                                   set: { v in let x = max(0, v); if model.show.loopLength != x { model.show.loopLength = x } }),
+                                                   set: { v in let x = v <= 0 ? 0 : max(v, Show.minLoop)
+                                                          if model.show.loopLength != x { model.show.loopLength = x } }),
                               format: .number)
                         .frame(width: 70)
                     Text("秒（0 = いちばん長い映像）").font(.caption).foregroundColor(.secondary)

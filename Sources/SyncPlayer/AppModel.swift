@@ -70,11 +70,13 @@ final class AppModel: ObservableObject {
             s = ShowStore.read(URL(fileURLWithPath: f))
             if s == nil { print("cannot read show: \(f)") } else { showFile = absolute(f); fileShow = s }
         }
+        let overridden = !opts.files.isEmpty || opts.preset != nil || opts.screen != nil || opts.fullscreen
+        if overridden { showFile = nil; fileShow = nil }
         if s == nil {
             s = ShowStore.loadCurrent()
             // Keep writing to the show file opened last time, if it still holds the same show
             // (not when it was changed elsewhere since).
-            if let cur = s, let f = UserDefaults.standard.string(forKey: "showFile"),
+            if !overridden, let cur = s, let f = UserDefaults.standard.string(forKey: "showFile"),
                let fs = ShowStore.read(URL(fileURLWithPath: f)), fs == cur { showFile = f; fileShow = fs }
         }
         if !opts.files.isEmpty {
@@ -90,7 +92,7 @@ final class AppModel: ObservableObject {
         if missing {
             NSApp.activate(ignoringOtherApps: true)
             let n = s?.clips.count ?? 0
-            let msg = n > 0 ? "映像が見つかりません。\(n) 本の映像を同じ順に選ぶと、今の配置のまま使えます"
+            let msg = n > 0 ? "映像が見つかりません。\(n) 本の映像を選ぶと、今の配置のまま使えます（同じ名前の映像は同じ場所に）"
                             : "同期再生する映像を選んでください（複数選べます）"
             let urls = pickMovies(message: msg, multiple: true)
             guard !urls.isEmpty else {
@@ -98,7 +100,15 @@ final class AppModel: ObservableObject {
                 exit(1)
             }
             if var cur = s, cur.clips.count == urls.count {
-                for i in cur.clips.indices { cur.clips[i].path = urls[i].path }   // keep the layout
+                // Keep the layout: same file names first, then the rest in order.
+                var rest = urls
+                var assigned = Array(repeating: false, count: cur.clips.count)
+                for i in cur.clips.indices {
+                    if let k = rest.firstIndex(where: { $0.lastPathComponent == cur.clips[i].name }) {
+                        cur.clips[i].path = rest.remove(at: k).path; assigned[i] = true
+                    }
+                }
+                for i in cur.clips.indices where !assigned[i] { cur.clips[i].path = rest.removeFirst().path }
                 s = cur
             } else {
                 // A different show: keep the old one aside and leave the opened file untouched.
@@ -197,9 +207,23 @@ final class AppModel: ObservableObject {
         saveWork?.cancel()
         _ = ShowStore.write(show, to: ShowStore.currentURL)
         if let f = showFile, show != fileShow {
+            backUpOnce(f)
             if ShowStore.write(show, to: URL(fileURLWithPath: f)) { fileShow = show }
             else { notify("ショーのファイルに書けません: \((f as NSString).lastPathComponent)") }
         }
+    }
+
+    private var backedUp: Set<String> = []
+    /// Before the first change to a show file in this run, keep a copy of it in
+    /// ~/Library/Application Support/SyncPlayer/backups/ (one per file name).
+    private func backUpOnce(_ f: String) {
+        guard !backedUp.contains(f) else { return }
+        backedUp.insert(f)
+        let dir = ShowStore.base.appendingPathComponent("backups", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dst = dir.appendingPathComponent((f as NSString).lastPathComponent)
+        try? FileManager.default.removeItem(at: dst)
+        try? FileManager.default.copyItem(at: URL(fileURLWithPath: f), to: dst)
     }
 
     private func fixSelection() {
@@ -500,7 +524,10 @@ final class AppModel: ObservableObject {
 
     func loadPreset(_ name: String) {
         switch ShowStore.loadPreset(name) {
-        case .show(let s): applyShow(s)
+        case .show(let s):
+            // A preset is another show: keep the opened file as it is.
+            if showFile != nil { saveNow(); showFile = nil; fileShow = nil }
+            applyShow(s)
         case .look(let l):
             var l = l
             if let cur = selectedLook { l.screen = cur.screen; l.fullscreen = cur.fullscreen }
@@ -788,8 +815,8 @@ final class AppModel: ObservableObject {
                 s += String(format: "\n%@: %.1f s  error %+.2f ms  avg %+.2f ms  jumps %d  loops %d",
                             name, n.duration, n.lastError * 1000, n.errorEMA * 1000, n.resyncCount, n.loopCount)
                 if let f = transport.frames[id] {
-                    s += String(format: "  %dx%d  shown %d  dropped %d",
-                                Int(n.videoSize.width), Int(n.videoSize.height), f.framesShown, f.framesDropped)
+                    s += String(format: "  %dx%d  dropped %d",
+                                Int(n.videoSize.width), Int(n.videoSize.height), f.framesDropped)
                 }
             }
         }
