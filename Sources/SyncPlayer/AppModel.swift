@@ -174,7 +174,12 @@ final class AppModel: ObservableObject {
         NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
                                                object: nil, queue: .main) { [weak self] _ in self?.leftFront = true; self?.refreshLevels() }
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
-                                               object: nil, queue: .main) { [weak self] _ in self?.leftFront = false; self?.refreshLevels() }
+                                               object: nil, queue: .main) { [weak self] _ in
+            self?.leftFront = false; self?.refreshLevels()
+            // Back from System Settings (the login item may have been approved there).
+            let on = SMAppService.mainApp.status == .enabled
+            if self?.loginItemOn != on { self?.loginItemOn = on }
+        }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in self?.screensChanged() }
 
@@ -642,6 +647,7 @@ final class AppModel: ObservableObject {
                     m.onDemote = { [weak self] in
                         // The exhibition-master mark stays: this Mac is still the one to start as master
                         // after a restart (another Mac took over by hand for now).
+                        if self?.exhibitMaster == true { self?.exhibitTakenOver = true }
                         self?.notify(self?.exhibitMaster == true
                             ? "ほかの Mac がマスターになりました（この Mac は「展示のマスター」のままで、次に開くとマスターで始まります）"
                             : "ほかの Mac がマスターになったので、フォロワーに戻りました")
@@ -679,8 +685,12 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(exhibitMaster, forKey: "exhibitMaster") }
     }
 
+    /// Another master took over while this Mac is the exhibition master (shown in the status).
+    private var exhibitTakenOver = false
+
     func setExhibitMaster(_ on: Bool) {
         exhibitMaster = on
+        exhibitTakenOver = false
         if on && master == nil { setRole(master: true) }
     }
 
@@ -1006,6 +1016,9 @@ final class AppModel: ObservableObject {
     private func statusText() -> String {
         var s = roleLine()
         // Warnings first: the status box shows about 8 lines.
+        if exhibitTakenOver && exhibitMaster && master == nil {
+            s += "\n⚠︎ この Mac は「展示のマスター」ですが、ほかの Mac がマスターです。ほかの Mac にも「展示のマスター」が入っていませんか（入れるのは 1 台だけ）"
+        }
         for o in show.outputs {
             for l in o.layers {
                 guard let m = l.mask else { continue }
