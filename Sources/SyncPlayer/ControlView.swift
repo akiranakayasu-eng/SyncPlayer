@@ -50,8 +50,15 @@ struct ControlView: View {
                     .padding(8)
                     .frame(minHeight: 200)
                     VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
                         Text(L("詳しい状態（映像ごと）・緑はよい、橙は見ておく、赤は直す。→ のあとが対処。境の線を上へ動かすと広がる", "Status (per clip) · green OK, orange check, red fix. After → is what to do. Drag the line above to enlarge"))
                             .font(.caption).foregroundColor(.secondary)
+                            .lineLimit(1).truncationMode(.tail)
+                        Spacer(minLength: 4)
+                        Button { model.transport.resetCounts() } label: { Label(L("数を 0 に", "Clear"), systemImage: "eraser") }
+                            .buttonStyle(.borderless).font(.caption)
+                            .help(L("jumps・loops・dropped の数を 0 に戻す（再生には影響しない）。この画面は今の状態を毎回描き直すので、たまるのはこの数だけ", "Set jumps, loops and dropped back to 0 (playback is not affected). The rest is redrawn from the current state, so only these counts add up"))
+                        }
                         StatusText(status: status)
                     }
                     .padding(.horizontal, 8).padding(.vertical, 4)

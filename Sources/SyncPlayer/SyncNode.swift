@@ -46,6 +46,8 @@ final class SyncNode {
     private(set) var errorEMA: Double = 0
     private(set) var resyncCount = 0
     private(set) var loopCount = 0
+    /// Start jumps and loops again from 0 (the Clear button over the detailed status).
+    func resetCounts() { resyncCount = 0; loopCount = 0 }
     private(set) var lastError: Double = 0
     private var endObservers: [NSObjectProtocol] = []
     /// Muted players get their audio tracks disabled, not just isMuted: a muted AVPlayer still runs
