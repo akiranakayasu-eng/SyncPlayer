@@ -80,6 +80,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if started { model.openShow(at: u) } else { model.opts.showFile = u.path }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
+    /// ⌘Q, Q or the menu asks first (Akira 2026-11-26; can be turned off). A restart, shut down or
+    /// log out of the Mac (exhibitions) and --quit-after never ask.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let ev = NSAppleEventManager.shared().currentAppleEvent
+        let bySystem = ev?.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) != nil
+        if bySystem || model.quitWithoutAsking || !started { return .terminateNow }
+        return model.confirmQuit() ? .terminateNow : .terminateCancel
+    }
     func applicationWillTerminate(_ n: Notification) { model.willTerminate() }
 }
 

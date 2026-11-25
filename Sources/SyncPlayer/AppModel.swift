@@ -324,7 +324,7 @@ final class AppModel: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + sw) { [weak self] in self?.toggleRole() }
         }
         if let q = opts.quitAfter {
-            DispatchQueue.main.asyncAfter(deadline: .now() + q) { NSApp.terminate(nil) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + q) { [weak self] in self?.quitWithoutAsking = true; NSApp.terminate(nil) }
         }
     }
 
@@ -1653,7 +1653,8 @@ final class AppModel: ObservableObject {
     /// Ask before something that cannot be undone (lowers full-screen outputs while the alert is up).
     /// With `skip` (deleting seats, outputs, layers, clips: all undone with ⌘Z) the window has
     /// "Don't ask again" for that kind; turned back on in Settings (⌘,).
-    func confirm(_ title: String, _ detail: String, ok: String = L("消す", "Delete"), skip: ConfirmKind? = nil) -> Bool {
+    func confirm(_ title: String, _ detail: String, ok: String = L("消す", "Delete"), skip: ConfirmKind? = nil,
+                 suppressTitle: String? = nil) -> Bool {
         if let k = skip, !asks(k) { return true }
         let skippable = skip != nil
         let a = NSAlert()
@@ -1663,7 +1664,7 @@ final class AppModel: ObservableObject {
         a.addButton(withTitle: L("やめる", "Cancel"))
         if skippable {
             a.showsSuppressionButton = true
-            a.suppressionButton?.title = L("次から確かめない（⌘Z で戻せます）", "Don't ask again (⌘Z undoes)")
+            a.suppressionButton?.title = suppressTitle ?? L("次から確かめない（⌘Z で戻せます）", "Don't ask again (⌘Z undoes)")
         }
         panelOpen = true
         refreshLevels()
@@ -1676,7 +1677,7 @@ final class AppModel: ObservableObject {
 
     /// Deletions whose confirm window can be turned off (each on its own; asked by default).
     enum ConfirmKind: String, CaseIterable, Identifiable {
-        case layer, clip, output, seat
+        case layer, clip, output, seat, quit
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -1684,6 +1685,7 @@ final class AppModel: ObservableObject {
             case .clip: return L("映像ライブラリから外すとき", "Removing footage")
             case .output: return L("出力を消すとき", "Deleting outputs")
             case .seat: return L("席を消すとき", "Deleting seats")
+            case .quit: return L("SyncPlayer を終了するとき（⌘Q・Q）", "Quitting SyncPlayer (⌘Q, Q)")
             }
         }
     }
@@ -1696,6 +1698,15 @@ final class AppModel: ObservableObject {
     }
     func asksBinding(_ k: ConfirmKind) -> Binding<Bool> {
         Binding(get: { self.asks(k) }, set: { self.setAsks(k, $0) })
+    }
+
+    /// Set for quits that must not ask (--quit-after).
+    var quitWithoutAsking = false
+    /// Asked before quitting by hand (Akira 2026-11-26), with "Don't ask again".
+    func confirmQuit() -> Bool {
+        confirm(L("SyncPlayer を終了しますか？", "Quit SyncPlayer?"),
+                L("この Mac の出力（全画面も）が閉じ、映像が止まります。ほかの Mac はそのまま動きます。", "This Mac's outputs (full screen too) close and its picture stops. Other Macs keep playing."),
+                ok: L("終了", "Quit"), skip: .quit, suppressTitle: L("次から確かめない", "Don't ask again"))
     }
 
     func runPanel(_ p: NSSavePanel) -> NSApplication.ModalResponse {

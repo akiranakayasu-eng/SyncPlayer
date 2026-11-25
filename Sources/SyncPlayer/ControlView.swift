@@ -1735,7 +1735,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
             }
-            Section(L("確かめの窓を出す（切っても ⌘Z で戻せます）", "Ask before (⌘Z undoes either way)")) {
+            Section(L("確かめの窓を出す（消すものは切っても ⌘Z で戻せます）", "Ask before (deletions can be undone with ⌘Z either way)")) {
                 ForEach(AppModel.ConfirmKind.allCases) { k in
                     Toggle(k.label, isOn: model.asksBinding(k))
                 }
