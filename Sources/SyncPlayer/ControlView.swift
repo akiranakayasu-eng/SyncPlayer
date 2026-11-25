@@ -342,12 +342,13 @@ struct TopBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                // The seat first, at the far left (Akira 2026-11-26).
+                // The seat at the far left; the state and the master switch in the middle (Akira 2026-11-26).
                 SeatChip(model: model)
-                StatusBadge(status: status)
                 Spacer(minLength: 8)
+                StatusBadge(status: status)
                 RoleSwitch(isMaster: model.isMaster) { model.setRoleByHand(master: $0) }
                 .help(isMaster_help(model.isMaster))
+                Spacer(minLength: 8)
                 // Sound: a speaker switch and, beside it, which movie's sound (Akira 2026-11-25), in one
                 // framed group with the word "Audio" so the menu reads as the sound source (Akira 23:39).
                 HStack(spacing: 6) {
