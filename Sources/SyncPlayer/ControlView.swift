@@ -233,6 +233,19 @@ struct SelectedLayerHeader: View {
     }
 }
 
+extension View {
+    /// A list row chosen by a click and shown in light blue, also when the list is not focused
+    /// (macOS greys out the built-in selection then; Akira 2026-11-25 asked for light blue).
+    func selectedRow(_ on: Bool, select: @escaping () -> Void) -> some View {
+        self.contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded { select() })
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(on ? Color.accentColor.opacity(0.28) : Color.clear)
+                    .padding(.horizontal, 4))
+    }
+}
+
 // MARK: top bar
 
 /// The state of this Mac in words, with a coloured dot.
@@ -453,7 +466,7 @@ struct Sidebar: View {
         ScrollView {
         VStack(alignment: .leading, spacing: 6) {
             SectionTitle(L("出力（ディスプレイに出す絵）", "Outputs"), help: "outputs")
-            List(selection: $model.selectedOutput) {
+            List {
                 ForEach(model.show.outputs) { o in
                     HStack {
                         // Rename in place: double-click the name (Return sets, esc cancels), like Adobe.
@@ -474,6 +487,7 @@ struct Sidebar: View {
                         Text(L("ディスプレイ", "Display") + " \(o.screen + 1)" + (o.fullscreen ? L("・全画面", " · full screen") : "")).foregroundColor(.secondary).font(.caption)
                     }
                     .tag(Optional(o.id))
+                    .selectedRow(model.selectedOutput == o.id) { model.selectedOutput = o.id }
                 }
             }
             .frame(height: listHeight(model.show.outputs.count, max: 8))
@@ -495,7 +509,7 @@ struct Sidebar: View {
 
             Divider().padding(.vertical, 2)
             SectionTitle(L("レイヤー（上が手前、ドラッグで入れ替え）", "Layers"), help: "layers")
-            List(selection: $model.selectedLayer) {
+            List {
                 // Numbered from the front (1 = frontmost, like After Effects). Drag a row to change
                 // the order, like the tracks in Premiere.
                 ForEach(Array((model.selectedOutputConfig?.layers ?? []).reversed().enumerated()), id: \.element.id) { k, l in
@@ -530,6 +544,7 @@ struct Sidebar: View {
                         LayerClipButton(model: model, layerID: l.id, clipID: l.clipID, compact: l.name == nil)
                     }
                     .tag(Optional(l.id))
+                    .selectedRow(model.selectedLayer == l.id) { model.selectedLayer = l.id }
                     // Drop a movie from the movie list below onto a layer to show it there.
                     .dropDestination(for: String.self) { ids, _ in
                         guard let id = ids.first, id.hasPrefix(ClipDrag.prefix) else { return false }
@@ -556,7 +571,7 @@ struct Sidebar: View {
             SectionTitle(L("映像", "Clips"), help: "clips")
             // One line per movie (the list was 2 lines a movie and made the column long). Replace and
             // remove act on the selected movie, like the layer buttons.
-            List(selection: $selectedClip) {
+            List {
                 ForEach(model.show.clips) { c in
                     HStack(spacing: 4) {
                         if model.clipBroken(c.id) {
@@ -573,6 +588,7 @@ struct Sidebar: View {
                             .help(L("外す: この映像と、それを使うレイヤーをショーから外す（確かめてから。ファイルは消えない）", "Remove this clip and its layers from the show (asks first; the file is not deleted)"))
                     }
                     .tag(Optional(c.id))
+                    .selectedRow(selectedClip == c.id) { selectedClip = c.id }
                     .help(L("\(c.name)\nレイヤーの行へドラッグすると、そのレイヤーの映像になる", "\(c.name)\nDrag onto a layer row to show it on that layer"))
                     .draggable(ClipDrag.prefix + c.id)
                 }
