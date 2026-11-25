@@ -105,7 +105,7 @@ final class AppModel: ObservableObject {
             KeyItem(key: "space", what: L("再生／停止（マスター）", "Play / stop (master)")),
             KeyItem(key: "R  ↑", what: L("頭へ", "Go to start")),
             KeyItem(key: "↓", what: L("終わりの 3 秒前へ", "3 s before the end")),
-            KeyItem(key: "←  →", what: L("1 コマ戻る／進む", "1 frame back / forward")),
+            KeyItem(key: "←  →", what: L("1 コマ戻る／進む（止めているとき）", "1 frame back / forward (when stopped)")),
             KeyItem(key: "⇧←  ⇧→", what: L("1 秒戻る／進む", "1 s back / forward")),
             KeyItem(key: "A", what: L("音を出す／消す", "Sound on / off"))]),
         KeyGroup(title: L("窓と表示", "Windows and display"), keys: [
@@ -950,6 +950,10 @@ final class AppModel: ObservableObject {
         }
         isMaster = master != nil
         status.isMaster = isMaster
+        refreshTitles()
+    }
+
+    private func refreshTitles() {
         for (i, o) in show.outputs.enumerated() { outputs[o.id]?.apply(o, index: i, title: outputTitle(o)) }
         control?.title = L("SyncPlayer — 操作 — ", "SyncPlayer — Control — ") + (isMaster ? L("マスター", "Master") : L("フォロワー", "Follower")) + " — \(opts.name)"
     }
@@ -1040,7 +1044,7 @@ final class AppModel: ObservableObject {
         willSet { UILang.current = newValue }
         didSet {
             UserDefaults.standard.set(uiLang.rawValue, forKey: "ui.lang")
-            buildMenu(); refreshInfo()
+            buildMenu(); refreshInfo(); refreshTitles()
             if let w = keyWindow { w.title = L("キー一覧", "Keyboard Shortcuts"); w.contentView = NSHostingView(rootView: KeyListView()) }
         }
     }
@@ -1193,10 +1197,13 @@ final class AppModel: ObservableObject {
             guard let w = NSApp.keyWindow, w === self.control || self.outputs.values.contains(where: { $0.window === w })
             else { return e }
             if w.firstResponder is NSText {
-                // esc leaves the field, so space and the arrows work again.
-                if e.keyCode == 53 { w.makeFirstResponder(nil); return nil }
+                // esc leaves the field without keeping what was typed (FieldEsc), so space and the
+                // arrows work again.
+                if e.keyCode == 53 { FieldEsc.at = ProcessInfo.processInfo.systemUptime; w.makeFirstResponder(nil); return nil }
                 return e
             }
+            // In a list (outputs, layers, clips) ↑ ↓ move the selection, not the playhead.
+            if (e.keyCode == 125 || e.keyCode == 126) && w.firstResponder is NSTableView { return e }
             return self.key(e) ? nil : e
         }
         // A click anywhere outside the text field being typed in leaves it. Otherwise a field
@@ -1205,7 +1212,8 @@ final class AppModel: ObservableObject {
             guard let w = e.window, let editor = w.firstResponder as? NSTextView, editor.isFieldEditor,
                   let field = editor.delegate as? NSView else { return e }
             let p = field.convert(e.locationInWindow, from: nil)
-            if !field.bounds.contains(p) { DispatchQueue.main.async { w.makeFirstResponder(nil) } }
+            // Leave only if that same field is still being typed in (a click on another field moved there).
+            if !field.bounds.contains(p) { DispatchQueue.main.async { if w.firstResponder === editor { w.makeFirstResponder(nil) } } }
             return e
         }
     }
@@ -1729,3 +1737,10 @@ final class MenuAction: NSObject {
 
 struct KeyItem { let key: String; let what: String }
 struct KeyGroup { let title: String; let keys: [KeyItem] }
+
+/// When esc left a text field: the field then drops what was typed instead of keeping it.
+enum FieldEsc {
+    static var at = -10.0
+    /// esc was pressed just now (the focus change that follows comes within a moment).
+    static var recent: Bool { ProcessInfo.processInfo.systemUptime - at < 0.5 }
+}

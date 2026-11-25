@@ -198,6 +198,13 @@ struct TopBar: View {
     /// Loop length typed in the time display: turns on "loop together" with that length (0 = auto).
     private func setLoopTyped(_ text: String) {
         guard let t = parseTime(text) else { model.notify(L("長さは 2000（20 秒）や 1:30 の形で", "Type the length like 2000 (20 s) or 1:30")); leaveField(); return }
+        // Digits read like After Effects, so "20" is 0.2 s: ask for the right form instead of
+        // looping every Mac at half a second.
+        if t > 0 && t < 1 {
+            model.notify(L("ループが 1 秒より短くなるので入れませんでした。20 秒なら 2000、1 分 30 秒なら 1:30 と打つ",
+                           "Not set: shorter than 1 s. Type 2000 for 20 s, or 1:30"))
+            leaveField(); return
+        }
         let x = t <= 0 ? 0 : max(t, Show.minLoop)
         var s = model.show
         s.loopTogether = true
@@ -384,7 +391,7 @@ struct Sidebar: View {
                                 .focused($renameFocused)
                                 .onSubmit { finishRename(o.id) }
                                 .onExitCommand { renamingOutput = nil }
-                                .onChange(of: renameFocused) { f in if !f && renamingOutput == o.id { finishRename(o.id) } }
+                                .onChange(of: renameFocused) { f in if !f && renamingOutput == o.id { if FieldEsc.recent { renamingOutput = nil } else { finishRename(o.id) } } }
                                 .onAppear { renameFocused = true }
                         } else {
                             Text(o.name)
@@ -439,7 +446,7 @@ struct Sidebar: View {
                                 .focused($renameFocused)
                                 .onSubmit { finishLayerRename(l.id) }
                                 .onExitCommand { renamingLayer = nil }
-                                .onChange(of: renameFocused) { f in if !f && renamingLayer == l.id { finishLayerRename(l.id) } }
+                                .onChange(of: renameFocused) { f in if !f && renamingLayer == l.id { if FieldEsc.recent { renamingLayer = nil } else { finishLayerRename(l.id) } } }
                                 .onAppear { renameFocused = true }
                         } else {
                             Text(l.name ?? model.clipName(l.clipID))
@@ -736,7 +743,7 @@ struct SliderRow: View {
                     .focused($focused)
                     .onSubmit { commit() }
                     .onExitCommand { editing = false }
-                    .onChange(of: focused) { f in if !f && editing { commit() } }
+                    .onChange(of: focused) { f in if !f && editing { if FieldEsc.recent { editing = false } else { commit() } } }
                     .onAppear { focused = true }
             } else {
                 Text(unit.text(value))
