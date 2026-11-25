@@ -255,6 +255,18 @@ struct TopBar: View {
 struct Sidebar: View {
     @ObservedObject var model: AppModel
     @State private var selectedClip: String?
+    @State private var renamingOutput: String?
+    @State private var renameText = ""
+    @FocusState private var renameFocused: Bool
+
+    private func finishRename(_ id: String) {
+        let t = renameText.trimmingCharacters(in: .whitespaces)
+        renamingOutput = nil
+        if !t.isEmpty, let i = model.show.outputs.firstIndex(where: { $0.id == id }), model.show.outputs[i].name != t {
+            model.show.outputs[i].name = t
+        }
+        DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
+    }
 
 
     var body: some View {
@@ -266,7 +278,20 @@ struct Sidebar: View {
             List(selection: $model.selectedOutput) {
                 ForEach(model.show.outputs) { o in
                     HStack {
-                        Text(o.name)
+                        // Rename in place: double-click the name (Return sets, esc cancels), like Adobe.
+                        if renamingOutput == o.id {
+                            TextField("", text: $renameText)
+                                .focused($renameFocused)
+                                .onSubmit { finishRename(o.id) }
+                                .onExitCommand { renamingOutput = nil }
+                                .onChange(of: renameFocused) { f in if !f && renamingOutput == o.id { finishRename(o.id) } }
+                                .onAppear { renameFocused = true }
+                        } else {
+                            Text(o.name)
+                                .onTapGesture(count: 2) { renameText = o.name; renamingOutput = o.id }
+                                .simultaneousGesture(TapGesture().onEnded { model.selectedOutput = o.id })
+                                .help("ダブルクリックで名前を変える")
+                        }
                         Spacer()
                         Text("ディスプレイ \(o.screen + 1)\(o.fullscreen ? "・全画面" : "")").foregroundColor(.secondary).font(.caption)
                     }
@@ -279,10 +304,6 @@ struct Sidebar: View {
                 IconButton("minus", "選んだ出力を消す") { model.removeOutput() }
             }
             if model.selectedOutputConfig != nil {
-                HStack {
-                    Text("名前").foregroundColor(.secondary)
-                    TextField("名前", text: model.outputBinding(\.name, ""))
-                }
                 Picker("", selection: model.outputBinding(\.screen, 0)) {
                     ForEach(screenChoices, id: \.self) { i in
                         Text(i < model.screenShort.count ? model.screenShort[i] : "ディスプレイ \(i + 1)（つながっていない）").tag(i)
