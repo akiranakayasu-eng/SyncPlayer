@@ -164,9 +164,19 @@ final class AppModel: ObservableObject {
             // Keep writing to the show file opened last time, if it still holds the same exhibition.
             // Other Macs may have written their seats to it since (a shared file): read it from the
             // file then (this Mac's seat was written there too, on every change).
+            // A file from 0.3.3 or older has no id (a new one each read): the same content counts.
             if !overridden, let cur = s, let f = UserDefaults.standard.string(forKey: "showFile"),
-               let fs = ShowStore.read(URL(fileURLWithPath: f)), fs.id == cur.id {
-                showFile = f; fileShow = fs; s = fs
+               var fs = ShowStore.read(URL(fileURLWithPath: f)) {
+                var same = fs; same.id = cur.id
+                if fs.id == cur.id || same.fileContent == cur.fileContent {
+                    fs.id = cur.id
+                    // This Mac's seat from its own copy: it holds changes the file may have missed
+                    // (e.g. the shared folder was away). The other seats come from the file.
+                    if let mine = ShowStore.rememberedSeat(cur) ?? cur.seats.first?.id,
+                       let st = cur.seats.first(where: { $0.id == mine }),
+                       let i = fs.seats.firstIndex(where: { $0.id == mine }) { fs.seats[i] = st }
+                    showFile = f; fileShow = fs; s = fs
+                }
             }
         }
         if !opts.files.isEmpty {
