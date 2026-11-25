@@ -172,9 +172,9 @@ final class AppModel: ObservableObject {
                 if same.seats.count == 1 && cur.seats.count == 1 { same.seats[0].id = cur.seats[0].id }
                 if fs.id == cur.id || same.fileContent == cur.fileContent {
                     if fs.id != cur.id { fs = same }
-                    // This Mac's seat from its own copy: it holds changes the file may have missed
-                    // (e.g. the shared folder was away). The other seats come from the file.
-                    if let mine = ShowStore.rememberedSeat(cur) ?? cur.seats.first?.id,
+                    // This Mac's seat from its own copy only when the last write to the file failed
+                    // (e.g. the shared folder was away); else the file's (another Mac may have adjusted it).
+                    if UserDefaults.standard.bool(forKey: "showFileBehind"), let mine = ShowStore.rememberedSeat(cur) ?? cur.seats.first?.id,
                        let st = cur.seats.first(where: { $0.id == mine }),
                        let i = fs.seats.firstIndex(where: { $0.id == mine }) { fs.seats[i] = st }
                     showFile = f; fileShow = fs; s = fs
@@ -381,7 +381,9 @@ final class AppModel: ObservableObject {
         if let f = showFile, show.fileContent != fileShow?.fileContent {
             backUpOnce(f)
             mergeFromDisk(f)
-            if ShowStore.write(show, to: URL(fileURLWithPath: f)) { fileShow = show }
+            let ok = ShowStore.write(show, to: URL(fileURLWithPath: f))
+            UserDefaults.standard.set(!ok, forKey: "showFileBehind")
+            if ok { fileShow = show }
             else { notify(L("ショーのファイルに書けません: \((f as NSString).lastPathComponent)", "Can't write the show file: \((f as NSString).lastPathComponent)")) }
         }
     }
