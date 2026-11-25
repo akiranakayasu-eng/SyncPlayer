@@ -135,12 +135,13 @@ struct Show: Codable, Equatable {
     }
     private mutating func ensureSeat() { if seats.isEmpty { seats = [Seat(name: "A")]; seatID = seats[0].id } }
 
-    /// The clips this Mac plays: those on its seat's layers and its sound clip (all clips when none is used yet).
+    /// The clips this Mac plays: those on its seat's layers and its sound clip (the first clip when
+    /// the seat uses none yet, so there is still a length and a clock to follow).
     var seatClips: [Clip] {
         var used = Set(outputs.flatMap { $0.layers.map(\.clipID) })
         if let a = audioClip { used.insert(a) }
         let c = clips.filter { used.contains($0.id) }
-        return c.isEmpty ? clips : c
+        return c.isEmpty ? Array(clips.prefix(1)) : c
     }
 
     init(clips: [Clip] = [], outputs: [OutputConfig] = [], audioClip: String? = nil) {
@@ -408,6 +409,9 @@ enum Collect {
             }
         }
         try fm.createDirectory(at: work.appendingPathComponent("movies"), withIntermediateDirectories: true)
+        // A failure part way (disk full …) leaves nothing behind, so the same name can be used again.
+        var finished = false
+        defer { if !finished { try? fm.removeItem(at: zip ? work.deletingLastPathComponent() : work) } }
         var s = show
         var copied = 0
         var missing: [String] = []
@@ -460,8 +464,10 @@ enum Collect {
             guard p.terminationStatus == 0 else {
                 throw NSError(domain: "Collect", code: 3, userInfo: [NSLocalizedDescriptionKey: L("zip を作れませんでした", "Couldn't make the zip")])
             }
+            finished = true
             return Result(folder: z, copied: copied, missing: missing)
         }
+        finished = true
         return Result(folder: work, copied: copied, missing: missing)
     }
 }

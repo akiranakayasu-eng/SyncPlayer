@@ -132,8 +132,6 @@ final class AppModel: ObservableObject {
             KeyItem(key: "⌘O", what: L("展示のファイルを開く", "Open a show")),
             KeyItem(key: "⌘S", what: L("別名で保存", "Save As")),
             KeyItem(key: "⇧⌘E", what: L("素材をまとめる", "Collect Files")),
-            KeyItem(key: "⌘O", what: L("ショーを開く", "Open show")),
-            KeyItem(key: "⌘S", what: L("ショーを保存", "Save show")),
             KeyItem(key: "⌘Z", what: L("戻す", "Undo")),
             KeyItem(key: "⇧⌘Z", what: L("やり直す", "Redo"))]),
         KeyGroup(title: L("文字を入れているとき", "While typing"), keys: [
@@ -163,10 +161,13 @@ final class AppModel: ObservableObject {
         if overridden { detachShowFile(forget: false) }
         if s == nil {
             s = ShowStore.loadCurrent()
-            // Keep writing to the show file opened last time, if it still holds the same show
-            // (not when it was changed elsewhere since).
+            // Keep writing to the show file opened last time, if it still holds the same exhibition.
+            // Other Macs may have written their seats to it since (a shared file): read it from the
+            // file then (this Mac's seat was written there too, on every change).
             if !overridden, let cur = s, let f = UserDefaults.standard.string(forKey: "showFile"),
-               let fs = ShowStore.read(URL(fileURLWithPath: f)), fs.fileContent == cur.fileContent { showFile = f; fileShow = fs }
+               let fs = ShowStore.read(URL(fileURLWithPath: f)), fs.id == cur.id {
+                showFile = f; fileShow = fs; s = fs
+            }
         }
         if !opts.files.isEmpty {
             let paths = opts.files.map(absolute)
@@ -388,11 +389,26 @@ final class AppModel: ObservableObject {
                 m.seats.append(d)          // a seat added elsewhere
             }
         }
+        // A seat deleted elsewhere (and not changed here since): delete it here too. Never this Mac's seat.
+        m.seats.removeAll { st in
+            st.id != show.seatID && !disk.seats.contains(where: { $0.id == st.id })
+                && mine.seats.contains(where: { $0.id == st.id }) && mine.seats.first(where: { $0.id == st.id }) == st
+        }
         for c in disk.clips where !m.clips.contains(where: { $0.id == c.id }) && !mine.clips.contains(where: { $0.id == c.id }) {
             m.clips.append(c)              // a clip added elsewhere
         }
+        // A clip removed elsewhere (unchanged here, and not on this Mac's seat): remove it here too.
+        let usedHere = Set(m.seats.flatMap { $0.outputs.flatMap { $0.layers.map(\.clipID) } } + m.seats.compactMap(\.audioClip))
+        m.clips.removeAll { c in
+            !disk.clips.contains(where: { $0.id == c.id }) && mine.clips.contains(c) && !usedHere.contains(c.id)
+        }
+        // Loop settings: the file's, unless this Mac changed them since.
+        if m.loopTogether == mine.loopTogether { m.loopTogether = disk.loopTogether }
+        if m.loopLength == mine.loopLength { m.loopLength = disk.loopLength }
         guard m != show else { return }
         undoing = true; show = m; undoing = false
+        // Undo would bring the other seats back to before this (and write that): start undo again here.
+        undoStack.removeAll(); redoStack.removeAll()
         notify(L("ほかの Mac の変更（ほかの席）を取り込みました", "Took in changes made on another Mac (other seats)"))
     }
 
@@ -404,9 +420,9 @@ final class AppModel: ObservableObject {
         var s = s
         if let n = opts.seat, let st = s.seats.first(where: { $0.name == n || $0.id == n }) { s.seatID = st.id }
         else if let r = ShowStore.rememberedSeat(s), s.seats.contains(where: { $0.id == r }) { s.seatID = r }
-        else if s.seats.count > 1 && asking, let id = runSeatChooser(s) { s.seatID = id }
-        else { s.seatID = s.seats.first?.id ?? "" }
-        if s.seats.count > 1 { ShowStore.rememberSeat(s.seatID, for: s) }
+        else if s.seats.count > 1 && asking, let id = runSeatChooser(s) { s.seatID = id; ShowStore.rememberSeat(id, for: s) }
+        else { s.seatID = s.seats.first?.id ?? "" }   // not remembered: asked again next time
+        if opts.seat != nil, s.seats.count > 1 { ShowStore.rememberSeat(s.seatID, for: s) }
         return s
     }
 
@@ -634,6 +650,7 @@ final class AppModel: ObservableObject {
         guard let prev = undoStack.popLast() else { notify(L("これより前には戻せません", "Nothing more to undo")); return }
         redoStack.append(show)
         undoing = true; show = prev; undoing = false
+        if show.seats.count > 1 { ShowStore.rememberSeat(show.seatID, for: show) }
         fixSelection()
         lastUndoAt = 0
         notify(L("1 つ前に戻しました（⇧⌘Z でやり直す）", "Undone (⇧⌘Z to redo)"))
@@ -643,6 +660,7 @@ final class AppModel: ObservableObject {
         guard let next = redoStack.popLast() else { notify(L("やり直すものがありません", "Nothing to redo")); return }
         undoStack.append(show)
         undoing = true; show = next; undoing = false
+        if show.seats.count > 1 { ShowStore.rememberSeat(show.seatID, for: show) }
         fixSelection()
         lastUndoAt = 0
         notify(L("やり直しました", "Redone"))
