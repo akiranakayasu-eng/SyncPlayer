@@ -1172,9 +1172,16 @@ final class AppModel: ObservableObject {
         var fps = 0.0, seconds = 0.0
         var codec = "", audio = false, bytes: Int64 = 0
         var line: String {
+            if width == 0 && seconds == 0 { return L("読めない（形式かファイルを確かめる）", "Can't read (check the format or file)") }
             var p: [String] = []
             if width > 0 { p.append("\(width)×\(height)") }
-            if fps > 0 { p.append(String(format: "%.3g fps", fps)) }
+            // 29.97 and 23.976 as they are (not rounded to 30 / 24, check 43).
+            if fps > 0 {
+                var f = String(format: "%.3f", fps)
+                while f.hasSuffix("0") { f.removeLast() }
+                if f.hasSuffix(".") { f.removeLast() }
+                p.append(f + " fps")
+            }
             if seconds > 0 { p.append(timeString(seconds)) }
             if !codec.isEmpty { p.append(codec) }
             p.append(audio ? L("音あり", "audio") : L("音なし", "no audio"))

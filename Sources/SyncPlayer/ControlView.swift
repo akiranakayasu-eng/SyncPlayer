@@ -326,11 +326,13 @@ struct TopBar: View {
                 // Sound: a speaker switch and, beside it, which movie's sound (Akira 2026-11-25), in one
                 // framed group with the word "Audio" so the menu reads as the sound source (Akira 23:39).
                 HStack(spacing: 6) {
-                    Toggle(isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) })) {
+                    // A plain symbol, not a filled blue button: blue is kept for numbers you can type.
+                    Button { model.setAudio(!model.audioOn) } label: {
                         Image(systemName: model.audioOn ? "speaker.wave.2.fill" : "speaker.slash")
+                            .foregroundColor(model.audioOn ? .primary : .secondary)
                             .frame(width: 18)
                     }
-                    .toggleStyle(.button)
+                    .buttonStyle(.borderless)
                     .help(model.audioOn ? L("この Mac で音を出している（A キーで消す）", "Sound on for this Mac (A to mute)") : L("この Mac では音を出さない（A キーで出す）", "Sound off for this Mac (A to turn on)"))
                     Text(L("音声", "Audio")).font(.caption.bold()).foregroundColor(.secondary)
                     Picker("", selection: Binding(get: { model.show.audioClip ?? model.show.seatClips.first?.id ?? "" },
