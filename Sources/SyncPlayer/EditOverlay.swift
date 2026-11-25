@@ -14,13 +14,17 @@ final class EditOverlay: NSView {
     var settings: () -> DisplaySettings? = { nil }
     var aspects: () -> (view: Double, video: Double) = { (16.0 / 9.0, 16.0 / 9.0) }
     var onChange: ((DisplaySettings) -> Void)?
+    /// When not editing: a click picks the layer under it (normalized window point). Preview only.
+    var pick: ((SIMD2<Double>) -> Void)?
     private var dragging: Int?
 
     var mode: EditMode { settings() == nil ? .none : modeOf() }
     var selected: Int { selectedOf() }
 
     override var isFlipped: Bool { false }
-    override func hitTest(_ point: NSPoint) -> NSView? { mode == .none ? nil : super.hitTest(point) }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        mode == .none && pick == nil ? nil : super.hitTest(point)
+    }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     private func toView(_ p: SIMD2<Double>) -> NSPoint {
@@ -80,6 +84,10 @@ final class EditOverlay: NSView {
 
     override func mouseDown(with e: NSEvent) {
         let p = convert(e.locationInWindow, from: nil)
+        if mode == .none {
+            if bounds.width > 0, bounds.height > 0 { pick?(SIMD2(Double(p.x / bounds.width), Double(p.y / bounds.height))) }
+            return
+        }
         var best = -1, bestD = 18.0
         for (k, h) in handles().enumerated() {
             let v = toView(h)

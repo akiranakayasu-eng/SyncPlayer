@@ -980,6 +980,8 @@ final class AppModel: ObservableObject {
         pv.renderer.frames = { [weak self] clip in self?.transport.frames[clip] }
         setupOverlay(pv.overlay, outputID: { [weak self] in self?.selectedOutput },
                      viewAspect: { [weak self] in self?.selectedOutputAspect ?? 16.0 / 9.0 })
+        // Click the preview to select the layer under the pointer (frontmost first, like Adobe).
+        pv.overlay.pick = { [weak self] p in self?.pickLayer(at: p) }
         previewBox = AspectBox(child: pv)
 
         let screen = NSScreen.main ?? NSScreen.screens[0]
@@ -995,6 +997,27 @@ final class AppModel: ObservableObject {
         updateRepresented()
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// The frontmost visible layer of the selected output that shows a picture at window point p
+    /// (0...1, y up). Mesh bends are ignored; crop is respected. Clicking an empty spot keeps the selection.
+    func pickLayer(at p: SIMD2<Double>) {
+        guard let o = selectedOutputConfig else { return }
+        let view = selectedOutputAspect
+        for l in o.layers.reversed() where l.visible && l.opacity > 0.01 {
+            let a = transport.frames[l.clipID]?.aspect ?? 0
+            let video = a > 0 ? a : 16.0 / 9.0
+            let H = Warp.Homography(Warp.corners(l.look, viewAspect: view, videoAspect: video))
+            guard let uv = H.unmap(p.x, p.y), (0...1).contains(uv.x), (0...1).contains(uv.y) else { continue }
+            let src = Warp.source(l.look, videoAspect: video, uv.x, uv.y)
+            let s = l.look
+            guard src.x >= s.cropL, src.x <= 1 - s.cropR, src.y >= s.cropB, src.y <= 1 - s.cropT else { continue }
+            if selectedLayer != l.id {
+                selectedLayer = l.id
+                notify("レイヤー: \(clipName(l.clipID))")
+            }
+            return
+        }
     }
 
     /// The selected output's shape (its window), so the preview matches it.
