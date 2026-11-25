@@ -1339,9 +1339,12 @@ struct CursorArea: NSViewRepresentable {
                                    owner: self, userInfo: nil)
             addTrackingArea(a); area = a
         }
+        /// The area the pointer last went into (to put its cursor back after a drag).
+        static weak var last: Area?
         override func cursorUpdate(with event: NSEvent) { cursor.set() }
-        override func mouseEntered(with event: NSEvent) { cursor.set() }
+        override func mouseEntered(with event: NSEvent) { Area.last = self; cursor.set() }
         override func mouseExited(with event: NSEvent) { NSCursor.arrow.set() }
+        func contains(windowPoint p: NSPoint) -> Bool { bounds.contains(convert(p, from: nil)) }
     }
     func makeNSView(context: Context) -> Area { let v = Area(); v.cursor = cursor; return v }
     func updateNSView(_ v: Area, context: Context) {
@@ -1352,7 +1355,12 @@ struct CursorArea: NSViewRepresentable {
 /// After a drag ends: the arrow back, then the window decides again from where the pointer is (a
 /// cursor area under it sets its own cursor again; check 49 M1).
 func cursorAfterDrag() {
-    NSCursor.arrow.set()
+    // Still over the line or number: its cursor; elsewhere the arrow (check 50 L2).
+    if let a = CursorArea.Area.last, let w = a.window, a.contains(windowPoint: w.mouseLocationOutsideOfEventStream) {
+        a.cursor.set()
+    } else {
+        NSCursor.arrow.set()
+    }
     DispatchQueue.main.async {
         if let w = NSApp.keyWindow, let v = w.contentView { w.invalidateCursorRects(for: v) }
     }

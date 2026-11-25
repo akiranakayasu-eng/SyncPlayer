@@ -196,6 +196,8 @@ final class OutputWindow: NSObject, NSWindowDelegate {
     private var windowedFrame: NSRect?
     private(set) var isFull = false
     private(set) var screenIndex = -1
+    /// True while the app itself moves or sizes the window (not a move by hand).
+    private var placing = false
 
     static let windowed: NSWindow.StyleMask = [.titled, .resizable, .miniaturizable]
     /// Full-screen outputs stay above ordinary windows (the control window unless S brings it up)
@@ -250,6 +252,8 @@ final class OutputWindow: NSObject, NSWindowDelegate {
     func apply(_ o: OutputConfig, index: Int, title: String) -> Bool {
         window.title = title
         guard o.fullscreen != isFull || o.screen != screenIndex else { return false }
+        placing = true
+        defer { placing = false }
         let screens = NSScreen.screens
         let screen = screens.indices.contains(o.screen) ? screens[o.screen] : (NSScreen.main ?? screens[0])
         let movedScreen = o.screen != screenIndex
@@ -349,13 +353,36 @@ final class OutputWindow: NSObject, NSWindowDelegate {
     /// control window still said the old one). The setting follows, and the window takes that
     /// display's shape, without being moved back.
     func windowDidChangeScreen(_ notification: Notification) {
+        // Only a move by hand: not while the app places the window, and not when macOS moves it
+        // because a display was unplugged (the setting must survive that; check 50 M1).
+        guard !placing, !isFull, NSEvent.pressedMouseButtons & 1 != 0 else { return }
+        waitForRelease()
+    }
+    /// The window is taken over by the display it ends on, once, when the mouse is let go (check 50 L1).
+    private var waiting = false
+    private func waitForRelease() {
+        guard !waiting else { return }
+        waiting = true
+        func poll() {
+            if NSEvent.pressedMouseButtons & 1 != 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { poll() }
+                return
+            }
+            waiting = false
+            adoptScreen()
+        }
+        poll()
+    }
+    private func adoptScreen() {
         guard !isFull, let sc = window.screen, let i = NSScreen.screens.firstIndex(of: sc), i != screenIndex else { return }
         screenIndex = i
         let ratio = sc.frame.width / max(sc.frame.height, 1)
         window.contentAspectRatio = sc.frame.size
         let c = window.contentRect(forFrameRect: window.frame)
+        placing = true
         window.setFrame(window.frameRect(forContentRect: NSRect(x: c.minX, y: c.maxY - c.width / ratio,
                                                                 width: c.width, height: c.width / ratio)), display: true)
+        placing = false
         onMovedToScreen?(i)
     }
 }
