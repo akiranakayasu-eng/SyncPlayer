@@ -67,7 +67,9 @@ final class SyncNode {
             let it = AVPlayerItem(url: url)
             let p = AVPlayer(playerItem: it)
             p.automaticallyWaitsToMinimizeStalling = false
-            p.actionAtItemEnd = .pause
+            // Not .pause: a player stopping by itself at its end stops its audio in the same moment
+            // the other player starts at the loop point. tick() pauses it 0.3 s after the handover.
+            p.actionAtItemEnd = .none
             p.isMuted = muted
             // Run playback on the host clock (the same clock the schedule uses), not the audio
             // device clock. Otherwise every player slowly drifts from the schedule (~1 ms / 90 s on Air).
@@ -232,6 +234,11 @@ final class SyncNode {
     func tick() {
         guard ready, let s = schedule, clockOffset() != nil else { return }
         if !audioApplied { applyAudio() }
+        // The delayed stop after a loop handover runs whatever the state (stopped, resync...).
+        if let pp = pendingPause, hostNow() >= pp.at {
+            pendingPause = nil
+            if pp.index != active && players[pp.index].rate != 0 { players[pp.index].pause() }
+        }
         if s.epoch != activeEpoch { activeEpoch = s.epoch; needsResync = true }
 
         if !s.playing {
@@ -248,10 +255,6 @@ final class SyncNode {
 
         if needsResync { resync(); return }
         let now = hostNow()
-        if let pp = pendingPause, now >= pp.at {
-            pendingPause = nil
-            if pp.index != active && players[pp.index].rate != 0 { players[pp.index].pause() }
-        }
 
         // Loop: hand over to the armed player once its start time has passed.
         if let at = armedAt, now >= at + 0.005 {
