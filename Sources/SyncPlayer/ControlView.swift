@@ -29,6 +29,10 @@ struct ControlView: View {
     @ObservedObject var model: AppModel
     let status: StatusModel
     @AppStorage("ui.sidebarWidth") private var sidebarWidth: Double = 250
+    // The side columns can be hidden (⌘0 left, ⌥⌘0 right, or the buttons in the top bar; kept per Mac).
+    @AppStorage("ui.hideLeft") private var hideLeft = false
+    @AppStorage("ui.hideRight") private var hideRight = false
+    @AppStorage("ui.hideStatus") private var hideStatus = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,10 +40,12 @@ struct ControlView: View {
                 .padding(.horizontal, 12).padding(.vertical, 8)
             Divider()
             HStack(spacing: 0) {
-                Sidebar(model: model)
-                    .frame(width: sidebarWidth)
-                // Drag the line to widen or narrow the left column (kept per Mac).
-                WidthHandle(width: $sidebarWidth, range: 200...520)
+                if !hideLeft {
+                    Sidebar(model: model)
+                        .frame(width: sidebarWidth)
+                    // Drag the line to widen or narrow the left column (kept per Mac).
+                    WidthHandle(width: $sidebarWidth, range: 200...520)
+                }
                 VSplitView {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(L("プレビュー: ", "Preview: ") + (model.selectedOutputConfig?.name ?? L("出力がありません", "No outputs")))
@@ -49,6 +55,7 @@ struct ControlView: View {
                     }
                     .padding(8)
                     .frame(minHeight: 200)
+                    if !hideStatus {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                         Text(L("詳しい状態（映像ごと）・緑はよい、橙は見ておく、赤は直す。→ のあとが対処。境の線を上へ動かすと広がる", "Status (per clip) · green OK, orange check, red fix. After → is what to do. Drag the line above to enlarge"))
@@ -63,10 +70,13 @@ struct ControlView: View {
                     }
                     .padding(.horizontal, 8).padding(.vertical, 4)
                     .frame(minHeight: 70, idealHeight: 170)
+                    }
                 }
-                Divider()
-                Inspector(model: model)
-                    .frame(width: 320)
+                if !hideRight {
+                    Divider()
+                    Inspector(model: model)
+                        .frame(width: 320)
+                }
             }
         }
         .frame(minWidth: 900, minHeight: 600)
@@ -270,6 +280,9 @@ struct StatusBadge: View {
 struct TopBar: View {
     @ObservedObject var model: AppModel
     @ObservedObject var status: StatusModel
+    @AppStorage("ui.hideLeft") private var hideLeft = false
+    @AppStorage("ui.hideRight") private var hideRight = false
+    @AppStorage("ui.hideStatus") private var hideStatus = false
     @State private var dragging = false
     @State private var value = 0.0
     @State private var editingTime = false
@@ -359,6 +372,14 @@ struct TopBar: View {
                     .help(L("ショーとして保存（⌘S）", "Save Show (⌘S)"))
                 Button { model.showCollectWindow() } label: { Image(systemName: "shippingbox") }
                     .help(L("素材をまとめる（⇧⌘E）: ショーと映像・マスクを 1 つのフォルダか zip に写す。ほかの Mac へ運ぶとき", "Collect Files (⇧⌘E): copy the show, clips and masks into one folder or zip, to carry to other Macs"))
+                Divider().frame(height: 18)
+                // Hide or show the side columns, like the sidebar buttons in Xcode and Finder.
+                Button { AppModel.toggleUI("ui.hideLeft") } label: { Image(systemName: "sidebar.left") }
+                    .help(hideLeft ? L("左の欄を出す（⌘0）", "Show the left column (⌘0)") : L("左の欄を隠す（⌘0）", "Hide the left column (⌘0)"))
+                Button { AppModel.toggleUI("ui.hideStatus") } label: { Image(systemName: "rectangle.bottomthird.inset.filled") }
+                    .help(hideStatus ? L("詳しい状態を出す（⇧⌘Y）", "Show the status panel (⇧⌘Y)") : L("詳しい状態を隠す（⇧⌘Y）", "Hide the status panel (⇧⌘Y)"))
+                Button { AppModel.toggleUI("ui.hideRight") } label: { Image(systemName: "sidebar.right") }
+                    .help(hideRight ? L("右の欄を出す（⌥⌘0）", "Show the right column (⌥⌘0)") : L("右の欄を隠す（⌥⌘0）", "Hide the right column (⌥⌘0)"))
             }
             HStack(spacing: 10) {
                 // Transport as symbols only (Akira 2026-11-25: the icons say enough).

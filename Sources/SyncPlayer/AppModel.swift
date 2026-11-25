@@ -127,6 +127,9 @@ final class AppModel: ObservableObject {
             KeyItem(key: "A", what: L("音を出す／消す", "Sound on / off"))]),
         KeyGroup(title: L("窓と表示", "Windows and display"), keys: [
             KeyItem(key: "S", what: L("操作の窓を出す／隠す", "Show / hide the control window")),
+            KeyItem(key: "⌘0", what: L("左の欄を隠す／出す", "Hide / show the left column")),
+            KeyItem(key: "⌥⌘0", what: L("右の欄を隠す／出す", "Hide / show the right column")),
+            KeyItem(key: "⇧⌘Y", what: L("詳しい状態を隠す／出す", "Hide / show the status panel")),
             KeyItem(key: "I", what: L("動作確認の文字", "Info text")),
             KeyItem(key: "N", what: L("Mac 名とディスプレイの番号", "Mac names and display numbers")),
             KeyItem(key: "H  ?", what: L("キー一覧（出力の画面に）", "Key list (on the outputs)")),
@@ -153,6 +156,7 @@ final class AppModel: ObservableObject {
             KeyItem(key: "⇧⌘E", what: L("素材をまとめる", "Collect Files")),
             KeyItem(key: "⌘Z", what: L("戻す", "Undo")),
             KeyItem(key: "⇧⌘Z", what: L("やり直す", "Redo")),
+            KeyItem(key: "↑ ↓", what: L("左の一覧で行を押したあと: 上下の行を選ぶ", "After clicking a row in the left lists: pick the row above / below")),
             KeyItem(key: "delete", what: L("左の一覧で選んだ行を消す・外す（⌘・⇧ クリックで複数）", "Delete the rows picked in the left lists (⌘ / ⇧ click for several)")),
             KeyItem(key: "⌘,", what: L("設定（この Mac の見た目・言語・確かめの窓）", "Settings (this Mac: look, language, confirm windows)"))]),
         KeyGroup(title: L("文字を入れているとき", "While typing"), keys: [
@@ -353,6 +357,18 @@ final class AppModel: ObservableObject {
         edit.addItem(withTitle: L("ペースト", "Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: L("すべてを選択", "Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
+        // View: hide or show the left and right columns (Akira 2026-11-26), keys like Xcode.
+        let viewItem = NSMenuItem()
+        main.addItem(viewItem)
+        let view = NSMenu(title: L("表示", "View"))
+        view.addItem(MenuAction.item(L("左の欄を隠す／出す", "Hide / Show Left Column"), key: "0") { AppModel.toggleUI("ui.hideLeft") })
+        let right = MenuAction.item(L("右の欄を隠す／出す", "Hide / Show Right Column"), key: "0") { AppModel.toggleUI("ui.hideRight") }
+        right.keyEquivalentModifierMask = [.command, .option]
+        view.addItem(right)
+        let st = MenuAction.item(L("詳しい状態を隠す／出す", "Hide / Show Status Panel"), key: "y") { AppModel.toggleUI("ui.hideStatus") }
+        st.keyEquivalentModifierMask = [.command, .shift]
+        view.addItem(st)
+        viewItem.submenu = view
         let helpItem = NSMenuItem()
         main.addItem(helpItem)
         let help = NSMenu(title: L("ヘルプ", "Help"))
@@ -361,6 +377,12 @@ final class AppModel: ObservableObject {
         helpItem.submenu = help
         NSApp.helpMenu = help
         NSApp.mainMenu = main
+    }
+
+    /// Flip a per-Mac on/off setting the views read with @AppStorage (the side columns).
+    static func toggleUI(_ key: String) {
+        let d = UserDefaults.standard
+        d.set(!d.bool(forKey: key), forKey: key)
     }
 
     private var keyWindow: NSWindow?
@@ -1748,6 +1770,8 @@ final class AppModel: ObservableObject {
             case "e" where shift: showCollectWindow(); return true
             case "z": if shift { redoShow() } else { undoShow() }; return true
             case ",": showSettingsWindow(); return true
+            case "y" where shift: AppModel.toggleUI("ui.hideStatus"); return true
+            case "0": AppModel.toggleUI(e.modifierFlags.contains(.option) ? "ui.hideRight" : "ui.hideLeft"); return true
             default: return false   // ⌘Q, copy / paste and the rest go to the menu
             }
         }
