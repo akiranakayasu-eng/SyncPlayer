@@ -1269,9 +1269,11 @@ final class AppModel: ObservableObject {
         add(openAtLogin, "ログインしたら SyncPlayer を開く", "下の「ログインしたら SyncPlayer を開く」を入れる（全台）")
         if isMaster {
             add(exhibitMaster, "この Mac は展示のマスター", "マスターの Mac なら「この Mac を展示のマスターにする」を入れる（1 台だけ）")
-            add(peers.isEmpty ? nil : !peers.contains { $0.ver != AppModel.version },
+            let other = peers.filter { $0.ver != AppModel.version }.count
+            add(peers.isEmpty ? nil : other == 0,
                 peers.isEmpty ? "フォロワーが見えない（ほかの Mac を開いてから点検すると、版もそろっているか見られる）"
-                              : "フォロワー \(peers.count) 台が同じ版（\(AppModel.version)）",
+                    : other == 0 ? "フォロワー \(peers.count) 台が同じ版（\(AppModel.version)）"
+                    : "フォロワー \(peers.count) 台のうち \(other) 台が別の版か古い版（この Mac は \(AppModel.version)）",
                 "版のちがう Mac に、同じ版の SyncPlayer を入れ直す")
         } else {
             add(follower?.masterAlive ?? false, "マスターが見えている", "マスターの Mac を開く。開いているなら同じネットワークか確かめる")
