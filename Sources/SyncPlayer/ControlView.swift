@@ -1204,10 +1204,6 @@ struct Inspector: View {
                       }
                       .labelsHidden().pickerStyle(.segmented).fixedSize()
                       .help("English / 日本語 (this Mac only・この Mac だけ)") }
-            GridRow { Text(L("消す前に確かめる", "Confirm deletes")).foregroundColor(.secondary)
-                      Toggle("", isOn: Binding(get: { !model.skipDeleteConfirm }, set: { model.skipDeleteConfirm = !$0 }))
-                          .labelsHidden()
-                          .help(L("席・出力・レイヤーを消す、映像を外すときに確かめの窓を出す（切っても ⌘Z で戻せる）。この Mac だけ", "Ask before deleting seats, outputs, layers or removing clips (⌘Z undoes either way). This Mac only")) }
             GridRow { Text(L("名前", "Name")).foregroundColor(.secondary); Text(model.opts.name) }
             GridRow { Text(L("版", "Version")).foregroundColor(.secondary); Text(AppModel.version) }
             GridRow { Text(L("役", "Role")).foregroundColor(.secondary); Text(model.isMaster ? L("マスター", "Master") : L("フォロワー", "Follower")) }
@@ -1348,5 +1344,33 @@ extension Text {
         guard on else { return self }
         return self.foregroundColor(Color(nsColor: UIColors.editable))
             .underline(true, pattern: .dot, color: Color(nsColor: UIColors.editable).opacity(0.8))
+    }
+}
+
+/// SyncPlayer ▸ Settings… (⌘,): this Mac's own preferences. The same look and language are also in
+/// Exhibit › This Mac.
+struct SettingsView: View {
+    @ObservedObject var model: AppModel
+    var body: some View {
+        Form {
+            Section(L("見た目", "Appearance")) {
+                Picker(L("操作の窓の色", "Appearance"), selection: Binding(get: { model.uiTheme }, set: { model.uiTheme = $0 })) {
+                    ForEach(AppModel.UITheme.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Picker("Language / 言語", selection: Binding(get: { model.uiLang }, set: { model.uiLang = $0 })) {
+                    ForEach(UILang.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+            }
+            Section(L("確かめの窓を出す（切っても ⌘Z で戻せます）", "Ask before (⌘Z undoes either way)")) {
+                ForEach(AppModel.ConfirmKind.allCases) { k in
+                    Toggle(k.label, isOn: model.asksBinding(k))
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 420)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }

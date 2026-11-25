@@ -33,7 +33,15 @@ final class AppModel: ObservableObject {
 
     @Published var show = Show() { didSet { showDidChange(oldValue) } }
     @Published var selectedOutput: String? = nil { didSet { if selectedOutput != oldValue { layerPicks = []; fixSelection(); redrawOverlays() } } }
-    @Published var selectedLayer: String? = nil { didSet { if selectedLayer != oldValue { selectedHandle = 0; redrawOverlays() } } }
+    @Published var selectedLayer: String? = nil {
+        didSet {
+            if selectedLayer != oldValue { selectedHandle = 0; redrawOverlays() }
+            // Chosen from the preview, L or a menu (not a click in the list): the ⌘/⇧ group and
+            // the delete target no longer match what is shown (check 39).
+            if !rowClicking && selectedLayer != oldValue { layerPicks = []; deleteTarget = nil }
+        }
+    }
+    private var rowClicking = false
     /// Several layers picked with ⌘ / ⇧ click (empty = just selectedLayer). Same for clips.
     @Published var layerPicks: Set<String> = []
     @Published var selectedClip: String? = nil
@@ -143,7 +151,9 @@ final class AppModel: ObservableObject {
             KeyItem(key: "⌘S", what: L("別名で保存", "Save As")),
             KeyItem(key: "⇧⌘E", what: L("素材をまとめる", "Collect Files")),
             KeyItem(key: "⌘Z", what: L("戻す", "Undo")),
-            KeyItem(key: "⇧⌘Z", what: L("やり直す", "Redo"))]),
+            KeyItem(key: "⇧⌘Z", what: L("やり直す", "Redo")),
+            KeyItem(key: "delete", what: L("左の一覧で選んだ行を消す・外す（⌘・⇧ クリックで複数）", "Delete the rows picked in the left lists (⌘ / ⇧ click for several)")),
+            KeyItem(key: "⌘,", what: L("設定（この Mac の見た目・言語・確かめの窓）", "Settings (this Mac: look, language, confirm windows)"))]),
         KeyGroup(title: L("文字を入れているとき", "While typing"), keys: [
             KeyItem(key: "esc", what: L("入力を終える（space がまた再生に効く）", "Leave the field (space plays again)")),
             KeyItem(key: "return", what: L("決める", "Set"))]),
@@ -317,6 +327,8 @@ final class AppModel: ObservableObject {
         let appItem = NSMenuItem()
         main.addItem(appItem)
         let appMenu = NSMenu()
+        appMenu.addItem(MenuAction.item(L("設定…", "Settings…"), key: ",") { [weak self] in self?.showSettingsWindow() })
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: L("SyncPlayer を終了", "Quit SyncPlayer"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         let fileItem = NSMenuItem()
@@ -528,7 +540,7 @@ final class AppModel: ObservableObject {
         guard show.seats.count > 1, let st = show.seats.first(where: { $0.id == id }) else { return }
         guard confirm(L("席「\(st.name)」を消しますか？", "Delete seat “\(st.name)”?"),
                       L("その席の出力とレイヤーがファイルから消えます（⌘Z で戻せます）。映像は消えません。",
-                        "Its outputs and layers are removed from the file (⌘Z brings them back). Clips are kept."), skippable: true) else { return }
+                        "Its outputs and layers are removed from the file (⌘Z brings them back). Clips are kept."), skip: .seat) else { return }
         var s = show
         s.seats.removeAll { $0.id == id }
         if id == show.seatID { s.seatID = s.seats[0].id; ShowStore.rememberSeat(s.seatID, for: s) }
@@ -557,6 +569,21 @@ final class AppModel: ObservableObject {
     }
 
     func closeCollectWindow() { collectWindow?.orderOut(nil) }
+
+    /// SyncPlayer ▸ Settings… (⌘,): this Mac's own preferences (look, language, confirm windows).
+    func showSettingsWindow() {
+        if settingsWindow == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 300),
+                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            w.isReleasedWhenClosed = false
+            w.contentView = NSHostingView(rootView: SettingsView(model: self))
+            w.center()
+            settingsWindow = w
+        }
+        settingsWindow?.title = L("設定（この Mac）", "Settings (this Mac)")
+        settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+    private var settingsWindow: NSWindow?
 
     /// Point a missing movie or mask at its file (in every seat that uses it).
     func relink(_ item: Collect.Item) {
@@ -907,7 +934,7 @@ final class AppModel: ObservableObject {
     func removeOutput() {
         guard show.outputs.count > 1, let o = selectedOutputIndex else { notify(L("出力は 1 つ以上要ります", "At least one output is needed")); return }
         let name = show.outputs[o].name, oid = show.outputs[o].id
-        guard confirm(L("出力「\(name)」を消しますか？", "Delete output “\(name)”?"), L("この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます（⌘Z で戻せます）。", "Its layers and their adjustments (corners, mesh…) are deleted too (⌘Z brings them back)."), skippable: true),
+        guard confirm(L("出力「\(name)」を消しますか？", "Delete output “\(name)”?"), L("この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます（⌘Z で戻せます）。", "Its layers and their adjustments (corners, mesh…) are deleted too (⌘Z brings them back)."), skip: .output),
               show.outputs.count > 1, let o2 = show.outputs.firstIndex(where: { $0.id == oid }) else { return }
         show.outputs.remove(at: o2)
         notify(L("出力「\(name)」を消しました", "Deleted output “\(name)”"))
@@ -952,7 +979,7 @@ final class AppModel: ObservableObject {
         let title = gone.count == 1
             ? L("レイヤー「\(gone[0].name ?? clipName(gone[0].clipID))」を消しますか？", "Delete layer “\(gone[0].name ?? clipName(gone[0].clipID))”?")
             : L("レイヤー \(gone.count) つを消しますか？", "Delete \(gone.count) layers?")
-        guard confirm(title, L("調整（位置・四隅・メッシュ・マスクなど）も消えます（⌘Z で戻せます）。映像のファイルは消えません。", "Their adjustments (transform, corners, mesh, mask…) go too (⌘Z brings them back). Movie files are kept."), skippable: true),
+        guard confirm(title, L("調整（位置・四隅・メッシュ・マスクなど）も消えます（⌘Z で戻せます）。映像のファイルは消えません。", "Their adjustments (transform, corners, mesh, mask…) go too (⌘Z brings them back). Movie files are kept."), skip: .layer),
               let o2 = show.outputs.firstIndex(where: { $0.id == oid }) else { return }
         show.outputs[o2].layers.removeAll { ids.contains($0.id) }
         layerPicks = []
@@ -973,6 +1000,7 @@ final class AppModel: ObservableObject {
     /// One click reaches here from the row and from its name; the second call is ignored.
     func clickLayerRow(_ id: String, order: [String]) {
         guard let r = Self.click(id, focus: selectedLayer, picks: layerPicks, order: order, last: &lastRowClick) else { return }
+        rowClicking = true; defer { rowClicking = false }
         selectedLayer = r.focus; layerPicks = r.picks
     }
     func clickClipRow(_ id: String) {
@@ -1120,7 +1148,7 @@ final class AppModel: ObservableObject {
             : L("映像 \(ids.count) 本をショーから外しますか？", "Remove \(ids.count) clips from the show?")
         guard confirm(title,
                       users > 0 ? L("使っているレイヤー \(users) つも、その調整（位置・四隅・メッシュ・マスクなど）ごと消えます（⌘Z で戻せます）。映像のファイルは消えません。\n\n使っている所:\n\(shown)", "\(users) layer(s) using them go too, with their adjustments (⌘Z brings them back). Movie files are kept.\n\nUsed in:\n\(shown)")
-                                : L("どのレイヤーでも使っていません。映像のファイルは消えません。", "Not used by any layer. Movie files are kept."), ok: L("外す", "Remove"), skippable: true) else { return }
+                                : L("どのレイヤーでも使っていません。映像のファイルは消えません。", "Not used by any layer. Movie files are kept."), ok: L("外す", "Remove"), skip: .clip) else { return }
         var s = show
         s.clips.removeAll { ids.contains($0.id) }
         // Every seat: its layers that show the clips go too.
@@ -1437,8 +1465,9 @@ final class AppModel: ObservableObject {
     /// Ask before something that cannot be undone (lowers full-screen outputs while the alert is up).
     /// Asks before a change. With `skippable` (deleting seats, outputs, layers, clips: all undone
     /// with ⌘Z) the window has "Don't ask again"; it is turned back on in Exhibit › This Mac.
-    func confirm(_ title: String, _ detail: String, ok: String = L("消す", "Delete"), skippable: Bool = false) -> Bool {
-        if skippable && skipDeleteConfirm { return true }
+    func confirm(_ title: String, _ detail: String, ok: String = L("消す", "Delete"), skip: ConfirmKind? = nil) -> Bool {
+        if let k = skip, !asks(k) { return true }
+        let skippable = skip != nil
         let a = NSAlert()
         a.messageText = title
         a.informativeText = detail
@@ -1453,13 +1482,32 @@ final class AppModel: ObservableObject {
         defer { panelOpen = false; refreshLevels() }
         NSApp.activate(ignoringOtherApps: true)
         let yes = a.runModal() == .alertFirstButtonReturn
-        if skippable && yes && a.suppressionButton?.state == .on { skipDeleteConfirm = true }
+        if let k = skip, yes, a.suppressionButton?.state == .on { setAsks(k, false) }
         return yes
     }
 
-    /// Delete without asking (set from the confirm window; this Mac only).
-    @Published var skipDeleteConfirm = UserDefaults.standard.bool(forKey: "ui.skipDeleteConfirm") {
-        didSet { UserDefaults.standard.set(skipDeleteConfirm, forKey: "ui.skipDeleteConfirm") }
+    /// Deletions whose confirm window can be turned off (each on its own; asked by default).
+    enum ConfirmKind: String, CaseIterable, Identifiable {
+        case layer, clip, output, seat
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .layer: return L("レイヤーを消すとき", "Deleting layers")
+            case .clip: return L("映像ライブラリから外すとき", "Removing footage")
+            case .output: return L("出力を消すとき", "Deleting outputs")
+            case .seat: return L("席を消すとき", "Deleting seats")
+            }
+        }
+    }
+    /// Changed in the confirm window ("Don't ask again") or in Settings (⌘,). This Mac only.
+    @Published private var confirmSkips: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "ui.confirmSkips") ?? [])
+    func asks(_ k: ConfirmKind) -> Bool { !confirmSkips.contains(k.rawValue) }
+    func setAsks(_ k: ConfirmKind, _ on: Bool) {
+        if on { confirmSkips.remove(k.rawValue) } else { confirmSkips.insert(k.rawValue) }
+        UserDefaults.standard.set(Array(confirmSkips).sorted(), forKey: "ui.confirmSkips")
+    }
+    func asksBinding(_ k: ConfirmKind) -> Binding<Bool> {
+        Binding(get: { self.asks(k) }, set: { self.setAsks(k, $0) })
     }
 
     func runPanel(_ p: NSSavePanel) -> NSApplication.ModalResponse {
@@ -1516,7 +1564,18 @@ final class AppModel: ObservableObject {
         }
         // A click anywhere outside the text field being typed in leaves it. Otherwise a field
         // clicked once (a name, a number) kept the keys, and space no longer played (Pro, 2026-11-25).
-        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { e in
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
+            // A click outside the left lists (preview, tabs, output windows) forgets what delete
+            // would remove, so delete never removes something picked long ago (check 39).
+            if let self, self.deleteTarget != nil {
+                var v: NSView? = nil
+                if let w = e.window, let cv = w.contentView {
+                    v = cv.hitTest(cv.superview?.convert(e.locationInWindow, from: nil) ?? e.locationInWindow)
+                }
+                var inList = false
+                while let x = v { if x is NSTableView { inList = true; break }; v = x.superview }
+                if !inList || e.window !== self.control { self.deleteTarget = nil }
+            }
             guard let w = e.window, let editor = w.firstResponder as? NSTextView, editor.isFieldEditor,
                   let field = editor.delegate as? NSView else { return e }
             let p = field.convert(e.locationInWindow, from: nil)
@@ -1561,7 +1620,7 @@ final class AppModel: ObservableObject {
             case "s": saveShowAs(); return true
             case "e" where shift: showCollectWindow(); return true
             case "z": if shift { redoShow() } else { undoShow() }; return true
-            case ",": toggleControl(); return true
+            case ",": showSettingsWindow(); return true
             default: return false   // ⌘Q, copy / paste and the rest go to the menu
             }
         }
@@ -1569,7 +1628,8 @@ final class AppModel: ObservableObject {
         switch e.keyCode {
         case 51, 117:                                                   // delete, forward delete
             // Deletes the row last clicked in the left lists (seat, output, layer, clip), asking first.
-            guard let del = deleteTarget, !shift else { return false }
+            // Only in the control window, and only until something outside the lists is clicked.
+            guard let del = deleteTarget, !shift, NSApp.keyWindow === control else { return false }
             deleteTarget = nil
             del()
             return true
