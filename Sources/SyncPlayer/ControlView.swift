@@ -287,7 +287,13 @@ struct TopBar: View {
                            "Not set: shorter than 1 s. Type 2000 for 20 s, or 1:30"))
             leaveField(); return
         }
-        let x = t <= 0 ? 0 : max(t, Show.minLoop)
+        setLoop(t <= 0 ? 0 : max(t, Show.minLoop))
+    }
+
+    @State private var loopScrub: Double?
+
+    /// Loop every clip together at x seconds (0 = the longest clip).
+    private func setLoop(_ x: Double) {
         var s = model.show
         s.loopTogether = true
         s.loopLength = x
@@ -396,6 +402,14 @@ struct TopBar: View {
                                 guard status.isMaster else { return }
                                 timeText = timeString(status.position); editingTime = true
                             }
+                            // Drag left/right to move the playhead (0.02 s a point, shift: 0.002 s); all Macs follow on release.
+                            .modifier(Scrub(enabled: status.isMaster, perPoint: 0.02,
+                                            start: { status.position },
+                                            change: { v, done in
+                                                let t = min(max(v, 0), max(0, status.duration - 0.001))
+                                                if done { dragging = false; model.master?.jump(to: t) }
+                                                else { dragging = true; value = t }
+                                            }))
                             .help(status.isMaster ? L("押すと位置を打てる。After Effects のように数字だけなら右から 1/100 秒・秒・分（200 で 2 秒、10000 で 1 分）。1:23.5 の形でもよい。Return で全部の Mac がその位置へ", "Click to type a time. Digits read from the right as 1/100 s, seconds, minutes, like After Effects (200 = 2 s, 10000 = 1 min). 1:23.5 also works. Return moves all Macs there") : L("いまの位置", "Current time"))
                     }
                     Text(" / ").font(.system(size: 12, design: .monospaced))
@@ -409,7 +423,7 @@ struct TopBar: View {
                             .onChange(of: loopFocused) { f in if !f { editingLoop = false } }
                             .onAppear { loopFocused = true }
                     } else {
-                        Text(timeString(status.duration))
+                        Text(timeString(loopScrub ?? status.duration))
                             .editableNumber(status.isMaster)
                             .font(.system(size: 12, design: .monospaced))
                             .contentShape(Rectangle())
@@ -417,6 +431,13 @@ struct TopBar: View {
                                 guard status.isMaster else { return }
                                 loopText = timeString(status.duration); editingLoop = true
                             }
+                            // Drag left/right to change the loop length (0.05 s a point, shift: 0.005 s); set on release.
+                            .modifier(Scrub(enabled: status.isMaster, perPoint: 0.05,
+                                            start: { status.duration },
+                                            change: { v, done in
+                                                let x = max(v, 1)
+                                                if done { loopScrub = nil; setLoop(x) } else { loopScrub = x }
+                                            }))
                             .help(status.isMaster ? L("ループの長さ。押すと打てる（200 で 2 秒、1:30 で 1 分 30 秒。0 でいちばん長い映像の長さ）。全部の Mac がこの長さで頭へ戻る", "Loop length. Click to type (200 = 2 s, 1:30 = 1 min 30 s, 0 = longest clip). All Macs go back to the start at this length") : L("ループの長さ（マスターの Mac で変える）", "Loop length (changed on the master)"))
                     }
                 }
@@ -987,6 +1008,42 @@ struct PreviewView: NSViewRepresentable {
 
 // MARK: right side
 
+/// Like After Effects: drag a number left or right to change it; with shift held, in finer steps
+/// (Akira 2026-11-26). A click without dragging still opens the field to type.
+struct Scrub: ViewModifier {
+    let enabled: Bool
+    /// Change per point dragged (shift: a tenth of it).
+    let perPoint: Double
+    let start: () -> Double
+    /// The new value, and whether the drag has ended.
+    let change: (Double, Bool) -> Void
+    @State private var from: Double?
+    @State private var lastX: CGFloat = 0
+    @State private var acc = 0.0
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                guard enabled || hovering else { return }
+                if inside && !hovering { NSCursor.resizeLeftRight.push(); hovering = true }
+                else if !inside && hovering { NSCursor.pop(); hovering = false }
+            }
+            .gesture(DragGesture(minimumDistance: 3)
+                .onChanged { g in
+                    if from == nil { from = start(); lastX = 0; acc = 0 }
+                    let dx = Double(g.translation.width - lastX)
+                    lastX = g.translation.width
+                    acc += dx * perPoint * (NSEvent.modifierFlags.contains(.shift) ? 0.1 : 1)
+                    change((from ?? 0) + acc, false)
+                }
+                .onEnded { _ in
+                    change((from ?? 0) + acc, true)
+                    from = nil
+                }, including: enabled ? .all : .subviews)
+    }
+}
+
 /// How a slider's value is shown and typed: shown = value * scale, with the suffix.
 struct ValueUnit {
     let scale: Double
@@ -1053,7 +1110,10 @@ struct SliderRow: View {
                     .frame(width: 52, alignment: .trailing)
                     .contentShape(Rectangle())
                     .onTapGesture { text = unit.text(value); editing = true }
-                    .help(L("押すと数字を打てる（Return で決める、esc でやめる）", "Click to type a value (Return to set, esc to cancel)"))
+                    .modifier(Scrub(enabled: true, perPoint: (range.upperBound - range.lowerBound) / 400,
+                                    start: { value },
+                                    change: { v, _ in value = min(max(v, range.lowerBound), range.upperBound) }))
+                    .help(L("押すと数字を打てる（Return で決める、esc でやめる）。左右にドラッグでも変わり、shift を押しながらだと細かく変わる", "Click to type a value (Return to set, esc to cancel). Drag left or right to change it; hold shift for fine steps"))
             }
             if defaultValue != nil {
                 Button { reset() } label: { Image(systemName: "arrow.counterclockwise") }
