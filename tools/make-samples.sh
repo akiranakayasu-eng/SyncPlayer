@@ -8,7 +8,7 @@ OUT="${1:-samples}"
 mkdir -p "$OUT"
 FONT="${FONT:-$(fc-match -f '%{file}' 'DejaVu Sans:bold' 2>/dev/null || echo /System/Library/Fonts/Helvetica.ttc)}"
 W=1280; H=720; R=30; D=20
-HAS_TEXT=1; ffmpeg -hide_banner -filters 2>/dev/null | grep -q " drawtext " || { HAS_TEXT=0; echo "note: this ffmpeg has no drawtext, so the movies have no text"; }
+HAS_TEXT=1; ffmpeg -hide_banner -filters 2>/dev/null | grep " drawtext " >/dev/null || { HAS_TEXT=0; echo "note: this ffmpeg has no drawtext, so the movies have no text"; }
 PI=3.14159265
 
 label() { # $1 = title
@@ -38,14 +38,15 @@ make "sample01_countdown.mp4" \
   "$BG:c=0x1d3557,drawbox=x=0:y=0:w=iw:h=ih:color=white@0.85:t=fill:enable='lt(mod(t\,1)\,0.1)',drawtext=fontfile=$FONT:text='%{eif\:$D-floor(t)\:d}':x=(w-tw)/2:y=(h-th)/2-20:fontsize=320:fontcolor=white,$(label 'SAMPLE 01  COUNTDOWN')" \
   "0.3*sin(2*$PI*if(lt(mod(t\,5)\,0.1)\,1760\,880)*t)*lt(mod(t\,1)\,0.1)"
 
+# Moving things use overlay: its x and y are worked out for every frame (drawbox's only once).
 # 2. Bouncing ball: it hits the floor and clicks on every whole second.
 make "sample02_ball.mp4" \
-  "$BG:c=0x2a9d8f,drawbox=x=0:y=ih-90:w=iw:h=6:color=white:t=fill,drawbox=x=(iw-80)/2:y=ih-170-abs(sin($PI*t))*420:w=80:h=80:color=0xffd166:t=fill,$(label 'SAMPLE 02  BALL')" \
+  "$BG:c=0x2a9d8f,drawbox=x=0:y=ih-90:w=iw:h=6:color=white:t=fill[bg];color=c=0xffd166:s=80x80:r=$R:d=$D[ball];[bg][ball]overlay=x=(W-80)/2:y=H-170-abs(sin($PI*t))*420,$(label 'SAMPLE 02  BALL')" \
   "0.6*exp(-60*mod(t\,1))*sin(2*$PI*1200*t)"
 
 # 3. Sweep: a bar crosses the screen in 4 s while the tone rises from 200 to 800 Hz.
 make "sample03_sweep.mp4" \
-  "$BG:c=0x264653,drawbox=x=mod(t\,4)/4*iw:y=0:w=24:h=ih:color=0xe9c46a:t=fill,$(label 'SAMPLE 03  SWEEP')" \
+  "$BG:c=0x264653[bg];color=c=0xe9c46a:s=24x${H}:r=$R:d=$D[bar];[bg][bar]overlay=x=mod(t\,4)/4*W:y=0,$(label 'SAMPLE 03  SWEEP')" \
   "0.25*sin(2*$PI*(200*mod(t\,4)+75*mod(t\,4)*mod(t\,4)))"
 
 # 4. Clapper: a white flash and a short noise burst every 2 s (like a slate).

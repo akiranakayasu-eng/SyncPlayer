@@ -480,7 +480,7 @@ struct Inspector: View {
         Text("上から順に進めると、1 台で試すところから展示の形まで覚えられる。できたら ✓ が付く（この Mac で見えたことだけ）。")
             .font(.caption).foregroundColor(.secondary)
         Button("練習用のショーを開く") { model.openPractice() }
-            .help("番号入りの映像 4 本と丸いマスクの見本。いまのショーはファイルに残ったまま")
+            .help("番号入りの映像 4 本と丸いマスクの見本。保存したショーはファイルに残る（保存前のショーは、替える前に確かめる）")
         Button("サンプル（映像と設定）をダウンロード…") {
             if let u = URL(string: "https://github.com/akiranakayasu-eng/sync-player/releases/latest") { NSWorkspace.shared.open(u) }
         }

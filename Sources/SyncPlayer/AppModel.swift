@@ -66,6 +66,7 @@ final class AppModel: ObservableObject {
 
     /// The followers the master hears (for the list of all Macs on the master).
     @Published private(set) var peers: [Master.Peer] = []
+    private var peersAt = 0.0
     /// Sends from this Mac do not reach the network (no Local Network permission, or no network).
     @Published private(set) var netBlocked = false
     private var probe: UDPSocket?
@@ -387,7 +388,7 @@ final class AppModel: ObservableObject {
 
     // MARK: learning (the steps checklist)
 
-    /// Things a student has done once on this Mac (kept in UserDefaults "learn.<name>").
+    /// Things a student has done once on this Mac (kept in UserDefaults "learned", a list of names).
     @Published private(set) var learnedSet: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "learned") ?? [])
     func learned(_ name: String) {
         guard !learnedSet.contains(name) else { return }
@@ -403,6 +404,11 @@ final class AppModel: ObservableObject {
     var isPractice: Bool { show.clips.contains { $0.path.hasPrefix(Practice.dir.path) } }
 
     func openPractice() {
+        // A show not saved to a file would be lost (and ⌘Z cannot bring it back).
+        if showFile == nil && !show.clips.isEmpty && !isPractice,
+           !confirm("いまのショーはまだ保存していません。練習用のショーに替えますか？",
+                    "替えると、いまのショー（映像の並びや調整）は戻せません。残すときは「やめる」を押し、上の「保存…」で保存してから開く。",
+                    ok: "替える") { return }
         notify("練習用の映像を用意しています…")
         guard let s = Practice.makeShow() else { notify("練習用の映像を作れませんでした"); return }
         saveNow()
@@ -1158,8 +1164,16 @@ final class AppModel: ObservableObject {
         status.playing = transport.schedule?.playing ?? false
         let text = statusText()
         if status.text != text { status.text = text }
-        let ps = (master?.peers ?? []).map { p -> Master.Peer in var q = p; q.at = 0; return q }
-        if ps != peers { peers = ps }
+        // The whole control window redraws when peers changes: offsets (rounded to 0.1 ms)
+        // update at most once a second, a Mac coming, going or changing its version at once.
+        let ps = (master?.peers ?? []).map { p -> Master.Peer in
+            var q = p; q.at = 0; q.err = q.err.map { ($0 * 10).rounded() / 10 }; return q
+        }
+        if ps != peers {
+            let shape = { (a: [Master.Peer]) in a.map { [$0.name, $0.ver, $0.warn ?? "", $0.file ?? ""] } }
+            let now = hostNow()
+            if shape(ps) != shape(peers) || now - peersAt >= 1 { peers = ps; peersAt = now }
+        }
         if master != nil && !ps.isEmpty { learned("synced") }
         if tickCount % 100 == 4 { probeNetwork() }
         // Just made full screen by hand (not the exhibition starting): how to get back, for a few seconds.
@@ -1170,9 +1184,9 @@ final class AppModel: ObservableObject {
             }
         }
         fullBefore = fullNow
-        if status.playing { learned("played") }
+        if status.playing && isMaster { learned("played") }   // a follower plays because the master did
         if outputs.values.contains(where: { $0.isFull }) { learned("fullscreen") }
-        if showIdent || (follower?.masterIdent ?? false) { learned("ident") }
+        if showIdent { learned("ident") }
         if let f = follower, f.masterAlive, f.stats.ready, transport.schedule != nil { learned("synced") }
         if show.outputs.contains(where: { $0.layers.contains { $0.mask != nil } }) && !isPractice { learned("mask") }
         let (headline, tone) = headlineNow()
@@ -1285,10 +1299,10 @@ final class AppModel: ObservableObject {
         add(!infoShownNow && !showIdent, "動作確認の文字と名前の表示（I・N）を消してある", "I と N を切る")
         add(AppModel.pmsetValue("autorestart").map { $0 == "1" }, "停電のあと電源が戻ると Mac が起動する",
             "ターミナルで sudo pmset -a autorestart 1、またはシステム設定の「停電後に自動的に起動」")
-        add(AppModel.plist("/Library/Preferences/com.apple.loginwindow.plist")?["autoLoginUser"].map { _ in true } ?? false,
+        add(AppModel.plist("/Library/Preferences/com.apple.loginwindow.plist").map { $0["autoLoginUser"] != nil },
             "電源を入れると自動でログインする", "システム設定 → ユーザとグループ → 自動ログイン")
         let su = AppModel.plist("/Library/Preferences/com.apple.SoftwareUpdate.plist")
-        add(su.map { ($0["AutomaticallyInstallMacOSUpdates"] as? Bool) != true }, "macOS が勝手にアップデートしない",
+        add(su.flatMap { ($0["AutomaticallyInstallMacOSUpdates"] as? Bool).map { !$0 } }, "macOS が勝手にアップデートしない",
             "システム設定 → 一般 → ソフトウェアアップデート → 自動アップデートで「macOS アップデートをインストール」を切る")
         checks = c
         checkedAt = Date()
@@ -1326,7 +1340,6 @@ final class AppModel: ObservableObject {
 
     /// The first thing the detailed status warns about, in a few words (nil when all is well).
     func problemNow() -> String? {
-        if netBlocked { return "ネットワークに届かない（ローカルネットワークの許可か、つなぎ方を確かめる）" }
         if let mv = follower?.masterVer, mv != AppModel.version { return "版がちがう（マスター \(mv)、この Mac \(AppModel.version)）" }
         // A master older than v0.3.3 does not send its version: say so rather than look all right.
         if let f = follower, f.masterAlive, f.masterVer == nil { return "マスターの版が分からない（古い版かも。全台を同じ版にする）" }
@@ -1356,6 +1369,11 @@ final class AppModel: ObservableObject {
         if (transport.schedule?.playing ?? false), follower?.stats.ready ?? isMaster,
            abs(transport.maxError) > 0.02 {
             return String(format: "ずれが大きい %.0f ms", abs(transport.maxError) * 1000)
+        }
+        // Last, so it does not hide the problems above; and not for a master on its own (one Mac
+        // practising without a network is fine — the exhibition tab still shows the warning).
+        if netBlocked && !(master != nil && peers.isEmpty) {
+            return "ネットワークに届かない（ローカルネットワークの許可か、つなぎ方を確かめる）"
         }
         return nil
     }

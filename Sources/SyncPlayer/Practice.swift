@@ -9,7 +9,6 @@ import UniformTypeIdentifiers
 /// names, so the practice show can also be used to try syncing several Macs.
 enum Practice {
     static var dir: URL { ShowStore.base.appendingPathComponent("practice", isDirectory: true) }
-    static var showURL: URL { dir.appendingPathComponent("練習.syncshow") }
     static let seconds = 10
     static let fps = 30
     static let size = CGSize(width: 640, height: 360)
@@ -24,7 +23,14 @@ enum Practice {
     static func makeShow() -> Show? {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         for n in 1...4 where !FileManager.default.fileExists(atPath: moviePath(n)) {
-            guard writeMovie(n, to: URL(fileURLWithPath: moviePath(n))) else { return nil }
+            // Written under a temporary name and renamed when complete, so a half-written movie
+            // (the app quit meanwhile) is not taken for a finished one next time.
+            let tmp = URL(fileURLWithPath: moviePath(n) + ".part.mov")
+            guard writeMovie(n, to: tmp),
+                  (try? FileManager.default.moveItem(at: tmp, to: URL(fileURLWithPath: moviePath(n)))) != nil else {
+                try? FileManager.default.removeItem(at: tmp)
+                return nil
+            }
         }
         if !FileManager.default.fileExists(atPath: maskPath) { _ = writeMask(to: URL(fileURLWithPath: maskPath)) }
         var s = Show.make(paths: (1...4).map(moviePath))
