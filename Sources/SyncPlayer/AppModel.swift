@@ -40,7 +40,11 @@ final class AppModel: ObservableObject {
     @Published var audioOn = false
     /// The .syncshow opened or saved; changes are written to it as well as to current.syncshow.
     @Published var showFile: String? = nil {
-        didSet { updateRepresented(); UserDefaults.standard.set(showFile, forKey: "showFile") }
+        didSet {
+            updateRepresented(); UserDefaults.standard.set(showFile, forKey: "showFile")
+            // "The last write failed" belongs to the file it was about.
+            if showFile != oldValue { UserDefaults.standard.set(false, forKey: "showFileBehind") }
+        }
     }
     /// What showFile holds now (so opening a file does not rewrite it unchanged).
     private var fileShow: Show?
