@@ -154,6 +154,15 @@ struct TopBar: View {
                 Toggle("この Mac で音を出す", isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) }))
                     .fixedSize()
                     .help("A キー")
+                // Which movie's sound, right beside the switch (Akira 2026-11-25).
+                Picker("", selection: Binding(get: { model.show.audioClip ?? model.show.clips.first?.id ?? "" },
+                                              set: { model.setAudioClip($0) })) {
+                    ForEach(model.show.clips) { c in Text(c.name).tag(c.id) }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 160)
+                .disabled(!model.audioOn)
+                .help("音を出す映像（この Mac で音を出すとき、どの映像の音を出すか）")
                 Button("ショーを開く…") { model.openShow() }
                     .help("保存したショー（.syncshow）を開く")
                 Button("保存…") { model.saveShowAs() }
@@ -357,11 +366,6 @@ struct Sidebar: View {
                 }
                 .disabled(selectedClipID == nil)
             }
-            Picker("音を出す映像", selection: Binding(get: { model.show.audioClip ?? model.show.clips.first?.id ?? "" },
-                                                 set: { model.setAudioClip($0) })) {
-                ForEach(model.show.clips) { c in Text(c.name).tag(c.id) }
-            }
-            .help("この Mac で音を出すとき、どの映像の音を出すか")
         }
         .padding(8)
         }
