@@ -256,6 +256,19 @@ struct Sidebar: View {
     @ObservedObject var model: AppModel
     @State private var selectedClip: String?
     @State private var renamingOutput: String?
+    @State private var renamingLayer: String?
+
+    private func finishLayerRename(_ id: String) {
+        let t = renameText.trimmingCharacters(in: .whitespaces)
+        renamingLayer = nil
+        for o in model.show.outputs.indices {
+            if let i = model.show.outputs[o].layers.firstIndex(where: { $0.id == id }) {
+                let v: String? = t.isEmpty ? nil : t
+                if model.show.outputs[o].layers[i].name != v { model.show.outputs[o].layers[i].name = v }
+            }
+        }
+        DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
+    }
     @State private var renameText = ""
     @FocusState private var renameFocused: Bool
 
@@ -333,7 +346,23 @@ struct Sidebar: View {
                         }
                         .buttonStyle(.borderless)
                         .help(vis.wrappedValue ? "見えている（押すと隠す）" : "隠している（押すと見せる）")
-                        LayerClipButton(model: model, layerID: l.id, clipID: l.clipID)
+                        // The layer's own name: double-click to type it (empty = the movie's name).
+                        if renamingLayer == l.id {
+                            TextField(model.clipName(l.clipID), text: $renameText)
+                                .focused($renameFocused)
+                                .onSubmit { finishLayerRename(l.id) }
+                                .onExitCommand { renamingLayer = nil }
+                                .onChange(of: renameFocused) { f in if !f && renamingLayer == l.id { finishLayerRename(l.id) } }
+                                .onAppear { renameFocused = true }
+                        } else {
+                            Text(l.name ?? model.clipName(l.clipID))
+                                .lineLimit(1).truncationMode(.middle)
+                                .onTapGesture(count: 2) { renameText = l.name ?? ""; renamingLayer = l.id }
+                                .simultaneousGesture(TapGesture().onEnded { model.selectedLayer = l.id })
+                                .help("ダブルクリックで名前を付ける（空にすると映像の名前に戻る）")
+                        }
+                        Spacer(minLength: 2)
+                        LayerClipButton(model: model, layerID: l.id, clipID: l.clipID, compact: l.name == nil)
                     }
                     .tag(Optional(l.id))
                     // Drop a movie from the movie list below onto a layer to show it there.
@@ -456,17 +485,23 @@ struct LayerClipButton: View {
     @ObservedObject var model: AppModel
     let layerID: String
     let clipID: String
+    /// Only the film symbol (the row already shows the movie's name).
+    var compact = false
     @State private var open = false
 
     var body: some View {
         Button { open = true } label: {
             HStack(spacing: 2) {
-                Text(model.clipName(clipID)).lineLimit(1).truncationMode(.middle)
-                Image(systemName: "chevron.up.chevron.down").font(.system(size: 8)).foregroundColor(.secondary)
+                Image(systemName: "film").font(.system(size: 10))
+                if !compact {
+                    Text(model.clipName(clipID)).lineLimit(1).truncationMode(.middle).font(.caption)
+                }
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 8))
             }
+            .foregroundColor(.secondary)
         }
         .buttonStyle(.plain)
-        .help("押すと、このレイヤーに出す映像を選べる（下の映像の行をドラッグしてきても替わる）")
+        .help("映像: \(model.clipName(clipID))。押すと、このレイヤーに出す映像を選べる（下の映像の行をドラッグしてきても替わる）")
         .popover(isPresented: $open, arrowEdge: .trailing) {
             VStack(alignment: .leading, spacing: 0) {
                 Text("このレイヤーに出す映像").font(.caption).foregroundColor(.secondary)

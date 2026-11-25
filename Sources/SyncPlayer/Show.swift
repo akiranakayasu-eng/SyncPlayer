@@ -22,6 +22,8 @@ struct Layer: Codable, Equatable, Identifiable {
     var mask: String?
     /// Swap white and black of the mask.
     var maskInvert = false
+    /// The layer's own name (nil = shown by its movie's name).
+    var name: String?
 
     init(clipID: String, look: DisplaySettings = DisplaySettings()) {
         self.clipID = clipID
@@ -37,6 +39,7 @@ struct Layer: Codable, Equatable, Identifiable {
         look = try c.decodeIfPresent(DisplaySettings.self, forKey: .look) ?? DisplaySettings()
         mask = try c.decodeIfPresent(String.self, forKey: .mask)
         maskInvert = try c.decodeIfPresent(Bool.self, forKey: .maskInvert) ?? false
+        name = try c.decodeIfPresent(String.self, forKey: .name)
     }
 }
 
