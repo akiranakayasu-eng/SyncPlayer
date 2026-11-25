@@ -100,27 +100,53 @@ final class AppModel: ObservableObject {
     private var keyMonitor: Any?
 
     /// Every key, in groups: shown in the key list window (Help menu) and, as text, on the outputs with H.
-    static let keyGroups: [KeyGroup] = keyTable.map { g in
-        KeyGroup(title: g.0, keys: g.1.map { KeyItem(key: $0.0, what: $0.1) })
-    }
-    private static let keyTable: [(String, [(String, String)])] = [
-        ("再生", [("space", "再生／停止（マスター）"), ("R  ↑", "頭へ"), ("↓", "終わりの 3 秒前へ"),
-                ("←  →", "1 コマ戻る／進む"), ("⇧←  ⇧→", "1 秒戻る／進む"), ("A", "音を出す／消す")]),
-        ("窓と表示", [("S", "操作の窓を出す／隠す"), ("I", "動作確認の文字"), ("N", "Mac 名とディスプレイの番号"),
-                  ("H  ?", "キー一覧（出力の画面に）"), ("F", "全画面"), ("D", "次のディスプレイへ"), ("G", "格子"),
-                  ("M", "マスター⇔フォロワー"), ("Q", "終了")]),
-        ("出力とレイヤー", [("O", "次の出力"), ("L", "次のレイヤー"), ("+  −", "大きさ"), ("[  ]", "回転"),
-                     ("0", "戻す（編集中はその変形、ほかは位置・大きさ・回転）")]),
-        ("変形の編集", [("E", "四隅の変形"), ("W", "曲面メッシュ"), ("Tab", "次の点"),
-                   ("矢印", "点を 1 px 動かす"), ("⇧矢印", "点を 10 px 動かす")]),
-        ("ショーとプリセット", [("1〜9", "プリセット呼び出し"), ("⌘1〜⌘9", "プリセット保存"), ("⌘O", "ショーを開く"),
-                       ("⌘S", "ショーを保存"), ("⌘Z", "戻す"), ("⇧⌘Z", "やり直す")]),
-        ("文字を入れているとき", [("esc", "入力を終える（space がまた再生に効く）"), ("return", "決める")]),
-    ]
+    static var keyGroups: [KeyGroup] { [
+        KeyGroup(title: L("再生", "Playback"), keys: [
+            KeyItem(key: "space", what: L("再生／停止（マスター）", "Play / stop (master)")),
+            KeyItem(key: "R  ↑", what: L("頭へ", "Go to start")),
+            KeyItem(key: "↓", what: L("終わりの 3 秒前へ", "3 s before the end")),
+            KeyItem(key: "←  →", what: L("1 コマ戻る／進む", "1 frame back / forward")),
+            KeyItem(key: "⇧←  ⇧→", what: L("1 秒戻る／進む", "1 s back / forward")),
+            KeyItem(key: "A", what: L("音を出す／消す", "Sound on / off"))]),
+        KeyGroup(title: L("窓と表示", "Windows and display"), keys: [
+            KeyItem(key: "S", what: L("操作の窓を出す／隠す", "Show / hide the control window")),
+            KeyItem(key: "I", what: L("動作確認の文字", "Info text")),
+            KeyItem(key: "N", what: L("Mac 名とディスプレイの番号", "Mac names and display numbers")),
+            KeyItem(key: "H  ?", what: L("キー一覧（出力の画面に）", "Key list (on the outputs)")),
+            KeyItem(key: "F", what: L("全画面", "Full screen")),
+            KeyItem(key: "D", what: L("次のディスプレイへ", "Next display")),
+            KeyItem(key: "G", what: L("格子", "Grid")),
+            KeyItem(key: "M", what: L("マスター⇔フォロワー", "Master ⇔ follower")),
+            KeyItem(key: "Q", what: L("終了", "Quit"))]),
+        KeyGroup(title: L("出力とレイヤー", "Outputs and layers"), keys: [
+            KeyItem(key: "O", what: L("次の出力", "Next output")),
+            KeyItem(key: "L", what: L("次のレイヤー", "Next layer")),
+            KeyItem(key: "+  −", what: L("大きさ", "Scale")),
+            KeyItem(key: "[  ]", what: L("回転", "Rotate")),
+            KeyItem(key: "0", what: L("戻す（編集中はその変形、ほかは位置・大きさ・回転）", "Reset (the warp being edited, else the transform)"))]),
+        KeyGroup(title: L("変形の編集", "Editing warps"), keys: [
+            KeyItem(key: "E", what: L("四隅の変形", "Corner pin")),
+            KeyItem(key: "W", what: L("曲面メッシュ", "Mesh")),
+            KeyItem(key: "Tab", what: L("次の点", "Next point")),
+            KeyItem(key: "↑ ↓ ← →", what: L("点を 1 px 動かす", "Move the point 1 px")),
+            KeyItem(key: "⇧ + ↑ ↓ ← →", what: L("点を 10 px 動かす", "Move the point 10 px"))]),
+        KeyGroup(title: L("ショーとプリセット", "Show and presets"), keys: [
+            KeyItem(key: "1〜9", what: L("プリセット呼び出し", "Recall a preset")),
+            KeyItem(key: "⌘1〜⌘9", what: L("プリセット保存", "Save a preset")),
+            KeyItem(key: "⌘O", what: L("ショーを開く", "Open show")),
+            KeyItem(key: "⌘S", what: L("ショーを保存", "Save show")),
+            KeyItem(key: "⌘Z", what: L("戻す", "Undo")),
+            KeyItem(key: "⇧⌘Z", what: L("やり直す", "Redo"))]),
+        KeyGroup(title: L("文字を入れているとき", "While typing"), keys: [
+            KeyItem(key: "esc", what: L("入力を終える（space がまた再生に効く）", "Leave the field (space plays again)")),
+            KeyItem(key: "return", what: L("決める", "Set"))]),
+    ] }
 
-    static let keyHelp: String = keyGroups.map { g in
-        "【\(g.title)】 " + g.keys.map { "\($0.key) \($0.what)" }.joined(separator: "   ")
-    }.joined(separator: "\n")
+    static var keyHelp: String {
+        keyGroups.map { g in
+            "[\(g.title)] " + g.keys.map { "\($0.key) \($0.what)" }.joined(separator: "   ")
+        }.joined(separator: "\n")
+    }
 
     init(opts: Options) { self.opts = opts }
 
@@ -156,19 +182,19 @@ final class AppModel: ObservableObject {
         if missing {
             NSApp.activate(ignoringOtherApps: true)
             let n = s?.clips.count ?? 0
-            let msg = n > 0 ? "映像が見つかりません。\(n) 本の映像を選ぶと、今の配置のまま使えます（同じ名前の映像は同じ場所に）"
-                            : "同期再生する映像を選んでください（複数選べます）"
+            let msg = n > 0 ? L("映像が見つかりません。\(n) 本の映像を選ぶと、今の配置のまま使えます（同じ名前の映像は同じ場所に）", "Clips not found. Choose \(n) clips to keep the current layout (clips with the same name go to the same place)")
+                            : L("同期再生する映像を選んでください（複数選べます）", "Choose the clips to play in sync (several allowed)")
             // The very first start: offer the practice movies, so a student can begin without any.
             var practice: Show?
             if n == 0 {
                 let a = NSAlert()
-                a.messageText = "SyncPlayer へようこそ"
-                a.informativeText = "はじめてなら「練習用の映像で始める」がおすすめです。番号入りの映像 4 本とマスクの見本をこの Mac で作って開きます（数秒）。自分の映像はあとから足せます。"
-                a.addButton(withTitle: "練習用の映像で始める")
-                a.addButton(withTitle: "自分の映像を選ぶ…")
+                a.messageText = L("SyncPlayer へようこそ", "Welcome to SyncPlayer")
+                a.informativeText = L("はじめてなら「練習用の映像で始める」がおすすめです。番号入りの映像 4 本とマスクの見本をこの Mac で作って開きます（数秒）。自分の映像はあとから足せます。", "New here? Try Start with Practice Clips: it makes 4 numbered clips and a sample mask on this Mac and opens them (a few seconds). You can add your own clips later.")
+                a.addButton(withTitle: L("練習用の映像で始める", "Start with Practice Clips"))
+                a.addButton(withTitle: L("自分の映像を選ぶ…", "Choose My Clips…"))
                 if a.runModal() == .alertFirstButtonReturn {
                     practice = Practice.makeShow()
-                    if practice == nil { notify("練習用の映像を作れませんでした。自分の映像を選んでください") }
+                    if practice == nil { notify(L("練習用の映像を作れませんでした。自分の映像を選んでください", "Couldn't make the practice clips. Please choose your own clips")) }
                 }
             }
             let urls = practice != nil ? [] : pickMovies(message: msg, multiple: true)
@@ -211,7 +237,7 @@ final class AppModel: ObservableObject {
             }
         }
         if show0.outputs.isEmpty, let c = show0.clips.first {
-            show0.outputs = [OutputConfig(name: "出力 1", layers: [Layer(clipID: c.id)])]
+            show0.outputs = [OutputConfig(name: L("出力 1", "Output 1"), layers: [Layer(clipID: c.id)])]
         }
         if let sc = opts.screen { show0.outputs[0].screen = sc }
         if opts.fullscreen { show0.outputs[0].fullscreen = true }
@@ -232,7 +258,7 @@ final class AppModel: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
                 guard let self, let m = self.master, !m.schedule.playing else { return }
                 m.play()
-                self.notify("開いたので自動で再生しました")
+                self.notify(L("開いたので自動で再生しました", "Opened, so playback started automatically"))
             }
         }
         // Another app or a macOS dialog (e.g. the local network permission) in front: full-screen
@@ -274,23 +300,23 @@ final class AppModel: ObservableObject {
         let appItem = NSMenuItem()
         main.addItem(appItem)
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "SyncPlayer を終了", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: L("SyncPlayer を終了", "Quit SyncPlayer"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         // Text editing (copy / paste in the name fields).
         let editItem = NSMenuItem()
         main.addItem(editItem)
-        let edit = NSMenu(title: "編集")
-        edit.addItem(withTitle: "取り消す", action: Selector(("undo:")), keyEquivalent: "z")
+        let edit = NSMenu(title: L("編集", "Edit"))
+        edit.addItem(withTitle: L("取り消す", "Undo"), action: Selector(("undo:")), keyEquivalent: "z")
         edit.addItem(.separator())
-        edit.addItem(withTitle: "カット", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        edit.addItem(withTitle: "コピー", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        edit.addItem(withTitle: "ペースト", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "すべてを選択", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(withTitle: L("カット", "Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: L("コピー", "Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: L("ペースト", "Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: L("すべてを選択", "Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
         let helpItem = NSMenuItem()
         main.addItem(helpItem)
-        let help = NSMenu(title: "ヘルプ")
-        let keys = MenuAction.item("キー一覧", key: "/") { [weak self] in self?.showKeyWindow() }
+        let help = NSMenu(title: L("ヘルプ", "Help"))
+        let keys = MenuAction.item(L("キー一覧", "Keyboard Shortcuts"), key: "/") { [weak self] in self?.showKeyWindow() }
         help.addItem(keys)
         helpItem.submenu = help
         NSApp.helpMenu = help
@@ -303,7 +329,7 @@ final class AppModel: ObservableObject {
         if keyWindow == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 640),
                              styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-            w.title = "キー一覧"
+            w.title = L("キー一覧", "Keyboard Shortcuts")
             w.isReleasedWhenClosed = false
             w.contentView = NSHostingView(rootView: KeyListView())
             w.center()
@@ -340,7 +366,7 @@ final class AppModel: ObservableObject {
         if let f = showFile, show != fileShow {
             backUpOnce(f)
             if ShowStore.write(show, to: URL(fileURLWithPath: f)) { fileShow = show }
-            else { notify("ショーのファイルに書けません: \((f as NSString).lastPathComponent)") }
+            else { notify(L("ショーのファイルに書けません: \((f as NSString).lastPathComponent)", "Can't write the show file: \((f as NSString).lastPathComponent)")) }
         }
     }
 
@@ -411,21 +437,21 @@ final class AppModel: ObservableObject {
     }
 
     func undoShow() {
-        guard let prev = undoStack.popLast() else { notify("これより前には戻せません"); return }
+        guard let prev = undoStack.popLast() else { notify(L("これより前には戻せません", "Nothing more to undo")); return }
         redoStack.append(show)
         undoing = true; show = prev; undoing = false
         fixSelection()
         lastUndoAt = 0
-        notify("1 つ前に戻しました（⇧⌘Z でやり直す）")
+        notify(L("1 つ前に戻しました（⇧⌘Z でやり直す）", "Undone (⇧⌘Z to redo)"))
     }
 
     func redoShow() {
-        guard let next = redoStack.popLast() else { notify("やり直すものがありません"); return }
+        guard let next = redoStack.popLast() else { notify(L("やり直すものがありません", "Nothing to redo")); return }
         undoStack.append(show)
         undoing = true; show = next; undoing = false
         fixSelection()
         lastUndoAt = 0
-        notify("やり直しました")
+        notify(L("やり直しました", "Redone"))
     }
 
     // MARK: learning (the steps checklist)
@@ -448,15 +474,15 @@ final class AppModel: ObservableObject {
     func openPractice() {
         // A show not saved to a file would be lost (and ⌘Z cannot bring it back).
         if showFile == nil && !show.clips.isEmpty && !isPractice,
-           !confirm("いまのショーはまだ保存していません。練習用のショーに替えますか？",
-                    "替えると、いまのショー（映像の並びや調整）は戻せません。残すときは「やめる」を押し、上の「保存…」で保存してから開く。",
-                    ok: "替える") { return }
-        notify("練習用の映像を用意しています…")
-        guard let s = Practice.makeShow() else { notify("練習用の映像を作れませんでした"); return }
+           !confirm(L("いまのショーはまだ保存していません。練習用のショーに替えますか？", "This show isn't saved. Replace it with the practice show?"),
+                    L("替えると、いまのショー（映像の並びや調整）は戻せません。残すときは「やめる」を押し、上の「保存…」で保存してから開く。", "The current show (clips and adjustments) can't be brought back. To keep it, press Cancel and save it first."),
+                    ok: L("替える", "Replace")) { return }
+        notify(L("練習用の映像を用意しています…", "Preparing practice clips…"))
+        guard let s = Practice.makeShow() else { notify(L("練習用の映像を作れませんでした", "Couldn't make the practice clips")); return }
         saveNow()
         if showFile != nil { detachShowFile(forget: false) }
         applyShow(s)
-        notify("練習用のショーを開きました（4 本の映像、4 本目に丸いマスク）")
+        notify(L("練習用のショーを開きました（4 本の映像、4 本目に丸いマスク）", "Opened the practice show (4 clips, a round mask on the 4th)"))
     }
 
     /// The manual's page for a part of the window (the "?" buttons).
@@ -503,7 +529,7 @@ final class AppModel: ObservableObject {
     }
 
     private func outputTitle(_ o: OutputConfig) -> String {
-        "SyncPlayer — \(o.name) — \(isMaster ? "マスター" : "フォロワー") — \(opts.name)"
+        "SyncPlayer — \(o.name) — " + (isMaster ? L("マスター", "Master") : L("フォロワー", "Follower")) + " — \(opts.name)"
     }
 
     private func syncOutputs() {
@@ -613,7 +639,7 @@ final class AppModel: ObservableObject {
         for (i, o) in show.outputs.enumerated() { outputs[o.id]?.replace(o, index: i, title: outputTitle(o)) }
         refreshInfo()
         updatePresentation()
-        notify("ディスプレイのつながりが変わりました（\(NSScreen.screens.count) 枚）")
+        notify(L("ディスプレイのつながりが変わりました（\(NSScreen.screens.count) 枚）", "Displays changed (\(NSScreen.screens.count) connected)"))
     }
 
     func refreshScreens() {
@@ -621,7 +647,7 @@ final class AppModel: ObservableObject {
             "\(i + 1): \(s.localizedName)  \(Int(s.frame.width))×\(Int(s.frame.height))"
         }
         screenShort = NSScreen.screens.enumerated().map { i, s in
-            "ディスプレイ \(i + 1)（\(Int(s.frame.width))×\(Int(s.frame.height))）"
+            L("ディスプレイ \(i + 1)（\(Int(s.frame.width))×\(Int(s.frame.height))）", "Display \(i + 1) (\(Int(s.frame.width))×\(Int(s.frame.height)))")
         }
     }
 
@@ -633,27 +659,27 @@ final class AppModel: ObservableObject {
     func addOutput() {
         let used = Set(show.outputs.map(\.screen))
         let screen = (0..<NSScreen.screens.count).first { !used.contains($0) } ?? 0
-        var o = OutputConfig(name: "出力 \(show.outputs.count + 1)", screen: screen)
+        var o = OutputConfig(name: L("出力 \(show.outputs.count + 1)", "Output \(show.outputs.count + 1)"), screen: screen)
         if let c = show.clips.first { o.layers = [Layer(clipID: c.id)] }
         show.outputs.append(o)
         selectedOutput = o.id
-        notify("出力「\(o.name)」を足しました（ディスプレイ \(screen + 1)）")
+        notify(L("出力「\(o.name)」を足しました（ディスプレイ \(screen + 1)）", "Added output “\(o.name)” (display \(screen + 1))"))
     }
 
     func removeOutput() {
-        guard show.outputs.count > 1, let o = selectedOutputIndex else { notify("出力は 1 つ以上要ります"); return }
+        guard show.outputs.count > 1, let o = selectedOutputIndex else { notify(L("出力は 1 つ以上要ります", "At least one output is needed")); return }
         let name = show.outputs[o].name, oid = show.outputs[o].id
-        guard confirm("出力「\(name)」を消しますか？", "この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます。"),
+        guard confirm(L("出力「\(name)」を消しますか？", "Delete output “\(name)”?"), L("この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます。", "Its layers and their adjustments (corners, mesh…) are deleted too.")),
               show.outputs.count > 1, let o2 = show.outputs.firstIndex(where: { $0.id == oid }) else { return }
         show.outputs.remove(at: o2)
-        notify("出力「\(name)」を消しました")
+        notify(L("出力「\(name)」を消しました", "Deleted output “\(name)”"))
     }
 
     func selectNextOutput() {
         guard !show.outputs.isEmpty else { return }
         let i = ((selectedOutputIndex ?? -1) + 1) % show.outputs.count
         selectedOutput = show.outputs[i].id
-        notify("出力: \(show.outputs[i].name)")
+        notify(L("出力: \(show.outputs[i].name)", "Output: \(show.outputs[i].name)"))
     }
 
     func toggleFullscreen() {
@@ -666,7 +692,7 @@ final class AppModel: ObservableObject {
         guard let o = selectedOutputIndex else { return }
         let n = max(1, NSScreen.screens.count)
         show.outputs[o].screen = (show.outputs[o].screen + 1) % n
-        notify("\(show.outputs[o].name) をディスプレイ \(show.outputs[o].screen + 1) へ")
+        notify(L("\(show.outputs[o].name) をディスプレイ \(show.outputs[o].screen + 1) へ", "\(show.outputs[o].name) to display \(show.outputs[o].screen + 1)"))
     }
 
     // MARK: layers
@@ -682,7 +708,7 @@ final class AppModel: ObservableObject {
         guard let i = selectedLayerIndex else { return }
         let name = clipName(show.outputs[i.o].layers[i.l].clipID)
         let oid = show.outputs[i.o].id, lid = show.outputs[i.o].layers[i.l].id
-        guard confirm("レイヤー「\(name)」を消しますか？", "このレイヤーの調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。"),
+        guard confirm(L("レイヤー「\(name)」を消しますか？", "Delete layer “\(name)”?"), L("このレイヤーの調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。", "Its adjustments (transform, corners, mesh, mask…) are deleted too. The movie file is kept.")),
               let o2 = show.outputs.firstIndex(where: { $0.id == oid }),
               let l2 = show.outputs[o2].layers.firstIndex(where: { $0.id == lid }) else { return }
         show.outputs[o2].layers.remove(at: l2)
@@ -711,13 +737,13 @@ final class AppModel: ObservableObject {
         let ids = o.layers.reversed().map(\.id)   // the order the list shows
         let k = ids.firstIndex(where: { $0 == selectedLayer }) ?? -1
         selectedLayer = ids[(k + 1) % ids.count]
-        if let c = selectedLayerIndex.flatMap({ show.clip(show.outputs[$0.o].layers[$0.l].clipID) }) { notify("レイヤー: \(c.name)") }
+        if let c = selectedLayerIndex.flatMap({ show.clip(show.outputs[$0.o].layers[$0.l].clipID) }) { notify(L("レイヤー: \(c.name)", "Layer: \(c.name)")) }
     }
 
     func arrangeGrid() {
         guard let o = selectedOutputIndex else { return }
         show.arrangeGrid(output: o)
-        notify("レイヤーを格子に並べました")
+        notify(L("レイヤーを格子に並べました", "Layers tiled in a grid"))
     }
 
     // MARK: clips
@@ -732,7 +758,7 @@ final class AppModel: ObservableObject {
 
     /// Add movies; each also gets a layer on the selected output.
     func addClips() {
-        let urls = pickMovies(message: "足す映像を選んでください（複数選べます）", multiple: true)
+        let urls = pickMovies(message: L("足す映像を選んでください（複数選べます）", "Choose clips to add (several allowed)"), multiple: true)
         guard !urls.isEmpty else { return }
         var s = show
         for u in urls {
@@ -742,7 +768,7 @@ final class AppModel: ObservableObject {
         }
         show = s
         learned("added")
-        notify("映像を \(urls.count) つ足しました")
+        notify(L("映像を \(urls.count) つ足しました", "Added \(urls.count) clip(s)"))
     }
 
     /// Show a different movie on one layer (from the layer list's movie chooser or a drop).
@@ -751,14 +777,14 @@ final class AppModel: ObservableObject {
         for o in show.outputs.indices {
             if let l = show.outputs[o].layers.firstIndex(where: { $0.id == layerID }), show.outputs[o].layers[l].clipID != clipID {
                 show.outputs[o].layers[l].clipID = clipID
-                notify("レイヤーの映像: \(clipName(clipID))")
+                notify(L("レイヤーの映像: \(clipName(clipID))", "Layer clip: \(clipName(clipID))"))
             }
         }
     }
 
     /// Add movies from files and show the first one on a layer.
     func addClipsForLayer(_ layerID: String) {
-        let urls = pickMovies(message: "このレイヤーに出す映像を選んでください", multiple: false)
+        let urls = pickMovies(message: L("このレイヤーに出す映像を選んでください", "Choose the clip for this layer"), multiple: false)
         guard let u = urls.first else { return }
         let c = Clip(id: show.newClipID(), path: u.path)
         var s = show
@@ -768,23 +794,23 @@ final class AppModel: ObservableObject {
         }
         show = s
         learned("added")
-        notify("映像: \(u.lastPathComponent)")
+        notify(L("映像: \(u.lastPathComponent)", "Clip: \(u.lastPathComponent)"))
     }
 
     func replaceClip(_ id: String) {
         guard let i = show.clips.firstIndex(where: { $0.id == id }),
-              let u = pickMovies(message: "「\(show.clips[i].name)」と入れ替える映像", multiple: false).first else { return }
+              let u = pickMovies(message: L("「\(show.clips[i].name)」と入れ替える映像", "Movie to replace “\(show.clips[i].name)”"), multiple: false).first else { return }
         show.clips[i].path = u.path
         learned("added")
-        notify("映像: \(u.lastPathComponent)")
+        notify(L("映像: \(u.lastPathComponent)", "Clip: \(u.lastPathComponent)"))
     }
 
     func removeClip(_ id: String) {
-        guard show.clips.count > 1 else { notify("映像は 1 つ以上要ります"); return }
+        guard show.clips.count > 1 else { notify(L("映像は 1 つ以上要ります", "At least one clip is needed")); return }
         let users = show.outputs.reduce(0) { $0 + $1.layers.filter { $0.clipID == id }.count }
-        guard confirm("映像「\(clipName(id))」をショーから外しますか？",
-                      users > 0 ? "この映像を使うレイヤー \(users) つと、その調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。"
-                                : "映像のファイルは消えません。", ok: "外す") else { return }
+        guard confirm(L("映像「\(clipName(id))」をショーから外しますか？", "Remove clip “\(clipName(id))” from the show?"),
+                      users > 0 ? L("この映像を使うレイヤー \(users) つと、その調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。", "\(users) layer(s) using it and their adjustments are deleted too. The movie file is kept.")
+                                : L("映像のファイルは消えません。", "The movie file is kept."), ok: L("外す", "Remove")) else { return }
         var s = show
         s.clips.removeAll { $0.id == id }
         for o in s.outputs.indices { s.outputs[o].layers.removeAll { $0.clipID == id } }
@@ -798,35 +824,35 @@ final class AppModel: ObservableObject {
         return n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path)
     }
 
-    func clipName(_ id: String) -> String { show.clip(id)?.name ?? "（なし）" }
+    func clipName(_ id: String) -> String { show.clip(id)?.name ?? L("（なし）", "(none)") }
 
     // MARK: show files & presets
 
     func openShow() {
         let p = NSOpenPanel()
         p.allowedContentTypes = [ShowStore.fileType, .json]
-        p.message = "ショーのファイル（.syncshow）を開く"
+        p.message = L("ショーのファイル（.syncshow）を開く", "Open a show file (.syncshow)")
         guard runPanel(p) == .OK, let u = p.url else { return }
         openShow(at: u)
     }
 
     func openShow(at u: URL) {
-        guard let s = ShowStore.read(u) else { notify("開けませんでした: \(u.lastPathComponent)"); return }
+        guard let s = ShowStore.read(u) else { notify(L("開けませんでした: \(u.lastPathComponent)", "Couldn't open: \(u.lastPathComponent)")); return }
         saveNow()   // finish writing the previous file first
         showFile = u.path
         fileShow = s
         applyShow(s)
-        notify("ショー: \(u.lastPathComponent)")
+        notify(L("ショー: \(u.lastPathComponent)", "Show: \(u.lastPathComponent)"))
     }
 
     func saveShowAs() {
         let p = NSSavePanel()
         p.allowedContentTypes = [ShowStore.fileType]
         p.nameFieldStringValue = showFile.map { ($0 as NSString).lastPathComponent } ?? "show.syncshow"
-        p.message = "ショーを保存（映像は同じフォルダに置くと、ほかの Mac でもそのまま開けます）"
+        p.message = L("ショーを保存（映像は同じフォルダに置くと、ほかの Mac でもそのまま開けます）", "Save the show (keep the clips in the same folder so other Macs can open it as is)")
         guard runPanel(p) == .OK, let u = p.url else { return }
-        if ShowStore.write(show, to: u) { showFile = u.path; fileShow = show; notify("保存: \(u.lastPathComponent)") }
-        else { notify("保存できませんでした") }
+        if ShowStore.write(show, to: u) { showFile = u.path; fileShow = show; notify(L("保存: \(u.lastPathComponent)", "Saved: \(u.lastPathComponent)")) }
+        else { notify(L("保存できませんでした", "Couldn't save")) }
     }
 
     func applyShow(_ s: Show) {
@@ -839,7 +865,7 @@ final class AppModel: ObservableObject {
     func savePreset(_ name: String) {
         let n = name.trimmingCharacters(in: .whitespaces)
         guard !n.isEmpty else { return }
-        if ShowStore.savePreset(show, as: n) { lastPreset = n; notify("プリセット「\(n)」を保存") }
+        if ShowStore.savePreset(show, as: n) { lastPreset = n; notify(L("プリセット「\(n)」を保存", "Saved preset “\(n)”")) }
         presetNames = ShowStore.presetNames()
     }
 
@@ -849,7 +875,7 @@ final class AppModel: ObservableObject {
             // A preset is another show: keep the opened file as it is.
             if let f = showFile {
                 saveNow(); detachShowFile(forget: false)
-                notify("プリセット「\(name)」を読み込み（\((f as NSString).lastPathComponent) には書きません）")
+                notify(L("プリセット「\(name)」を読み込み（\((f as NSString).lastPathComponent) には書きません）", "Loaded preset “\(name)” (not written to \((f as NSString).lastPathComponent))"))
                 applyShow(s); lastPreset = name
                 return
             }
@@ -858,17 +884,17 @@ final class AppModel: ObservableObject {
             var l = l
             if let cur = selectedLook { l.screen = cur.screen; l.fullscreen = cur.fullscreen }
             updateLook(l)
-        case nil: notify("プリセット「\(name)」はありません"); return
+        case nil: notify(L("プリセット「\(name)」はありません", "No preset “\(name)”")); return
         }
         lastPreset = name
-        notify("プリセット「\(name)」を読み込み")
+        notify(L("プリセット「\(name)」を読み込み", "Loaded preset “\(name)”"))
     }
 
     func deletePreset(_ name: String) {
-        guard confirm("プリセット「\(name)」を消しますか？", "キーやボタンで呼び出せなくなります。ショーそのものは変わりません。") else { return }
+        guard confirm(L("プリセット「\(name)」を消しますか？", "Delete preset “\(name)”?"), L("キーやボタンで呼び出せなくなります。ショーそのものは変わりません。", "It can no longer be recalled. The show itself doesn't change.")) else { return }
         ShowStore.deletePreset(name)
         presetNames = ShowStore.presetNames()
-        notify("プリセット「\(name)」を削除")
+        notify(L("プリセット「\(name)」を削除", "Deleted preset “\(name)”"))
     }
 
     // MARK: role & audio
@@ -893,14 +919,14 @@ final class AppModel: ObservableObject {
                         // after a restart (another Mac took over by hand for now).
                         if self?.exhibitMaster == true { self?.exhibitTakenOver = true }
                         self?.notify(self?.exhibitMaster == true
-                            ? "ほかの Mac がマスターになりました（この Mac は「展示のマスター」のままで、次に開くとマスターで始まります）"
-                            : "ほかの Mac がマスターになったので、フォロワーに戻りました")
+                            ? L("ほかの Mac がマスターになりました（この Mac は「展示のマスター」のままで、次に開くとマスターで始まります）", "Another Mac became master (this Mac stays Exhibition Master and starts as master next time)")
+                            : L("ほかの Mac がマスターになったので、フォロワーに戻りました", "Another Mac became master, so this Mac is a follower again"))
                         self?.setRole(master: false)
                     }
                     master = m
-                    notify("マスターになりました")
+                    notify(L("マスターになりました", "This Mac is now the master"))
                 } catch {
-                    notify("マスターになれません（この Mac で別のマスターが動いていませんか）")
+                    notify(L("マスターになれません（この Mac で別のマスターが動いていませんか）", "Can't become master (is another master running on this Mac?)"))
                     setRole(master: false)
                     return
                 }
@@ -919,13 +945,13 @@ final class AppModel: ObservableObject {
                     }
                     follower = f
                 }
-                catch { notify("ネットワークのエラー: \(error)") }
+                catch { notify(L("ネットワークのエラー: \(error)", "Network error: \(error)")) }
             }
         }
         isMaster = master != nil
         status.isMaster = isMaster
         for (i, o) in show.outputs.enumerated() { outputs[o.id]?.apply(o, index: i, title: outputTitle(o)) }
-        control?.title = "SyncPlayer — 操作 — \(isMaster ? "マスター" : "フォロワー") — \(opts.name)"
+        control?.title = L("SyncPlayer — 操作 — ", "SyncPlayer — Control — ") + (isMaster ? L("マスター", "Master") : L("フォロワー", "Follower")) + " — \(opts.name)"
     }
 
     func toggleRole() { setRoleByHand(master: master == nil) }
@@ -960,10 +986,10 @@ final class AppModel: ObservableObject {
             do {
                 if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             } catch {
-                notify("ログイン時に開く設定ができません: \(error.localizedDescription)")
+                notify(L("ログイン時に開く設定ができません: \(error.localizedDescription)", "Can't set Open at Login: \(error.localizedDescription)"))
             }
             if newValue && SMAppService.mainApp.status == .requiresApproval {
-                notify("システム設定 → 一般 → ログイン項目 で SyncPlayer を許可してください")
+                notify(L("システム設定 → 一般 → ログイン項目 で SyncPlayer を許可してください", "Allow SyncPlayer in System Settings → General → Login Items"))
                 SMAppService.openSystemSettingsLoginItems()
             }
             loginItemOn = SMAppService.mainApp.status == .enabled
@@ -976,7 +1002,7 @@ final class AppModel: ObservableObject {
         audioOn = on
         applyAudio()
         if show.audioOn != on { show.audioOn = on }   // kept in this Mac's show
-        notify(on ? "音を出します" : "消音")
+        notify(on ? L("音を出します", "Sound on") : L("消音", "Muted"))
     }
 
     func setAudioClip(_ id: String?) {
@@ -994,7 +1020,7 @@ final class AppModel: ObservableObject {
     enum UITheme: String, CaseIterable, Identifiable {
         case light, dark
         var id: String { rawValue }
-        var label: String { self == .light ? "ライト" : "ダーク" }
+        var label: String { self == .light ? L("ライト", "Light") : L("ダーク", "Dark") }
         static func saved() -> UITheme {
             switch UserDefaults.standard.string(forKey: "ui.theme") {
             case "light": return .light
@@ -1007,6 +1033,16 @@ final class AppModel: ObservableObject {
     }
     @Published var uiTheme: UITheme = UITheme.saved() {
         didSet { UserDefaults.standard.set(uiTheme.rawValue, forKey: "ui.theme"); applyTheme() }
+    }
+
+    /// English or Japanese for the control window and messages (this Mac only).
+    @Published var uiLang: UILang = UILang.current {
+        willSet { UILang.current = newValue }
+        didSet {
+            UserDefaults.standard.set(uiLang.rawValue, forKey: "ui.lang")
+            buildMenu(); refreshInfo()
+            if let w = keyWindow { w.title = L("キー一覧", "Keyboard Shortcuts"); w.contentView = NSHostingView(rootView: KeyListView()) }
+        }
     }
 
     func applyTheme() {
@@ -1034,7 +1070,7 @@ final class AppModel: ObservableObject {
         win.isReleasedWhenClosed = false
         win.minSize = NSSize(width: 960, height: 600)
         win.contentView = NSHostingView(rootView: ControlView(model: self, status: status))
-        win.title = "SyncPlayer — 操作"
+        win.title = L("SyncPlayer — 操作", "SyncPlayer — Control")
         control = win
         updateRepresented()
         win.makeKeyAndOrderFront(nil)
@@ -1056,7 +1092,7 @@ final class AppModel: ObservableObject {
             guard src.x >= s.cropL, src.x <= 1 - s.cropR, src.y >= s.cropB, src.y <= 1 - s.cropT else { continue }
             if selectedLayer != l.id {
                 selectedLayer = l.id
-                notify("レイヤー: \(clipName(l.clipID))")
+                notify(L("レイヤー: \(clipName(l.clipID))", "Layer: \(clipName(l.clipID))"))
             }
             return
         }
@@ -1105,12 +1141,12 @@ final class AppModel: ObservableObject {
     /// while the panel is up (otherwise it could open behind them), also if the app is left and
     /// entered again meanwhile.
     /// Ask before something that cannot be undone (lowers full-screen outputs while the alert is up).
-    func confirm(_ title: String, _ detail: String, ok: String = "消す") -> Bool {
+    func confirm(_ title: String, _ detail: String, ok: String = L("消す", "Delete")) -> Bool {
         let a = NSAlert()
         a.messageText = title
         a.informativeText = detail
         a.addButton(withTitle: ok)
-        a.addButton(withTitle: "やめる")
+        a.addButton(withTitle: L("やめる", "Cancel"))
         panelOpen = true
         refreshLevels()
         defer { panelOpen = false; refreshLevels() }
@@ -1131,10 +1167,10 @@ final class AppModel: ObservableObject {
         guard let o0 = selectedOutput, let l0 = selectedLayer else { return }
         let p = NSOpenPanel()
         p.allowedContentTypes = [.image]
-        p.message = "マスクの画像（白は見える、黒は隠れる。映像と同じ縦横比にする。ショーと同じフォルダに置くと、ほかの Mac でもそのまま使えます）"
+        p.message = L("マスクの画像（白は見える、黒は隠れる。映像と同じ縦横比にする。ショーと同じフォルダに置くと、ほかの Mac でもそのまま使えます）", "Mask image (white shows, black hides; use the clip's aspect ratio; keep it in the show's folder for other Macs)")
         guard runPanel(p) == .OK, let u = p.url else { return }
         guard let gpu = GPU.shared, GPU.loadMask(u.path, device: gpu.device) != nil else {
-            notify("画像を読めませんでした: \(u.lastPathComponent)"); return
+            notify(L("画像を読めませんでした: \(u.lastPathComponent)", "Couldn't read the image: \(u.lastPathComponent)")); return
         }
         // The show may have changed while the panel was open: find the layer again.
         guard let o = show.outputs.firstIndex(where: { $0.id == o0 }),
@@ -1144,8 +1180,8 @@ final class AppModel: ObservableObject {
 
     func toggleEdit(_ m: EditMode) {
         editMode = editMode == m ? .none : m
-        notify(editMode == .corners ? "四隅の変形: 点をドラッグ、Tab で次、矢印で 1 px"
-               : editMode == .mesh ? "曲面メッシュ: 点をドラッグ、Tab で次、矢印で 1 px" : "変形の編集を終了")
+        notify(editMode == .corners ? L("四隅の変形: 点をドラッグ、Tab で次、矢印で 1 px", "Corner pin: drag a point, Tab next, arrows 1 px")
+               : editMode == .mesh ? L("曲面メッシュ: 点をドラッグ、Tab で次、矢印で 1 px", "Mesh: drag a point, Tab next, arrows 1 px") : L("変形の編集を終了", "Finished editing the warp"))
     }
 
     // MARK: keys
@@ -1254,7 +1290,7 @@ final class AppModel: ObservableObject {
         case "n": showIdent.toggle()
         case "q": NSApp.terminate(nil)
         case "g", "e", "w", "+", "=", "-", "_", "[", "]", "0":
-            guard hasLayer else { notify("レイヤーを選んでください"); return true }
+            guard hasLayer else { notify(L("レイヤーを選んでください", "Select a layer")); return true }
             switch ch {
             case "g": s.showGrid.toggle()
             case "e": toggleEdit(.corners); return true
@@ -1312,7 +1348,7 @@ final class AppModel: ObservableObject {
         let fullNow = Set(outputs.filter { $0.value.isFull }.map(\.key))
         if hostNow() - started > 10 {
             for id in fullNow.subtracting(fullBefore) {
-                outputs[id]?.showHint("S で操作の窓  ・  I で動作確認の文字  ・  H でキー一覧", seconds: 4)
+                outputs[id]?.showHint(L("S で操作の窓  ・  I で動作確認の文字  ・  H でキー一覧", "S control window  ·  I info  ·  H keys"), seconds: 4)
             }
         }
         fullBefore = fullNow
@@ -1333,7 +1369,7 @@ final class AppModel: ObservableObject {
             // when that differs from the setting (not plugged in, moved by hand), both are shown.
             let real = w.window.screen.flatMap { NSScreen.screens.firstIndex(of: $0) }.map { $0 + 1 }
             let set = o.screen + 1
-            let disp = real == nil || real == set ? "ディスプレイ \(set)" : "ディスプレイ \(real!)（設定は \(set)）"
+            let disp = real == nil || real == set ? L("ディスプレイ \(set)", "Display \(set)") : L("ディスプレイ \(real!)（設定は \(set)）", "Display \(real!) (set to \(set))")
             w.layoutIdent("\(opts.name)\n\(disp)\n\(o.name)")
         }
         previewBox?.aspect = selectedOutputAspect
@@ -1354,7 +1390,7 @@ final class AppModel: ObservableObject {
         }
         // Each Mac may play its own movies on purpose, so a different name is only noted, not orange.
         if let f = follower, let mf = f.masterFile, mf != show.fileLabel {
-            line += " ・ 映像の名前がマスターとちがう（Mac ごとに別の映像なら問題ない）"
+            line += L(" ・ 映像の名前がマスターとちがう（Mac ごとに別の映像なら問題ない）", " ・ clip names differ from the master (fine if each Mac plays its own clips)")
         }
         return (line, tone)
     }
@@ -1362,23 +1398,23 @@ final class AppModel: ObservableObject {
     private func roleHeadline() -> (String, Int) {
         let playing = transport.schedule?.playing ?? false
         if isMaster {
-            let n = peers.isEmpty ? "フォロワーはまだ見えない" : "フォロワー \(peers.count) 台"
-            return playing ? ("再生中 ・ この Mac がマスター ・ \(n)", 1) : ("停止中 ・ この Mac がマスター（space で再生） ・ \(n)", 0)
+            let n = peers.isEmpty ? L("フォロワーはまだ見えない", "no followers yet") : L("フォロワー \(peers.count) 台", "\(peers.count) follower(s)")
+            return playing ? (L("再生中 ・ この Mac がマスター ・ \(n)", "Playing ・ this Mac is master ・ \(n)"), 1) : (L("停止中 ・ この Mac がマスター（space で再生） ・ \(n)", "Stopped ・ this Mac is master (space to play) ・ \(n)"), 0)
         }
-        guard let f = follower else { return ("準備中", 2) }
+        guard let f = follower else { return (L("準備中", "Starting"), 2) }
         let who = String((f.masterName ?? f.masterHost).prefix(16))
         if transport.schedule == nil {
-            return f.masterAlive ? ("マスター（\(who)）と時計を合わせている…", 2)
-                                     : ("マスター待ち ・ マスターの Mac を開くと、そろって始まる", 2)
+            return f.masterAlive ? (L("マスター（\(who)）と時計を合わせている…", "Syncing clock with the master (\(who))…"), 2)
+                                     : (L("マスター待ち ・ マスターの Mac を開くと、そろって始まる", "Waiting for the master ・ open SyncPlayer on the master Mac"), 2)
         }
         if !f.masterAlive {
-            return playing ? ("再生中 ・ マスターが見えない（この Mac だけで続けている）", 2)
-                           : ("停止中 ・ マスターが見えない", 2)
+            return playing ? (L("再生中 ・ マスターが見えない（この Mac だけで続けている）", "Playing ・ master not seen (continuing alone)"), 2)
+                           : (L("停止中 ・ マスターが見えない", "Stopped ・ master not seen"), 2)
         }
-        if !f.stats.ready { return ("マスター（\(who)）と時計を合わせている…", 2) }
+        if !f.stats.ready { return (L("マスター（\(who)）と時計を合わせている…", "Syncing clock with the master (\(who))…"), 2) }
         let err = String(format: "%.1f", abs(transport.maxError) * 1000)
-        return playing ? ("再生中 ・ マスター（\(who)）に合わせている ・ ずれ \(err) ms", 1)
-                       : ("停止中 ・ マスター（\(who)）が止めている", 0)
+        return playing ? (L("再生中 ・ マスター（\(who)）に合わせている ・ ずれ \(err) ms", "Playing ・ following the master (\(who)) ・ error \(err) ms"), 1)
+                       : (L("停止中 ・ マスター（\(who)）が止めている", "Stopped ・ stopped by the master (\(who))"), 0)
     }
 
     /// A small datagram to the broadcast address every 5 s: if it cannot go out, this Mac cannot
@@ -1406,36 +1442,36 @@ final class AppModel: ObservableObject {
     func runExhibitCheck() {
         var c: [CheckItem] = []
         func add(_ ok: Bool?, _ text: String, _ fix: String) { c.append(CheckItem(ok: ok, text: text, fix: fix)) }
-        add(showFile != nil, "ショーを保存してある", "上の「保存…」で保存する（再起動のあと、このショーが開く）")
-        add(!show.clips.contains { clipBroken($0.id) }, "映像が全部開ける", "左の映像で「⚠︎ 開けない」の行を選んで ⟳（差し替え）")
+        add(showFile != nil, L("ショーを保存してある", "The show is saved"), L("上の「保存…」で保存する（再起動のあと、このショーが開く）", "Save with the save button at the top (it opens after a restart)"))
+        add(!show.clips.contains { clipBroken($0.id) }, L("映像が全部開ける", "All clips open"), L("左の映像で「⚠︎ 開けない」の行を選んで ⟳（差し替え）", "Under Clips, replace (⟳) the rows marked ⚠︎"))
         let masks = show.outputs.flatMap { $0.layers.compactMap(\.mask) }
         add(!masks.contains { !FileManager.default.fileExists(atPath: $0) || GPU.shared?.maskReady($0) == false },
-            "マスクが全部読める", "「画面の調整」のマスクで画像を選び直す")
-        add(show.outputs.contains { $0.fullscreen }, "全画面の出力がある", "左の出力で「全画面にする（F）」を入れる")
-        add(openAtLogin, "ログインしたら SyncPlayer を開く", "下の「ログインしたら SyncPlayer を開く」を入れる（全台）")
+            L("マスクが全部読める", "All masks are readable"), L("「画面の調整」のマスクで画像を選び直す", "Choose the image again under Mask in the Layer tab"))
+        add(show.outputs.contains { $0.fullscreen }, L("全画面の出力がある", "An output is full screen"), L("左の出力で「全画面にする（F）」を入れる", "Turn on Full Screen (F) under Outputs"))
+        add(openAtLogin, L("ログインしたら SyncPlayer を開く", "SyncPlayer opens at login"), L("下の「ログインしたら SyncPlayer を開く」を入れる（全台）", "Turn on Open SyncPlayer at Login below (all Macs)"))
         if isMaster {
-            add(exhibitMaster, "この Mac は展示のマスター", "マスターの Mac なら「この Mac を展示のマスターにする」を入れる（1 台だけ）")
+            add(exhibitMaster, L("この Mac は展示のマスター", "This Mac is the exhibition master"), L("マスターの Mac なら「この Mac を展示のマスターにする」を入れる（1 台だけ）", "On the master Mac, turn on Make This Mac the Exhibition Master (one Mac only)"))
             let other = peers.filter { $0.ver != AppModel.version }.count
             add(peers.isEmpty ? nil : other == 0,
-                peers.isEmpty ? "フォロワーが見えない（ほかの Mac を開いてから点検すると、版もそろっているか見られる）"
-                    : other == 0 ? "フォロワー \(peers.count) 台が同じ版（\(AppModel.version)）"
-                    : "フォロワー \(peers.count) 台のうち \(other) 台が別の版か古い版（この Mac は \(AppModel.version)）",
-                "版のちがう Mac に、同じ版の SyncPlayer を入れ直す")
+                peers.isEmpty ? L("フォロワーが見えない（ほかの Mac を開いてから点検すると、版もそろっているか見られる）", "No followers seen (open the other Macs first to also check their versions)")
+                    : other == 0 ? L("フォロワー \(peers.count) 台が同じ版（\(AppModel.version)）", "\(peers.count) follower(s) on the same version (\(AppModel.version))")
+                    : L("フォロワー \(peers.count) 台のうち \(other) 台が別の版か古い版（この Mac は \(AppModel.version)）", "\(other) of \(peers.count) follower(s) on another or old version (this Mac: \(AppModel.version))"),
+                L("版のちがう Mac に、同じ版の SyncPlayer を入れ直す", "Install the same SyncPlayer version on those Macs"))
         } else {
-            add(follower?.masterAlive ?? false, "マスターが見えている", "マスターの Mac を開く。開いているなら同じネットワークか確かめる")
+            add(follower?.masterAlive ?? false, L("マスターが見えている", "The master is seen"), L("マスターの Mac を開く。開いているなら同じネットワークか確かめる", "Open the master Mac. If it is open, check the network"))
             add(follower.flatMap { f in f.masterAlive ? (f.masterVer.map { $0 == AppModel.version } ?? false) : nil },
-                "マスターと同じ版", "同じ版の SyncPlayer を全台に入れる（版が分からないときはマスターが古い版）")
+                L("マスターと同じ版", "Same version as the master"), L("同じ版の SyncPlayer を全台に入れる（版が分からないときはマスターが古い版）", "Install the same version on all Macs (unknown means the master is old)"))
         }
-        add(!(exhibitTakenOver && exhibitMaster && master == nil), "展示のマスターは 1 台だけ", "ほかの Mac の「展示のマスター」を切る")
-        add(!netBlocked, "ネットワークに届く", "システム設定 → プライバシーとセキュリティ → ローカルネットワークで SyncPlayer を入れる")
-        add(!infoShownNow && !showIdent, "動作確認の文字と名前の表示（I・N）を消してある", "I と N を切る")
-        add(AppModel.pmsetValue("autorestart").map { $0 == "1" }, "停電のあと電源が戻ると Mac が起動する",
-            "ターミナルで sudo pmset -a autorestart 1、またはシステム設定の「停電後に自動的に起動」")
+        add(!(exhibitTakenOver && exhibitMaster && master == nil), L("展示のマスターは 1 台だけ", "Only one exhibition master"), L("ほかの Mac の「展示のマスター」を切る", "Turn off Exhibition Master on the other Mac"))
+        add(!netBlocked, L("ネットワークに届く", "The network is reachable"), L("システム設定 → プライバシーとセキュリティ → ローカルネットワークで SyncPlayer を入れる", "Turn on SyncPlayer in System Settings → Privacy & Security → Local Network"))
+        add(!infoShownNow && !showIdent, L("動作確認の文字と名前の表示（I・N）を消してある", "Info text and names (I, N) are off"), L("I と N を切る", "Turn off I and N"))
+        add(AppModel.pmsetValue("autorestart").map { $0 == "1" }, L("停電のあと電源が戻ると Mac が起動する", "The Mac starts when power returns"),
+            L("ターミナルで sudo pmset -a autorestart 1、またはシステム設定の「停電後に自動的に起動」", "sudo pmset -a autorestart 1 in Terminal, or Start up automatically after a power failure in System Settings"))
         add(AppModel.plist("/Library/Preferences/com.apple.loginwindow.plist").map { $0["autoLoginUser"] != nil },
-            "電源を入れると自動でログインする", "システム設定 → ユーザとグループ → 自動ログイン")
+            L("電源を入れると自動でログインする", "It logs in automatically"), L("システム設定 → ユーザとグループ → 自動ログイン", "System Settings → Users & Groups → Automatic login"))
         let su = AppModel.plist("/Library/Preferences/com.apple.SoftwareUpdate.plist")
-        add(su.flatMap { ($0["AutomaticallyInstallMacOSUpdates"] as? Bool).map { !$0 } }, "macOS が勝手にアップデートしない",
-            "システム設定 → 一般 → ソフトウェアアップデート → 自動アップデートで「macOS アップデートをインストール」を切る")
+        add(su.flatMap { ($0["AutomaticallyInstallMacOSUpdates"] as? Bool).map { !$0 } }, L("macOS が勝手にアップデートしない", "macOS doesn't update by itself"),
+            L("システム設定 → 一般 → ソフトウェアアップデート → 自動アップデートで「macOS アップデートをインストール」を切る", "System Settings → General → Software Update → Automatic Updates: turn off Install macOS updates"))
         checks = c
         checkedAt = Date()
     }
@@ -1472,40 +1508,40 @@ final class AppModel: ObservableObject {
 
     /// The first thing the detailed status warns about, in a few words (nil when all is well).
     func problemNow() -> String? {
-        if let mv = follower?.masterVer, mv != AppModel.version { return "版がちがう（マスター \(mv)、この Mac \(AppModel.version)）" }
+        if let mv = follower?.masterVer, mv != AppModel.version { return L("版がちがう（マスター \(mv)、この Mac \(AppModel.version)）", "Version differs (master \(mv), this Mac \(AppModel.version))") }
         // A master older than v0.3.3 does not send its version: say so rather than look all right.
-        if let f = follower, f.masterAlive, f.masterVer == nil { return "マスターの版が分からない（古い版かも。全台を同じ版にする）" }
+        if let f = follower, f.masterAlive, f.masterVer == nil { return L("マスターの版が分からない（古い版かも。全台を同じ版にする）", "Master version unknown (maybe old; use one version on all Macs)") }
         if master != nil {
-            if let p = peers.first(where: { $0.ver == "?" }) { return "古い版の Mac がある: \(String(p.name.prefix(16)))（全台を同じ版にする）" }
-            if let p = peers.first(where: { $0.ver != AppModel.version }) { return "版がちがう Mac がある: \(String(p.name.prefix(16)))（\(p.ver)）" }
-            if let p = peers.first(where: { $0.warn != nil }) { return "\(String(p.name.prefix(16))) に注意: \(p.warn!)" }
+            if let p = peers.first(where: { $0.ver == "?" }) { return L("古い版の Mac がある: \(String(p.name.prefix(16)))（全台を同じ版にする）", "A Mac has an old version: \(String(p.name.prefix(16))) (use one version on all Macs)") }
+            if let p = peers.first(where: { $0.ver != AppModel.version }) { return L("版がちがう Mac がある: \(String(p.name.prefix(16)))（\(p.ver)）", "A Mac has another version: \(String(p.name.prefix(16))) (\(p.ver))") }
+            if let p = peers.first(where: { $0.warn != nil }) { return L("\(String(p.name.prefix(16))) に注意: \(p.warn!)", "Check \(String(p.name.prefix(16))): \(p.warn!)") }
         }
-        if exhibitTakenOver && exhibitMaster && master == nil { return "ほかの Mac がマスター（展示のマスターは 1 台だけ）" }
+        if exhibitTakenOver && exhibitMaster && master == nil { return L("ほかの Mac がマスター（展示のマスターは 1 台だけ）", "Another Mac is master (only one exhibition master)") }
         for (id, n) in transport.orderedNodes {
             if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
-                return "映像が開けない: \(String(clipName(id).prefix(20)))"
+                return L("映像が開けない: \(String(clipName(id).prefix(20)))", "Can't open clip: \(String(clipName(id).prefix(20)))")
             }
         }
         for o in show.outputs {
             for l in o.layers {
                 guard let m = l.mask else { continue }
                 if missingFiles().contains(m) || GPU.shared?.maskReady(m) == false {
-                    return "マスクが読めない: \(String((m as NSString).lastPathComponent.prefix(20)))"
+                    return L("マスクが読めない: \(String((m as NSString).lastPathComponent.prefix(20)))", "Can't read mask: \(String((m as NSString).lastPathComponent.prefix(20)))")
                 }
             }
         }
         for (id, n) in transport.orderedNodes {
-            if !n.ready { return "読み込み中: \(String(clipName(id).prefix(20)))" }
-            if transport.frames[id]?.gaveUp == true { return "コマが届かない: \(String(clipName(id).prefix(20)))" }
+            if !n.ready { return L("読み込み中: \(String(clipName(id).prefix(20)))", "Loading: \(String(clipName(id).prefix(20)))") }
+            if transport.frames[id]?.gaveUp == true { return L("コマが届かない: \(String(clipName(id).prefix(20)))", "Frames not arriving: \(String(clipName(id).prefix(20)))") }
         }
         if (transport.schedule?.playing ?? false), follower?.stats.ready ?? isMaster,
            abs(transport.maxError) > 0.02 {
-            return String(format: "ずれが大きい %.0f ms", abs(transport.maxError) * 1000)
+            return String(format: L("ずれが大きい %.0f ms", "Large error %.0f ms"), abs(transport.maxError) * 1000)
         }
         // Last, so it does not hide the problems above; and not for a master on its own (one Mac
         // practising without a network is fine — the exhibition tab still shows the warning).
         if netBlocked && !(master != nil && peers.isEmpty) {
-            return "ネットワークに届かない（ローカルネットワークの許可か、つなぎ方を確かめる）"
+            return L("ネットワークに届かない（ローカルネットワークの許可か、つなぎ方を確かめる）", "Can't reach the network (check Local Network permission or the connection)")
         }
         return nil
     }
@@ -1519,18 +1555,18 @@ final class AppModel: ObservableObject {
     private func clockLines() -> String {
         var s = ""
         if let c = transport.schedule?.cycle, c > 0 {
-            s += String(format: "\nループ %.3f s（全員いっしょ、短い映像は最後のコマで待つ）", c)
+            s += String(format: L("\nループ %.3f s（全員いっしょ、短い映像は最後のコマで待つ）", "\nLoop %.3f s (all together; shorter clips hold their last frame)"), c)
         } else if transport.schedule != nil {
-            s += "\nループ: 映像ごとの尺"
+            s += L("\nループ: 映像ごとの尺", "\nLoop: each clip's own length")
         }
         if let f = follower {
             let st = f.stats
             s += String(format: "\nmaster %@  clock %@ offset %+.3f ms  rtt %.3f ms",
                         f.masterName.map { "\($0) (\(f.masterHost))" } ?? f.masterHost, st.ready ? "ok" : "learning", st.offset * 1000, st.rtt * 1000)
             if transport.schedule == nil { s += "  (waiting for master)" }
-            if let mf = f.masterFile, mf != show.fileLabel { s += "\n⚠︎ マスターの映像は \(mf)" }
+            if let mf = f.masterFile, mf != show.fileLabel { s += L("\n⚠︎ マスターの映像は \(mf)", "\n⚠︎ the master plays \(mf)") }
         } else if let m = master {
-            s += m.schedule.playing ? "\n再生中 — space で停止" : "\n停止中 — space で再生"
+            s += m.schedule.playing ? L("\n再生中 — space で停止", "\nPlaying — space to stop") : L("\n停止中 — space で再生", "\nStopped — space to play")
         }
         return s
     }
@@ -1539,9 +1575,9 @@ final class AppModel: ObservableObject {
     private func outputInfo() -> String {
         var s = roleLine() + clockLines()
         if editMode != .none, nudgeOverlay != nil {
-            s += "\n編集: \(editMode == .corners ? "四隅" : "曲面メッシュ")  点 \(selectedHandle + 1)/\(nudgeOverlay?.handleCount ?? 0)"
+            s += L("\n編集: ", "\nEditing: ") + (editMode == .corners ? L("四隅", "corner pin") : L("曲面メッシュ", "mesh")) + L("  点 ", "  point ") + "\(selectedHandle + 1)/\(nudgeOverlay?.handleCount ?? 0)"
         }
-        if !lastPreset.isEmpty { s += "  プリセット \(lastPreset)" }
+        if !lastPreset.isEmpty { s += L("  プリセット \(lastPreset)", "  preset \(lastPreset)") }
         if hostNow() < messageUntil { s += "\n" + message }
         if showHelp { s += "\n" + AppModel.keyHelp }
         return s
@@ -1569,28 +1605,28 @@ final class AppModel: ObservableObject {
         add(String(format: "%@ %@  %@", isMaster ? "MASTER" : "follower", opts.name, show.fileLabel))
         add(String(format: "pos %.3f s  error %+.1f ms  jumps %d", transport.displayTime(), maxErr, transport.resyncCount),
             abs(maxErr) > 40 ? 3 : abs(maxErr) > 8 ? 2 : 0,
-            abs(maxErr) > 8 ? "ずれが大きい。数秒で戻らないときは、映像の本数か大きさを減らす（目安 1080p 以下、H.264/HEVC）" : nil)
+            abs(maxErr) > 8 ? L("ずれが大きい。数秒で戻らないときは、映像の本数か大きさを減らす（目安 1080p 以下、H.264/HEVC）", "Large error. If it doesn't settle in a few seconds, use fewer or smaller clips (about 1080p or less, H.264/HEVC)") : nil)
         if exhibitTakenOver && exhibitMaster && master == nil {
-            add("この Mac は「展示のマスター」ですが、ほかの Mac がマスターです", 3,
-                "「展示のマスター」を入れるのは 1 台だけ。ほかの Mac の設定から外す")
+            add(L("この Mac は「展示のマスター」ですが、ほかの Mac がマスターです", "This Mac is Exhibition Master, but another Mac is master"), 3,
+                L("「展示のマスター」を入れるのは 1 台だけ。ほかの Mac の設定から外す", "Only one Mac may be Exhibition Master. Turn it off on the other Mac"))
         }
         for o in show.outputs {
             for l in o.layers {
                 guard let m = l.mask else { continue }
                 let name = (m as NSString).lastPathComponent
                 if missingFiles().contains(m) {
-                    add("マスク \(name) が見つかりません（\(o.name)）— マスクなしで映っています", 3,
-                        "マスク画像の場所が変わっていないか確かめ、レイヤーのマスクを選び直す")
+                    add(L("マスク \(name) が見つかりません（\(o.name)）— マスクなしで映っています", "Mask \(name) not found (\(o.name)) — showing without it"), 3,
+                        L("マスク画像の場所が変わっていないか確かめ、レイヤーのマスクを選び直す", "Check whether the mask image moved, and choose it again for the layer"))
                 } else if GPU.shared?.maskReady(m) == false {
-                    add("マスク \(name) を読めません（\(o.name)）— マスクなしで映っています", 3,
-                        "PNG か JPEG の白黒画像にして選び直す")
+                    add(L("マスク \(name) を読めません（\(o.name)）— マスクなしで映っています", "Can't read mask \(name) (\(o.name)) — showing without it"), 3,
+                        L("PNG か JPEG の白黒画像にして選び直す", "Use a black-and-white PNG or JPEG and choose it again"))
                 }
             }
         }
         if let c = transport.schedule?.cycle, c > 0 {
-            add(String(format: "ループ %.3f s（全員いっしょ、短い映像は最後のコマで待つ）", c))
+            add(String(format: L("ループ %.3f s（全員いっしょ、短い映像は最後のコマで待つ）", "Loop %.3f s (all together; shorter clips hold their last frame)"), c))
         } else if transport.schedule != nil {
-            add("ループ: 映像ごとの尺")
+            add(L("ループ: 映像ごとの尺", "Loop: each clip's own length"))
         }
         if let f = follower {
             let st = f.stats
@@ -1598,44 +1634,44 @@ final class AppModel: ObservableObject {
                        f.masterName.map { "\($0) (\(f.masterHost))" } ?? f.masterHost, st.ready ? "ok" : "learning",
                        st.offset * 1000, st.rtt * 1000),
                 st.ready ? (st.rtt > 0.020 ? 2 : 1) : 2,
-                !st.ready ? "時計を合わせています。数秒で ok になります"
-                    : st.rtt > 0.020 ? "ネットワークが遅い（rtt 20 ms 超）。有線 LAN か、同じルーターにつなぐ" : nil)
+                !st.ready ? L("時計を合わせています。数秒で ok になります", "Syncing the clock. It turns ok in a few seconds")
+                    : st.rtt > 0.020 ? L("ネットワークが遅い（rtt 20 ms 超）。有線 LAN か、同じルーターにつなぐ", "Slow network (rtt over 20 ms). Use wired LAN or the same router") : nil)
             if transport.schedule == nil {
-                add("マスター待ち", 2, "マスターの Mac で SyncPlayer が開いているか、同じネットワークか、ローカルネットワークの許可を確かめる")
+                add(L("マスター待ち", "Waiting for the master"), 2, L("マスターの Mac で SyncPlayer が開いているか、同じネットワークか、ローカルネットワークの許可を確かめる", "Check that SyncPlayer is open on the master, the network, and Local Network permission"))
             }
             if let mf = f.masterFile, mf != show.fileLabel {
-                add("マスターの映像は \(mf)", 2, "マスターと同じショーファイルを開く")
+                add(L("マスターの映像は \(mf)", "The master plays \(mf)"), 2, L("マスターと同じショーファイルを開く", "Open the same show file as the master"))
             }
         } else if let m = master {
-            add(m.schedule.playing ? "再生中 — space で停止" : "停止中 — space で再生", m.schedule.playing ? 1 : 0)
+            add(m.schedule.playing ? L("再生中 — space で停止", "Playing — space to stop") : L("停止中 — space で再生", "Stopped — space to play"), m.schedule.playing ? 1 : 0)
         }
         for (id, n) in transport.orderedNodes {
             let name = clipName(id)
             if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
-                add("\(name): 開けません", 3, "ファイルの場所が変わったか確かめ、映像素材の ⟳ で選び直す。開けない形式なら H.264/HEVC の mov・mp4 に書き出す")
+                add(L("\(name): 開けません", "\(name): can't open"), 3, L("ファイルの場所が変わったか確かめ、映像素材の ⟳ で選び直す。開けない形式なら H.264/HEVC の mov・mp4 に書き出す", "Check whether the file moved and choose it again with ⟳ under Clips. If the format won't open, export H.264/HEVC mov or mp4"))
             } else if !n.ready {
-                add("\(name): 読み込み中")
+                add(L("\(name): 読み込み中", "\(name): loading"))
             } else {
                 var t = String(format: "%@: %.1f s  error %+.2f ms  avg %+.2f ms  jumps %d  loops %d",
                                name, n.duration, n.lastError * 1000, n.errorEMA * 1000, n.resyncCount, n.loopCount)
                 var level = 1
                 var fix: String? = nil
                 let avg = abs(n.errorEMA * 1000)
-                if abs(n.lastError) > n.hardLimit { level = 3; fix = "大きくずれた。続くときは映像を軽くする（解像度を下げる・本数を減らす）" }
-                else if avg > n.softLimit * 1000 { level = 2; fix = "少しずれている。jumps が増え続けるなら映像を軽くする" }
+                if abs(n.lastError) > n.hardLimit { level = 3; fix = L("大きくずれた。続くときは映像を軽くする（解像度を下げる・本数を減らす）", "Large jump. If it continues, lighten the clips (lower resolution, fewer clips)") }
+                else if avg > n.softLimit * 1000 { level = 2; fix = L("少しずれている。jumps が増え続けるなら映像を軽くする", "Slightly off. If jumps keep rising, lighten the clips") }
                 if let f = transport.frames[id] {
                     t += String(format: "  %dx%d %@  dropped %d",
                                 Int(n.videoSize.width), Int(n.videoSize.height), f.format, f.framesDropped)
                     let total = f.framesShown + f.framesDropped
                     if f.gaveUp {
-                        t += "  コマが届かない"; level = 3
-                        fix = "この Mac では表示しきれない。解像度を下げるか本数を減らす"
+                        t += L("  コマが届かない", "  frames not arriving"); level = 3
+                        fix = L("この Mac では表示しきれない。解像度を下げるか本数を減らす", "This Mac can't keep up. Lower the resolution or use fewer clips")
                     } else if f.fellBack {
-                        t += "  形を下げた"; level = max(level, 2)
-                        fix = fix ?? "コマの形を下げて表示中。気になるなら解像度を下げる"
+                        t += L("  形を下げた", "  fell back"); level = max(level, 2)
+                        fix = fix ?? L("コマの形を下げて表示中。気になるなら解像度を下げる", "Showing frames in a simpler format. Lower the resolution if it matters")
                     } else if total > 300 && Double(f.framesDropped) / Double(total) > 0.05 {
                         level = max(level, 2)
-                        fix = fix ?? "コマが落ちている（5% 超）。ほかのアプリや画面共有を閉じる、映像を軽くする"
+                        fix = fix ?? L("コマが落ちている（5% 超）。ほかのアプリや画面共有を閉じる、映像を軽くする", "Frames dropping (over 5%). Close other apps or screen sharing, or lighten the clips")
                     }
                 }
                 add(t, level, fix)
@@ -1644,8 +1680,8 @@ final class AppModel: ObservableObject {
         for o in show.outputs {
             guard let w = outputs[o.id] else { continue }
             let r = w.picture.renderer.drawRate
-            add(String(format: "描画 %@ %.0f fps", o.name, r), r > 0 && r < 50 ? 2 : 0,
-                r > 0 && r < 50 ? "描画が遅い。出力・レイヤーの数か映像の大きさを減らす" : nil)
+            add(String(format: L("描画 %@ %.0f fps", "Draw %@ %.0f fps"), o.name, r), r > 0 && r < 50 ? 2 : 0,
+                r > 0 && r < 50 ? L("描画が遅い。出力・レイヤーの数か映像の大きさを減らす", "Drawing is slow. Use fewer outputs or layers, or smaller clips") : nil)
         }
         if hostNow() < messageUntil { add(message) }
         return out

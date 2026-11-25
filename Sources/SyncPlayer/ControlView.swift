@@ -42,7 +42,7 @@ struct ControlView: View {
                 WidthHandle(width: $sidebarWidth, range: 200...520)
                 VSplitView {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("プレビュー: \(model.selectedOutputConfig?.name ?? "出力がありません")")
+                        Text(L("プレビュー: ", "Preview: ") + (model.selectedOutputConfig?.name ?? L("出力がありません", "No outputs")))
                             .font(.caption).foregroundColor(.secondary)
                         PreviewView(model: model)
                             .frame(minHeight: 160)
@@ -50,7 +50,7 @@ struct ControlView: View {
                     .padding(8)
                     .frame(minHeight: 200)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("詳しい状態（映像ごと）・緑はよい、橙は見ておく、赤は直す。→ のあとが対処。境の線を上へ動かすと広がる")
+                        Text(L("詳しい状態（映像ごと）・緑はよい、橙は見ておく、赤は直す。→ のあとが対処。境の線を上へ動かすと広がる", "Status (per clip) · green OK, orange check, red fix. After → is what to do. Drag the line above to enlarge"))
                             .font(.caption).foregroundColor(.secondary)
                         StatusText(status: status)
                     }
@@ -63,6 +63,7 @@ struct ControlView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 600)
+        .id(model.uiLang)   // redraw every part when the language changes
     }
 }
 
@@ -155,7 +156,7 @@ struct KeyListView: View {
                         }
                     }
                 }
-                Text("キーは、操作の窓で文字を入れていないときと、出力の画面で効きます。H を押すと出力の画面にもこの一覧が出ます。")
+                Text(L("キーは、操作の窓で文字を入れていないときと、出力の画面で効きます。H を押すと出力の画面にもこの一覧が出ます。", "Keys work in the control window (when not typing) and on the outputs. Press H to show this list on the outputs too."))
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(16)
@@ -174,13 +175,13 @@ struct StatusBadge: View {
             Circle()
                 .fill(status.tone == 1 ? Color.green : status.tone == 2 ? Color.orange : Color.gray)
                 .frame(width: 10, height: 10)
-            Text(status.headline.isEmpty ? "準備中" : status.headline)
+            Text(status.headline.isEmpty ? L("準備中", "Starting") : status.headline)
                 .font(.system(size: 13, weight: .semibold))
                 .lineLimit(1).truncationMode(.tail)
         }
         .padding(.horizontal, 10).padding(.vertical, 4)
         .background(Capsule().fill(Color.secondary.opacity(0.12)))
-        .help("\(status.headline)\n（この Mac がいま何をしているか。緑はそろって再生中、灰色は停止中、橙は確かめること。映像ごとの数字は真ん中の下の「詳しい状態」。「マスター待ち」が続くときは、同じネットワークにつながっているか、マスターの Mac で SyncPlayer が開いているか、初めて開いたときのローカルネットワークの許可を確かめる）")
+        .help(L("\(status.headline)\n（この Mac がいま何をしているか。緑はそろって再生中、灰色は停止中、橙は確かめること。映像ごとの数字は真ん中の下の「詳しい状態」。「マスター待ち」が続くときは、同じネットワークにつながっているか、マスターの Mac で SyncPlayer が開いているか、初めて開いたときのローカルネットワークの許可を確かめる）", "\(status.headline)\n(What this Mac is doing. Green: playing in sync, grey: stopped, orange: needs a look. Per-clip numbers are in Status below the preview. If it keeps waiting for the master, check the network, that SyncPlayer is open on the master, and the Local Network permission.)"))
     }
 }
 
@@ -196,13 +197,13 @@ struct TopBar: View {
 
     /// Loop length typed in the time display: turns on "loop together" with that length (0 = auto).
     private func setLoopTyped(_ text: String) {
-        guard let t = parseTime(text) else { model.notify("長さは 2000（20 秒）や 1:30 の形で"); leaveField(); return }
+        guard let t = parseTime(text) else { model.notify(L("長さは 2000（20 秒）や 1:30 の形で", "Type the length like 2000 (20 s) or 1:30")); leaveField(); return }
         let x = t <= 0 ? 0 : max(t, Show.minLoop)
         var s = model.show
         s.loopTogether = true
         s.loopLength = x
         if s != model.show { model.show = s }
-        model.notify(x == 0 ? "ループの長さ: いちばん長い映像に合わせる" : "ループの長さ: \(timeString(x))")
+        model.notify(x == 0 ? L("ループの長さ: いちばん長い映像に合わせる", "Loop length: the longest clip") : L("ループの長さ: \(timeString(x))", "Loop length: \(timeString(x))"))
         leaveField()
     }
     @State private var timeText = ""
@@ -217,10 +218,10 @@ struct TopBar: View {
         if let t = parseTime(text) {
             model.master?.jump(to: t)
             if status.duration > 0, t >= status.duration {
-                model.notify("尺（\(timeString(status.duration))）を超えたので、ループの中の位置へ折り返しました")
+                model.notify(L("尺（\(timeString(status.duration))）を超えたので、ループの中の位置へ折り返しました", "Past the length (\(timeString(status.duration))), so wrapped into the loop"))
             }
         } else {
-            model.notify("位置は 200（2 秒）や 1:23.5 の形で")
+            model.notify(L("位置は 200（2 秒）や 1:23.5 の形で", "Type the time like 200 (2 s) or 1:23.5"))
         }
         leaveField()
     }
@@ -231,20 +232,20 @@ struct TopBar: View {
                 StatusBadge(status: status)
                 Spacer(minLength: 8)
                 Picker("", selection: Binding(get: { model.isMaster }, set: { model.setRoleByHand(master: $0) })) {
-                    Text("フォロワー").tag(false)
-                    Text("マスター").tag(true)
+                    Text(L("フォロワー", "Follower")).tag(false)
+                    Text(L("マスター", "Master")).tag(true)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
-                .help("この Mac の役（M キー）。マスターが再生を決め、ほかの Mac（フォロワー）は付いてくる。マスターは全台で 1 台だけ")
+                .help(L("この Mac の役（M キー）。マスターが再生を決め、ほかの Mac（フォロワー）は付いてくる。マスターは全台で 1 台だけ", "This Mac's role (M). The master controls playback; the other Macs (followers) follow. Only one master."))
                 // Sound: a speaker switch and, beside it, which movie's sound (Akira 2026-11-25).
                 Toggle(isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) })) {
                     Image(systemName: model.audioOn ? "speaker.wave.2.fill" : "speaker.slash")
                         .frame(width: 18)
                 }
                 .toggleStyle(.button)
-                .help(model.audioOn ? "この Mac で音を出している（A キーで消す）" : "この Mac では音を出さない（A キーで出す）")
+                .help(model.audioOn ? L("この Mac で音を出している（A キーで消す）", "Sound on for this Mac (A to mute)") : L("この Mac では音を出さない（A キーで出す）", "Sound off for this Mac (A to turn on)"))
                 Picker("", selection: Binding(get: { model.show.audioClip ?? model.show.clips.first?.id ?? "" },
                                               set: { model.setAudioClip($0) })) {
                     ForEach(model.show.clips) { c in Text(c.name).tag(c.id) }
@@ -252,25 +253,25 @@ struct TopBar: View {
                 .labelsHidden()
                 .frame(maxWidth: 160)
                 .disabled(!model.audioOn)
-                .help("音を出す映像（この Mac で音を出すとき、どの映像の音を出すか）")
+                .help(L("音を出す映像（この Mac で音を出すとき、どの映像の音を出すか）", "Which clip's sound this Mac plays"))
                 Divider().frame(height: 18)
                 Button { model.openShow() } label: { Image(systemName: "folder") }
-                    .help("ショーを開く（⌘O）")
+                    .help(L("ショーを開く（⌘O）", "Open Show (⌘O)"))
                 Button { model.saveShowAs() } label: { Image(systemName: "square.and.arrow.down") }
-                    .help("ショーとして保存（⌘S）")
+                    .help(L("ショーとして保存（⌘S）", "Save Show (⌘S)"))
             }
             HStack(spacing: 10) {
                 // Transport as symbols only (Akira 2026-11-25: the icons say enough).
                 HStack(spacing: 2) {
-                    TransportButton("backward.end.fill", "頭へ（R か ↑）") { model.master?.jump(to: 0) }
-                    TransportButton("gobackward.5", "5 秒戻る（← で 1 コマ、shift+← で 1 秒）") { model.master?.jump(by: -5) }
+                    TransportButton("backward.end.fill", L("頭へ（R か ↑）", "Go to Start (R or ↑)")) { model.master?.jump(to: 0) }
+                    TransportButton("gobackward.5", L("5 秒戻る（← で 1 コマ、shift+← で 1 秒）", "Back 5 s (← 1 frame, shift+← 1 s)")) { model.master?.jump(by: -5) }
                     TransportButton(status.playing ? "pause.fill" : "play.fill",
-                                    "再生・停止（space）。全部の Mac がいっしょに", big: true) { model.master?.togglePlay() }
-                    TransportButton("goforward.5", "5 秒進む（→ で 1 コマ、shift+→ で 1 秒）") { model.master?.jump(by: 5) }
+                                    L("再生・停止（space）。全部の Mac がいっしょに", "Play / Stop (space), on all Macs together"), big: true) { model.master?.togglePlay() }
+                    TransportButton("goforward.5", L("5 秒進む（→ で 1 コマ、shift+→ で 1 秒）", "Forward 5 s (→ 1 frame, shift+→ 1 s)")) { model.master?.jump(by: 5) }
                 }
                 .disabled(!status.isMaster)
                 .opacity(status.isMaster ? 1 : 0.35)
-                .help(status.isMaster ? "" : "再生と位置はマスターの Mac で操作する")
+                .help(status.isMaster ? "" : L("再生と位置はマスターの Mac で操作する", "Playback is controlled on the master Mac"))
 
                 HStack(spacing: 0) {
                     if editingTime {
@@ -292,7 +293,7 @@ struct TopBar: View {
                                 guard status.isMaster else { return }
                                 timeText = timeString(status.position); editingTime = true
                             }
-                            .help(status.isMaster ? "押すと位置を打てる。After Effects のように数字だけなら右から 1/100 秒・秒・分（200 で 2 秒、10000 で 1 分）。1:23.5 の形でもよい。Return で全部の Mac がその位置へ" : "いまの位置")
+                            .help(status.isMaster ? L("押すと位置を打てる。After Effects のように数字だけなら右から 1/100 秒・秒・分（200 で 2 秒、10000 で 1 分）。1:23.5 の形でもよい。Return で全部の Mac がその位置へ", "Click to type a time. Digits read from the right as 1/100 s, seconds, minutes, like After Effects (200 = 2 s, 10000 = 1 min). 1:23.5 also works. Return moves all Macs there") : L("いまの位置", "Current time"))
                     }
                     Text(" / ").font(.system(size: 12, design: .monospaced))
                     if editingLoop {
@@ -312,7 +313,7 @@ struct TopBar: View {
                                 guard status.isMaster else { return }
                                 loopText = timeString(status.duration); editingLoop = true
                             }
-                            .help(status.isMaster ? "ループの長さ。押すと打てる（200 で 2 秒、1:30 で 1 分 30 秒。0 でいちばん長い映像の長さ）。全部の Mac がこの長さで頭へ戻る" : "ループの長さ（マスターの Mac で変える）")
+                            .help(status.isMaster ? L("ループの長さ。押すと打てる（200 で 2 秒、1:30 で 1 分 30 秒。0 でいちばん長い映像の長さ）。全部の Mac がこの長さで頭へ戻る", "Loop length. Click to type (200 = 2 s, 1:30 = 1 min 30 s, 0 = longest clip). All Macs go back to the start at this length") : L("ループの長さ（マスターの Mac で変える）", "Loop length (changed on the master)"))
                     }
                 }
                 .frame(minWidth: 120)
@@ -324,13 +325,13 @@ struct TopBar: View {
                            else { dragging = false; model.master?.jump(to: value) }
                        })
                     .disabled(!status.isMaster)
-                    .help("ドラッグして離すと、全部の Mac がその位置へ")
+                    .help(L("ドラッグして離すと、全部の Mac がその位置へ", "Drag and release to move all Macs there"))
                 // Next to the loop length it governs (Akira 2026-11-25: up here, not at the bottom of the left column).
-                Toggle("全部いっしょにループ", isOn: Binding(get: { model.show.loopTogether },
+                Toggle(L("全部いっしょにループ", "Loop Together"), isOn: Binding(get: { model.show.loopTogether },
                                                         set: { v in if model.show.loopTogether != v { model.show.loopTogether = v } }))
                     .toggleStyle(.checkbox)
                     .fixedSize()
-                    .help("入れると、すべての Mac の映像が同じ長さ（左の / のあとの時刻。押すと打てる）で頭へ戻る。短い映像は最後のコマで待つ。切ると映像ごとに自分の長さでループする（マスターの設定が使われる）")
+                    .help(L("入れると、すべての Mac の映像が同じ長さ（左の / のあとの時刻。押すと打てる）で頭へ戻る。短い映像は最後のコマで待つ。切ると映像ごとに自分の長さでループする（マスターの設定が使われる）", "On: every clip on every Mac goes back to the start at one length (the time after / at the left; click to type). Shorter clips hold their last frame. Off: each clip loops at its own length (the master's setting is used)"))
             }
         }
     }
@@ -373,7 +374,7 @@ struct Sidebar: View {
         // as their rows (they do not scroll themselves), so the wheel moves this column.
         ScrollView {
         VStack(alignment: .leading, spacing: 6) {
-            SectionTitle("出力（ディスプレイに出す絵）", help: "outputs")
+            SectionTitle(L("出力（ディスプレイに出す絵）", "Outputs"), help: "outputs")
             List(selection: $model.selectedOutput) {
                 ForEach(model.show.outputs) { o in
                     HStack {
@@ -389,33 +390,33 @@ struct Sidebar: View {
                             Text(o.name)
                                 .onTapGesture(count: 2) { renameText = o.name; renamingOutput = o.id }
                                 .simultaneousGesture(TapGesture().onEnded { model.selectedOutput = o.id })
-                                .help("ダブルクリックで名前を変える")
+                                .help(L("ダブルクリックで名前を変える", "Double-click to rename"))
                         }
                         Spacer()
-                        Text("ディスプレイ \(o.screen + 1)\(o.fullscreen ? "・全画面" : "")").foregroundColor(.secondary).font(.caption)
+                        Text(L("ディスプレイ", "Display") + " \(o.screen + 1)" + (o.fullscreen ? L("・全画面", " · full screen") : "")).foregroundColor(.secondary).font(.caption)
                     }
                     .tag(Optional(o.id))
                 }
             }
             .frame(height: listHeight(model.show.outputs.count, max: 8))
             ListBar {
-                IconButton("plus", "出力を足す（別のディスプレイに出すとき）") { model.addOutput() }
-                IconButton("minus", "選んだ出力を消す") { model.removeOutput() }
+                IconButton("plus", L("出力を足す（別のディスプレイに出すとき）", "Add an output (for another display)")) { model.addOutput() }
+                IconButton("minus", L("選んだ出力を消す", "Delete the selected output")) { model.removeOutput() }
             }
             if model.selectedOutputConfig != nil {
                 Picker("", selection: model.outputBinding(\.screen, 0)) {
                     ForEach(screenChoices, id: \.self) { i in
-                        Text(i < model.screenShort.count ? model.screenShort[i] : "ディスプレイ \(i + 1)（つながっていない）").tag(i)
+                        Text(i < model.screenShort.count ? model.screenShort[i] : L("ディスプレイ \(i + 1)（つながっていない）", "Display \(i + 1) (not connected)")).tag(i)
                     }
                 }
                 .labelsHidden()
                 .help(model.screenNames.joined(separator: "\n"))
-                Toggle("全画面にする（F）", isOn: model.outputBinding(\.fullscreen, false))
-                    .help("このディスプレイいっぱいに出す。操作の窓とカーソルはそのディスプレイから消える")
+                Toggle(L("全画面にする（F）", "Full Screen (F)"), isOn: model.outputBinding(\.fullscreen, false))
+                    .help(L("このディスプレイいっぱいに出す。操作の窓とカーソルはそのディスプレイから消える", "Fill this display. The control window and pointer leave that display"))
             }
 
             Divider().padding(.vertical, 2)
-            SectionTitle("レイヤー（上が手前、ドラッグで入れ替え）", help: "layers")
+            SectionTitle(L("レイヤー（上が手前、ドラッグで入れ替え）", "Layers"), help: "layers")
             List(selection: $model.selectedLayer) {
                 // Numbered from the front (1 = frontmost, like After Effects). Drag a row to change
                 // the order, like the tracks in Premiere.
@@ -431,7 +432,7 @@ struct Sidebar: View {
                                 .frame(width: 18)
                         }
                         .buttonStyle(.borderless)
-                        .help(vis.wrappedValue ? "見えている（押すと隠す）" : "隠している（押すと見せる）")
+                        .help(vis.wrappedValue ? L("見えている（押すと隠す）", "Visible (click to hide)") : L("隠している（押すと見せる）", "Hidden (click to show)"))
                         // The layer's own name: double-click to type it (empty = the movie's name).
                         if renamingLayer == l.id {
                             TextField(model.clipName(l.clipID), text: $renameText)
@@ -445,7 +446,7 @@ struct Sidebar: View {
                                 .lineLimit(1).truncationMode(.middle)
                                 .onTapGesture(count: 2) { renameText = l.name ?? ""; renamingLayer = l.id }
                                 .simultaneousGesture(TapGesture().onEnded { model.selectedLayer = l.id })
-                                .help("ダブルクリックで名前を付ける（空にすると映像の名前に戻る）")
+                                .help(L("ダブルクリックで名前を付ける（空にすると映像の名前に戻る）", "Double-click to name (empty = the clip's name)"))
                         }
                         Spacer(minLength: 2)
                         LayerClipButton(model: model, layerID: l.id, clipID: l.clipID, compact: l.name == nil)
@@ -457,50 +458,50 @@ struct Sidebar: View {
                         model.setLayerClip(l.id, String(id.dropFirst(ClipDrag.prefix.count)))
                         return true
                     }
-                    .help("ドラッグで順番を入れ替える（上が手前）")
+                    .help(L("ドラッグで順番を入れ替える（上が手前）", "Drag to reorder (top = front)"))
                 }
                 .onMove { model.moveLayers(fromDisplayed: $0, toDisplayed: $1) }
             }
             .frame(height: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 12))
             // One row of small icon buttons under the list, like the + − bar under macOS lists.
             ListBar {
-                IconButton("plus", "レイヤーを足す") { model.addLayer() }
-                IconButton("minus", "選んだレイヤーを消す") { model.removeLayer() }
+                IconButton("plus", L("レイヤーを足す", "Add a layer")) { model.addLayer() }
+                IconButton("minus", L("選んだレイヤーを消す", "Delete the selected layer")) { model.removeLayer() }
                 Divider().frame(height: 14)
-                IconButton("arrow.up", "選んだレイヤーを手前へ（ドラッグでも入れ替えられる）") { model.moveLayer(1) }
-                IconButton("arrow.down", "選んだレイヤーを奥へ") { model.moveLayer(-1) }
+                IconButton("arrow.up", L("選んだレイヤーを手前へ（ドラッグでも入れ替えられる）", "Bring the selected layer forward (or drag)")) { model.moveLayer(1) }
+                IconButton("arrow.down", L("選んだレイヤーを奥へ", "Send the selected layer backward")) { model.moveLayer(-1) }
                 Divider().frame(height: 14)
-                IconButton("square.grid.2x2", "4 分割などに並べる: この出力のレイヤーを、数に合わせて 2×2 などの格子に並べる") { model.arrangeGrid() }
+                IconButton("square.grid.2x2", L("4 分割などに並べる: この出力のレイヤーを、数に合わせて 2×2 などの格子に並べる", "Tile: arrange this output's layers in a grid such as 2×2")) { model.arrangeGrid() }
             }
 
             Divider().padding(.vertical, 2)
-            SectionTitle("映像", help: "clips")
+            SectionTitle(L("映像", "Clips"), help: "clips")
             // One line per movie (the list was 2 lines a movie and made the column long). Replace and
             // remove act on the selected movie, like the layer buttons.
             List(selection: $selectedClip) {
                 ForEach(model.show.clips) { c in
                     HStack(spacing: 4) {
                         if model.clipBroken(c.id) {
-                            Text("⚠︎ 開けない").font(.caption).foregroundColor(.red)
+                            Text(L("⚠︎ 開けない", "⚠︎ can't open")).font(.caption).foregroundColor(.red)
                         }
                         Text(c.name).lineLimit(1).truncationMode(.middle)
                         Spacer(minLength: 4)
                         // Replace and remove as small icons on the same line (Akira 2026-11-25).
                         Button { model.replaceClip(c.id) } label: { Image(systemName: "arrow.triangle.2.circlepath") }
                             .buttonStyle(.borderless)
-                            .help("差し替え: 別の映像と入れ替える（レイヤーの設定はそのまま）")
+                            .help(L("差し替え: 別の映像と入れ替える（レイヤーの設定はそのまま）", "Replace with another movie (layer settings kept)"))
                         Button { model.removeClip(c.id) } label: { Image(systemName: "xmark.circle") }
                             .buttonStyle(.borderless)
-                            .help("外す: この映像と、それを使うレイヤーをショーから外す（確かめてから。ファイルは消えない）")
+                            .help(L("外す: この映像と、それを使うレイヤーをショーから外す（確かめてから。ファイルは消えない）", "Remove this clip and its layers from the show (asks first; the file is not deleted)"))
                     }
                     .tag(Optional(c.id))
-                    .help("\(c.name)\nレイヤーの行へドラッグすると、そのレイヤーの映像になる")
+                    .help(L("\(c.name)\nレイヤーの行へドラッグすると、そのレイヤーの映像になる", "\(c.name)\nDrag onto a layer row to show it on that layer"))
                     .draggable(ClipDrag.prefix + c.id)
                 }
             }
             .frame(height: listHeight(model.show.clips.count, max: 6))
             ListBar {
-                IconButton("plus", "映像を足す…（ファイルを選ぶ）") { model.addClips() }
+                IconButton("plus", L("映像を足す…（ファイルを選ぶ）", "Add clips… (choose files)")) { model.addClips() }
             }
         }
         .padding(8)
@@ -558,7 +559,7 @@ struct WidthHandle: View {
                     width = min(max((start ?? width) + g.translation.width, range.lowerBound), range.upperBound)
                 }
                 .onEnded { _ in start = nil })
-            .help("ドラッグして左の欄の幅を変える")
+            .help(L("ドラッグして左の欄の幅を変える", "Drag to change the width of the left column"))
     }
 }
 
@@ -587,10 +588,10 @@ struct LayerClipButton: View {
             .foregroundColor(.secondary)
         }
         .buttonStyle(.plain)
-        .help("映像: \(model.clipName(clipID))。押すと、このレイヤーに出す映像を選べる（下の映像の行をドラッグしてきても替わる）")
+        .help(L("映像: \(model.clipName(clipID))。押すと、このレイヤーに出す映像を選べる（下の映像の行をドラッグしてきても替わる）", "Clip: \(model.clipName(clipID)). Click to choose the clip for this layer (or drag a clip row onto it)"))
         .popover(isPresented: $open, arrowEdge: .trailing) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("このレイヤーに出す映像").font(.caption).foregroundColor(.secondary)
+                Text(L("このレイヤーに出す映像", "Clip for this layer")).font(.caption).foregroundColor(.secondary)
                     .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 4)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -614,7 +615,7 @@ struct LayerClipButton: View {
                 .frame(maxHeight: 320)
                 Divider()
                 Button { open = false; model.addClipsForLayer(layerID) } label: {
-                    Label("ファイルから選ぶ…", systemImage: "plus").padding(.horizontal, 10).padding(.vertical, 6)
+                    Label(L("ファイルから選ぶ…", "Choose a file…"), systemImage: "plus").padding(.horizontal, 10).padding(.vertical, 6)
                 }
                 .buttonStyle(.plain)
             }
@@ -664,7 +665,7 @@ struct HelpButton: View {
     var body: some View {
         Button { AppModel.openManual(anchor) } label: { Image(systemName: "questionmark.circle") }
             .buttonStyle(.borderless)
-            .help("使い方のページのこの部分を開く")
+            .help(L("使い方のページのこの部分を開く", "Open this part of the guide"))
     }
 }
 
@@ -743,14 +744,14 @@ struct SliderRow: View {
                     .frame(width: 52, alignment: .trailing)
                     .contentShape(Rectangle())
                     .onTapGesture { text = unit.text(value); editing = true }
-                    .help("押すと数字を打てる（Return で決める、esc でやめる）")
+                    .help(L("押すと数字を打てる（Return で決める、esc でやめる）", "Click to type a value (Return to set, esc to cancel)"))
             }
             if defaultValue != nil {
                 Button { reset() } label: { Image(systemName: "arrow.counterclockwise") }
                     .buttonStyle(.borderless)
                     .disabled(atDefault)
                     .opacity(atDefault ? 0.3 : 1)
-                    .help("最初の値（\(unit.text(defaultValue ?? 0))）に戻す。名前のダブルクリックでも戻る")
+                    .help(L("最初の値（\(unit.text(defaultValue ?? 0))）に戻す。名前のダブルクリックでも戻る", "Reset to the default (\(unit.text(defaultValue ?? 0))). Double-clicking the name also resets"))
             }
         }
         .help(help)
@@ -775,7 +776,7 @@ struct FoldLabel: View {
     var body: some View {
         HStack(spacing: 4) {
             Text(title).font(.subheadline).bold()
-            if warn { Text("⚠︎ 読めない").font(.caption).foregroundColor(.red) }
+            if warn { Text(L("⚠︎ 読めない", "⚠︎ can't read")).font(.caption).foregroundColor(.red) }
             Spacer()
             if let h = help { HelpButton(anchor: h) }
         }
@@ -824,10 +825,10 @@ struct Inspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Picker("", selection: $tab) {
-                Text("手順").tag(3)
-                Text("画面の調整").tag(0)
-                Text("展示の設定").tag(1)
-                Text("プリセット").tag(2)
+                Text(L("手順", "Steps")).tag(3)
+                Text(L("画面の調整", "Layer")).tag(0)
+                Text(L("展示の設定", "Exhibit")).tag(1)
+                Text(L("プリセット", "Presets")).tag(2)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -843,7 +844,7 @@ struct Inspector: View {
                     case 2: presetSection
                     default:
                         if model.selectedLayerIndex == nil {
-                            Text("左の「レイヤー」で 1 つ選ぶと、ここで位置・大きさ・切り取り・マスク・エッジブレンド・四隅を調整できる")
+                            Text(L("左の「レイヤー」で 1 つ選ぶと、ここで位置・大きさ・切り取り・マスク・エッジブレンド・四隅を調整できる", "Select a layer at the left to adjust its transform, crop, mask, edge blend and corner pin here"))
                                 .foregroundColor(.secondary)
                         } else {
                             layerSection
@@ -873,49 +874,49 @@ struct Inspector: View {
 
     /// The steps for learning alone: each line is ticked by the app when it sees it done on this Mac.
     @ViewBuilder private var stepsSection: some View {
-        Text("上から順に進めると、1 台で試すところから展示の形まで覚えられる。できたら ✓ が付く（この Mac で見えたことだけ）。")
+        Text(L("上から順に進めると、1 台で試すところから展示の形まで覚えられる。できたら ✓ が付く（この Mac で見えたことだけ）。", "Work from the top to learn everything from one Mac to an exhibition. A ✓ appears when done (only what this Mac can see)."))
             .font(.caption).foregroundColor(.secondary)
-        Button("練習用のショーを開く") { model.openPractice() }
-            .help("番号入りの映像 4 本と丸いマスクの見本。保存したショーはファイルに残る（保存前のショーは、替える前に確かめる）")
-        Button("サンプル（映像と設定）をダウンロード…") {
+        Button(L("練習用のショーを開く", "Open the Practice Show")) { model.openPractice() }
+            .help(L("番号入りの映像 4 本と丸いマスクの見本。保存したショーはファイルに残る（保存前のショーは、替える前に確かめる）", "4 numbered clips and a round mask. Saved shows stay in their files (an unsaved show asks first)"))
+        Button(L("サンプル（映像と設定）をダウンロード…", "Download Samples (clips and shows)…")) {
             if let u = URL(string: "https://github.com/akiranakayasu-eng/sync-player/releases/latest") { NSWorkspace.shared.open(u) }
         }
-        .help("音入りの映像と、そのまま開けるショーの一式（アプリとは別の zip、samples と付いたもの）を配っているページを開く。展開したら中の使い方.txt を見る")
+        .help(L("音入りの映像と、そのまま開けるショーの一式（アプリとは別の zip、samples と付いたもの）を配っているページを開く。展開したら中の使い方.txt を見る", "Opens the page with clips with sound and ready-made shows (the zip named samples, separate from the app). Read the text file inside after unzipping"))
 
-        StepHeader(title: "1. 1 台で動かす", anchor: "step1")
-        StepLine(done: !model.show.clips.isEmpty, text: "映像を開く（練習用でも自分の映像でも）")
-        StepLine(done: model.learnedSet.contains("played"), text: "再生・停止する（space か上の「再生」）")
-        StepLine(done: model.learnedSet.contains("fullscreen"), text: "左の「全画面にする（F）」を入れ、S で操作の窓を出し入れする")
+        StepHeader(title: L("1. 1 台で動かす", "1. Play on one Mac"), anchor: "step1")
+        StepLine(done: !model.show.clips.isEmpty, text: L("映像を開く（練習用でも自分の映像でも）", "Open clips (practice or your own)"))
+        StepLine(done: model.learnedSet.contains("played"), text: L("再生・停止する（space か上の「再生」）", "Play and stop (space or ▶ at the top)"))
+        StepLine(done: model.learnedSet.contains("fullscreen"), text: L("左の「全画面にする（F）」を入れ、S で操作の窓を出し入れする", "Turn on Full Screen (F) at the left; S shows and hides the control window"))
 
-        StepHeader(title: "2. 画面を作る", anchor: "step2")
-        StepLine(done: model.learnedSet.contains("added"), text: "左の「映像」の ＋ か ⟳（差し替え）で自分の映像を入れる")
-        StepLine(done: model.learnedSet.contains("adjusted"), text: "「画面の調整」で位置・大きさ・四隅などを変える（⌘Z で戻せる）")
-        StepLine(done: model.learnedSet.contains("mask"), text: "自分のマスク画像を使う（なくてもよい）")
-        StepLine(done: model.showFile != nil, text: "上の「保存…」でショーを保存する")
+        StepHeader(title: L("2. 画面を作る", "2. Build the picture"), anchor: "step2")
+        StepLine(done: model.learnedSet.contains("added"), text: L("左の「映像」の ＋ か ⟳（差し替え）で自分の映像を入れる", "Add your clips with + or ⟳ (replace) under Clips"))
+        StepLine(done: model.learnedSet.contains("adjusted"), text: L("「画面の調整」で位置・大きさ・四隅などを変える（⌘Z で戻せる）", "Change position, scale, corners in the Layer tab (⌘Z undoes)"))
+        StepLine(done: model.learnedSet.contains("mask"), text: L("自分のマスク画像を使う（なくてもよい）", "Use your own mask image (optional)"))
+        StepLine(done: model.showFile != nil, text: L("上の「保存…」でショーを保存する", "Save the show with the save button at the top"))
 
-        StepHeader(title: "3. 何台かでそろえる", anchor: "step3")
-        StepLine(done: model.learnedSet.contains("ident"), text: "N で Mac の名前とディスプレイの番号を出す")
-        StepLine(done: model.learnedSet.contains("synced"), text: "同じネットワークの別の Mac をフォロワーにして、札が緑になる（フォロワーの Mac で ✓）")
+        StepHeader(title: L("3. 何台かでそろえる", "3. Sync several Macs"), anchor: "step3")
+        StepLine(done: model.learnedSet.contains("ident"), text: L("N で Mac の名前とディスプレイの番号を出す", "Press N to show Mac names and display numbers"))
+        StepLine(done: model.learnedSet.contains("synced"), text: L("同じネットワークの別の Mac をフォロワーにして、札が緑になる（フォロワーの Mac で ✓）", "Make another Mac on the same network a follower; its badge turns green (✓ on the follower)"))
 
-        StepHeader(title: "4. 展示の形にする", anchor: "step4")
-        StepLine(done: model.openAtLogin, text: "「展示の設定」で「ログインしたら開く」を入れる（全台）")
-        StepLine(done: model.exhibitMaster, text: "「展示のマスター」を 1 台だけに入れる（マスターの Mac で ✓）")
-        Toggle("電源を切って入れ直し、同じ状態に戻るのを見た", isOn: $rebootChecked)
+        StepHeader(title: L("4. 展示の形にする", "4. Set up the exhibition"), anchor: "step4")
+        StepLine(done: model.openAtLogin, text: L("「展示の設定」で「ログインしたら開く」を入れる（全台）", "In Exhibit, turn on Open at Login (all Macs)"))
+        StepLine(done: model.exhibitMaster, text: L("「展示のマスター」を 1 台だけに入れる（マスターの Mac で ✓）", "Turn on Exhibition Master on one Mac only (✓ on the master)"))
+        Toggle(L("電源を切って入れ直し、同じ状態に戻るのを見た", "Restarted and saw it come back the same"), isOn: $rebootChecked)
             .font(.callout)
 
         Divider()
-        Button("✓ の記録を消す") { model.forgetLearned(); rebootChecked = false }
+        Button(L("✓ の記録を消す", "Clear ✓ Marks")) { model.forgetLearned(); rebootChecked = false }
             .controlSize(.small)
-            .help("次の人が最初から練習するとき")
+            .help(L("次の人が最初から練習するとき", "For the next person to start from the beginning"))
     }
 
     /// Settings for an exhibition: after a restart the Mac comes back as it was.
     @ViewBuilder private var exhibitSection: some View {
-        SectionTitle("展示の前の点検", help: "check")
-        Button("点検する") { model.runExhibitCheck() }
-            .help("展示に入る前に、この Mac の設定とつながりを一度に確かめる")
+        SectionTitle(L("展示の前の点検", "Pre-show Check"), help: "check")
+        Button(L("点検する", "Check")) { model.runExhibitCheck() }
+            .help(L("展示に入る前に、この Mac の設定とつながりを一度に確かめる", "Check this Mac's settings and connections at once before the exhibition"))
         if let at = model.checkedAt {
-            Text("点検した時刻 \(at.formatted(date: .omitted, time: .shortened))（直したら、もう一度押す）")
+            Text(L("点検した時刻 \(at.formatted(date: .omitted, time: .shortened))（直したら、もう一度押す）", "Checked at \(at.formatted(date: .omitted, time: .shortened)) (press again after fixing)"))
                 .font(.caption).foregroundColor(.secondary)
             ForEach(model.checks) { c in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -924,7 +925,7 @@ struct Inspector: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(c.text).font(.callout).fixedSize(horizontal: false, vertical: true)
                         if c.ok != true {
-                            Text(c.ok == nil ? "アプリからは確かめられない。" + c.fix : c.fix)
+                            Text(c.ok == nil ? L("アプリからは確かめられない。", "Can't be checked from the app.") + c.fix : c.fix)
                                 .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -934,16 +935,16 @@ struct Inspector: View {
 
         if model.isMaster {
             Divider()
-            SectionTitle("つながっている Mac", help: "macs")
+            SectionTitle(L("つながっている Mac", "Connected Macs"), help: "macs")
             if model.peers.isEmpty {
-                Text("フォロワーはまだ見えない。ほかの Mac で SyncPlayer を開くと、ここに並ぶ。")
+                Text(L("フォロワーはまだ見えない。ほかの Mac で SyncPlayer を開くと、ここに並ぶ。", "No followers yet. Open SyncPlayer on other Macs and they appear here."))
                     .font(.caption).foregroundColor(.secondary)
             } else {
                 Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 3) {
                     GridRow {
-                        Text("名前").foregroundColor(.secondary)
-                        Text("ずれ").foregroundColor(.secondary)
-                        Text("版・注意").foregroundColor(.secondary)
+                        Text(L("名前", "Name")).foregroundColor(.secondary)
+                        Text(L("ずれ", "Error")).foregroundColor(.secondary)
+                        Text(L("版・注意", "Version / Notes")).foregroundColor(.secondary)
                     }
                     ForEach(Array(model.peers.enumerated()), id: \.offset) { _, p in
                         GridRow {
@@ -951,7 +952,7 @@ struct Inspector: View {
                             Text(p.err.map { String(format: "%.1f ms", abs($0)) } ?? "—")
                                 .font(.system(size: 11, design: .monospaced))
                             let other = p.ver != AppModel.version
-                            Text(other ? (p.ver == "?" ? "⚠︎ 古い版" : "⚠︎ 版 \(p.ver)") : (p.warn.map { "⚠︎ " + $0 } ?? "OK"))
+                            Text(other ? (p.ver == "?" ? L("⚠︎ 古い版", "⚠︎ old version") : L("⚠︎ 版 \(p.ver)", "⚠︎ version \(p.ver)")) : (p.warn.map { "⚠︎ " + $0 } ?? "OK"))
                                 .foregroundColor(other || p.warn != nil ? .orange : .secondary)
                                 .lineLimit(2).help(p.warn ?? p.ver)
                         }
@@ -962,134 +963,140 @@ struct Inspector: View {
         }
 
         Divider()
-        SectionTitle("いまのこの Mac", help: "exhibit")
+        SectionTitle(L("いまのこの Mac", "This Mac"), help: "exhibit")
         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
-            GridRow { Text("操作の窓の色").foregroundColor(.secondary)
+            GridRow { Text(L("操作の窓の色", "Appearance")).foregroundColor(.secondary)
                       Picker("", selection: Binding(get: { model.uiTheme }, set: { model.uiTheme = $0 })) {
                           ForEach(AppModel.UITheme.allCases) { Text($0.label).tag($0) }
                       }
                       .labelsHidden().pickerStyle(.segmented).fixedSize()
-                      .help("ライトかダーク。この Mac だけの設定") }
-            GridRow { Text("名前").foregroundColor(.secondary); Text(model.opts.name) }
-            GridRow { Text("版").foregroundColor(.secondary); Text(AppModel.version) }
-            GridRow { Text("役").foregroundColor(.secondary); Text(model.isMaster ? "マスター" : "フォロワー") }
-            GridRow { Text("展示のマスター").foregroundColor(.secondary); Text(model.exhibitMaster ? "はい（開くとマスターで始まる）" : "いいえ") }
-            GridRow { Text("ログインで開く").foregroundColor(.secondary); Text(model.openAtLogin ? "はい" : "いいえ") }
-            GridRow { Text("ショー").foregroundColor(.secondary)
-                      Text(model.showFile.map { ($0 as NSString).lastPathComponent } ?? "まだ保存していない").lineLimit(1).truncationMode(.middle) }
+                      .help(L("ライトかダーク。この Mac だけの設定", "Light or dark. This Mac only")) }
+            GridRow { Text("Language / 言語").foregroundColor(.secondary)
+                      Picker("", selection: Binding(get: { model.uiLang }, set: { model.uiLang = $0 })) {
+                          ForEach(UILang.allCases) { Text($0.label).tag($0) }
+                      }
+                      .labelsHidden().pickerStyle(.segmented).fixedSize()
+                      .help("English / 日本語 (this Mac only・この Mac だけ)") }
+            GridRow { Text(L("名前", "Name")).foregroundColor(.secondary); Text(model.opts.name) }
+            GridRow { Text(L("版", "Version")).foregroundColor(.secondary); Text(AppModel.version) }
+            GridRow { Text(L("役", "Role")).foregroundColor(.secondary); Text(model.isMaster ? L("マスター", "Master") : L("フォロワー", "Follower")) }
+            GridRow { Text(L("展示のマスター", "Exhibition master")).foregroundColor(.secondary); Text(model.exhibitMaster ? L("はい（開くとマスターで始まる）", "Yes (starts as master)") : L("いいえ", "No")) }
+            GridRow { Text(L("ログインで開く", "Open at login")).foregroundColor(.secondary); Text(model.openAtLogin ? L("はい", "Yes") : L("いいえ", "No")) }
+            GridRow { Text(L("ショー", "Show")).foregroundColor(.secondary)
+                      Text(model.showFile.map { ($0 as NSString).lastPathComponent } ?? L("まだ保存していない", "Not saved yet")).lineLimit(1).truncationMode(.middle) }
         }
         .font(.callout)
 
         Divider()
-        SectionTitle("展示の設定（設営のとき 1 度だけ）")
-        Toggle("ログインしたら SyncPlayer を開く", isOn: Binding(get: { model.openAtLogin }, set: { model.openAtLogin = $0 }))
-        Text("全台で入れる。再起動のあとログインするだけで、前と同じ全画面・音・マスクに戻る。")
+        SectionTitle(L("展示の設定（設営のとき 1 度だけ）", "Exhibition Setup (once, when installing)"))
+        Toggle(L("ログインしたら SyncPlayer を開く", "Open SyncPlayer at Login"), isOn: Binding(get: { model.openAtLogin }, set: { model.openAtLogin = $0 }))
+        Text(L("全台で入れる。再起動のあとログインするだけで、前と同じ全画面・音・マスクに戻る。", "Turn on for all Macs. After a restart, logging in brings back the same full screen, sound and masks."))
             .font(.caption).foregroundColor(.secondary)
-        Toggle("この Mac を展示のマスターにする", isOn: Binding(get: { model.exhibitMaster }, set: { model.setExhibitMaster($0) }))
-        Text("全台のうち 1 台だけに入れる。入れるとすぐマスターになり、次から開くとマスターで始まって 3 秒後に自動で再生する。ほかの Mac は何もしなくてもフォロワーになり、どちらが先に開いても数秒でそろう。マスターを開き直すと、全台が頭から始め直す（2〜3 秒止まる）。")
+        Toggle(L("この Mac を展示のマスターにする", "Make This Mac the Exhibition Master"), isOn: Binding(get: { model.exhibitMaster }, set: { model.setExhibitMaster($0) }))
+        Text(L("全台のうち 1 台だけに入れる。入れるとすぐマスターになり、次から開くとマスターで始まって 3 秒後に自動で再生する。ほかの Mac は何もしなくてもフォロワーになり、どちらが先に開いても数秒でそろう。マスターを開き直すと、全台が頭から始め直す（2〜3 秒止まる）。", "One Mac only. It becomes master now, and from then on starts as master and plays 3 s after opening. The other Macs become followers by themselves and sync within seconds in any order. Reopening the master restarts all Macs from the top (2–3 s pause)."))
             .font(.caption).foregroundColor(.secondary)
 
         Divider()
-        SectionTitle("確かめる・困ったとき", help: "trouble")
+        SectionTitle(L("確かめる・困ったとき", "Checks and Troubleshooting"), help: "trouble")
         if model.netBlocked {
-            Text("⚠︎ この Mac からネットワークに届いていない。ローカルネットワークの許可が切れているか、ネットワークにつながっていない。")
+            Text(L("⚠︎ この Mac からネットワークに届いていない。ローカルネットワークの許可が切れているか、ネットワークにつながっていない。", "⚠︎ This Mac can't reach the network. Local Network permission is off, or it isn't connected."))
                 .font(.caption).foregroundColor(.orange)
-            Button("ローカルネットワークの設定を開く") { model.openLocalNetworkSettings() }
+            Button(L("ローカルネットワークの設定を開く", "Open Local Network Settings")) { model.openLocalNetworkSettings() }
         }
-        Toggle("名前とディスプレイの番号を大きく出す（N）", isOn: $model.showIdent)
-        Text("どの Mac のどのディスプレイかを確かめる。マスターで入れると全台に出る。").font(.caption).foregroundColor(.secondary)
-        Toggle("動作確認の文字を出す（I）", isOn: Binding(get: { model.infoShownNow }, set: { model.setInfoShown($0) }))
-        Text("出力の窓に、ずれなどの数字を出す。展示中は消しておく。").font(.caption).foregroundColor(.secondary)
+        Toggle(L("名前とディスプレイの番号を大きく出す（N）", "Show Names and Display Numbers (N)"), isOn: $model.showIdent)
+        Text(L("どの Mac のどのディスプレイかを確かめる。マスターで入れると全台に出る。", "Find which Mac and display is which. On the master it shows on all Macs.")).font(.caption).foregroundColor(.secondary)
+        Toggle(L("動作確認の文字を出す（I）", "Show Info Text (I)"), isOn: Binding(get: { model.infoShownNow }, set: { model.setInfoShown($0) }))
+        Text(L("出力の窓に、ずれなどの数字を出す。展示中は消しておく。", "Shows sync numbers on the outputs. Turn off during the exhibition.")).font(.caption).foregroundColor(.secondary)
         if model.isMaster {
-            Button("全台を頭からやり直す（R）") { model.master?.jump(to: 0) }
+            Button(L("全台を頭からやり直す（R）", "Restart All from the Top (R)")) { model.master?.jump(to: 0) }
         }
-        Text("1 台だけ映らない・ずれるときは、その Mac で Q キーを押して SyncPlayer を終了し、開き直す（数秒でそろう）。全部止まったときは、展示のマスターの Mac を開き直す。")
+        Text(L("1 台だけ映らない・ずれるときは、その Mac で Q キーを押して SyncPlayer を終了し、開き直す（数秒でそろう）。全部止まったときは、展示のマスターの Mac を開き直す。", "If one Mac is blank or off, press Q on it to quit SyncPlayer and reopen it (syncs in seconds). If all stopped, reopen the exhibition master."))
             .font(.caption).foregroundColor(.secondary)
     }
 
     @ViewBuilder private var layerSection: some View {
-        SectionTitle("選んだレイヤー")
-        Picker("映像", selection: model.layerBinding(\.clipID, "")) {
+        SectionTitle(L("選んだレイヤー", "Selected Layer"))
+        Picker(L("映像", "Source"), selection: model.layerBinding(\.clipID, "")) {
             ForEach(model.show.clips) { c in Text(c.name).tag(c.id) }
         }
-        SliderRow(label: "不透明度", value: model.layerBinding(\.opacity, 1), range: 0...1, defaultValue: 1, unit: ValueText.percent)
+        SliderRow(label: L("不透明度", "Opacity"), value: model.layerBinding(\.opacity, 1), range: 0...1, defaultValue: 1, unit: ValueText.percent)
 
         DisclosureGroup(isExpanded: $openPlace) {
             VStack(alignment: .leading, spacing: 6) {
-                SliderRow(label: "横の位置", value: model.lookBinding(\.posX, 0), range: -1...1, defaultValue: 0, unit: ValueText.signedPercent,
-                          help: "レイヤーの枠（4 分割なら 1 ます）の幅に対する割合。＋で右へ")
-                SliderRow(label: "縦の位置", value: model.lookBinding(\.posY, 0), range: -1...1, defaultValue: 0, unit: ValueText.signedPercent,
-                          help: "レイヤーの枠の高さに対する割合")
-                SliderRow(label: "大きさ", value: model.lookBinding(\.scale, 1), range: 0.1...4, defaultValue: 1, unit: ValueText.percent,
-                          help: "100% でレイヤーの枠いっぱい")
-                SliderRow(label: "回転", value: model.lookBinding(\.rotation, 0), range: -180...180, defaultValue: 0, unit: ValueText.degrees)
-                Button("位置・大きさ・回転を戻す（0）") {
+                SliderRow(label: L("横の位置", "Position X"), value: model.lookBinding(\.posX, 0), range: -1...1, defaultValue: 0, unit: ValueText.signedPercent,
+                          help: L("レイヤーの枠（4 分割なら 1 ます）の幅に対する割合。＋で右へ", "Fraction of the layer frame's width (one cell when tiled). + is right"))
+                SliderRow(label: L("縦の位置", "Position Y"), value: model.lookBinding(\.posY, 0), range: -1...1, defaultValue: 0, unit: ValueText.signedPercent,
+                          help: L("レイヤーの枠の高さに対する割合", "Fraction of the layer frame's height"))
+                SliderRow(label: L("大きさ", "Scale"), value: model.lookBinding(\.scale, 1), range: 0.1...4, defaultValue: 1, unit: ValueText.percent,
+                          help: L("100% でレイヤーの枠いっぱい", "100% fills the layer frame"))
+                SliderRow(label: L("回転", "Rotation"), value: model.lookBinding(\.rotation, 0), range: -180...180, defaultValue: 0, unit: ValueText.degrees)
+                Button(L("位置・大きさ・回転を戻す（0）", "Reset Transform (0)")) {
                     guard var s = model.selectedLook else { return }
                     s.resetTransform(); model.updateLook(s)
                 }
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: "位置・大きさ・回転", isOpen: $openPlace, help: "place") }
+        } label: { FoldLabel(title: L("位置・大きさ・回転", "Transform"), isOpen: $openPlace, help: "place") }
 
         DisclosureGroup(isExpanded: $openCrop) {
             VStack(alignment: .leading, spacing: 6) {
-                SliderRow(label: "左", value: model.lookBinding(\.cropL, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
-                SliderRow(label: "右", value: model.lookBinding(\.cropR, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
-                SliderRow(label: "上", value: model.lookBinding(\.cropT, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
-                SliderRow(label: "下", value: model.lookBinding(\.cropB, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: L("左", "Left"), value: model.lookBinding(\.cropL, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: L("右", "Right"), value: model.lookBinding(\.cropR, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: L("上", "Top"), value: model.lookBinding(\.cropT, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: L("下", "Bottom"), value: model.lookBinding(\.cropB, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: "切り取り（映像の端を削る）", isOpen: $openCrop, help: "crop") }
+        } label: { FoldLabel(title: L("切り取り（映像の端を削る）", "Crop"), isOpen: $openCrop, help: "crop") }
 
         DisclosureGroup(isExpanded: $openMask) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Button("画像を選ぶ…") { model.pickMask() }
-                    Button("外す") { model.layerBinding(\.mask, nil as String?).wrappedValue = nil }
+                    Button(L("画像を選ぶ…", "Choose Image…")) { model.pickMask() }
+                    Button(L("外す", "Remove")) { model.layerBinding(\.mask, nil as String?).wrappedValue = nil }
                         .disabled(model.selectedLayerIndex.map { model.show.outputs[$0.o].layers[$0.l].mask == nil } ?? true)
                 }
                 let maskPath = model.selectedLayerIndex.flatMap { model.show.outputs[$0.o].layers[$0.l].mask }
                 let maskOK = maskPath.map { FileManager.default.fileExists(atPath: $0) && GPU.shared?.maskReady($0) != false } ?? true
-                Text(maskPath.map { ($0 as NSString).lastPathComponent + (maskOK ? "" : "（見つからない・読めない）") } ?? "なし")
+                Text(maskPath.map { ($0 as NSString).lastPathComponent + (maskOK ? "" : L("（見つからない・読めない）", " (missing or unreadable)")) } ?? L("なし", "None"))
                     .font(.caption).foregroundColor(maskOK ? .secondary : .red)
-                Toggle("白黒を入れ替える", isOn: model.layerBinding(\.maskInvert, false))
-                Text("白は見え、黒は隠れる（灰色は半分）。画像は映像の枠全体に重なり、レイヤーといっしょに動く。映像と同じ縦横比の画像にする。")
+                Toggle(L("白黒を入れ替える", "Invert"), isOn: model.layerBinding(\.maskInvert, false))
+                Text(L("白は見え、黒は隠れる（灰色は半分）。画像は映像の枠全体に重なり、レイヤーといっしょに動く。映像と同じ縦横比の画像にする。", "White shows, black hides (grey is half). The image covers the whole clip and moves with the layer. Use the clip's aspect ratio."))
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: "マスク（白黒の画像で形を抜く）", isOpen: $openMask, warn: maskBroken, help: "mask") }
+        } label: { FoldLabel(title: L("マスク（白黒の画像で形を抜く）", "Mask"), isOpen: $openMask, warn: maskBroken, help: "mask") }
 
         DisclosureGroup(isExpanded: $openBlend) {
             VStack(alignment: .leading, spacing: 6) {
-                SliderRow(label: "左", value: model.lookBinding(\.blendL, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
-                SliderRow(label: "右", value: model.lookBinding(\.blendR, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
-                SliderRow(label: "上", value: model.lookBinding(\.blendT, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
-                SliderRow(label: "下", value: model.lookBinding(\.blendB, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
-                SliderRow(label: "ガンマ", value: model.lookBinding(\.blendGamma, 2.2), range: 0.5...4, defaultValue: 2.2,
-                          help: "重なりの明るさの合い方。ふつうは 2.2")
-                Text("重なる幅を、画面の幅（高さ）に対する割合で。").font(.caption).foregroundColor(.secondary)
+                SliderRow(label: L("左", "Left"), value: model.lookBinding(\.blendL, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: L("右", "Right"), value: model.lookBinding(\.blendR, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: L("上", "Top"), value: model.lookBinding(\.blendT, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: L("下", "Bottom"), value: model.lookBinding(\.blendB, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: L("ガンマ", "Gamma"), value: model.lookBinding(\.blendGamma, 2.2), range: 0.5...4, defaultValue: 2.2,
+                          help: L("重なりの明るさの合い方。ふつうは 2.2", "How brightness matches in the overlap. Usually 2.2"))
+                Text(L("重なる幅を、画面の幅（高さ）に対する割合で。", "Overlap width as a fraction of the picture's width (height).")).font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: "エッジブレンド（プロジェクターの重なり）", isOpen: $openBlend, help: "blend") }
+        } label: { FoldLabel(title: L("エッジブレンド（プロジェクターの重なり）", "Edge Blend"), isOpen: $openBlend, help: "blend") }
 
         DisclosureGroup(isExpanded: $openWarp) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Button(model.editMode == .corners ? "四隅の編集を終える" : "四隅を動かす（E）") { model.toggleEdit(.corners) }
-                    Button(model.editMode == .mesh ? "曲面の編集を終える" : "曲面メッシュ（W）") { model.toggleEdit(.mesh) }
+                    Button(model.editMode == .corners ? L("四隅の編集を終える", "Done") : L("四隅を動かす（E）", "Corner Pin (E)")) { model.toggleEdit(.corners) }
+                    Button(model.editMode == .mesh ? L("曲面の編集を終える", "Done") : L("曲面メッシュ（W）", "Mesh (W)")) { model.toggleEdit(.mesh) }
                 }
-                Stepper("メッシュの点 \(model.selectedLook?.meshCols ?? 4)×\(model.selectedLook?.meshRows ?? 4)",
+                Stepper(L("メッシュの点 \(model.selectedLook?.meshCols ?? 4)×\(model.selectedLook?.meshRows ?? 4)", "Mesh Points \(model.selectedLook?.meshCols ?? 4)×\(model.selectedLook?.meshRows ?? 4)"),
                         onIncrement: { meshSize(+1) }, onDecrement: { meshSize(-1) })
                 HStack {
-                    Button("四隅を戻す") { guard var s = model.selectedLook else { return }; s.resetCorners(); model.updateLook(s) }
-                    Button("メッシュを戻す") { guard var s = model.selectedLook else { return }; s.resetMesh(); model.updateLook(s) }
+                    Button(L("四隅を戻す", "Reset Corners")) { guard var s = model.selectedLook else { return }; s.resetCorners(); model.updateLook(s) }
+                    Button(L("メッシュを戻す", "Reset Mesh")) { guard var s = model.selectedLook else { return }; s.resetMesh(); model.updateLook(s) }
                 }
-                Toggle("確認用の格子（G）", isOn: model.lookBinding(\.showGrid, false))
-                Text("点はプレビューか出力の窓でドラッグ。Tab で次の点、矢印で 1 px（shift で 10 px）。")
+                Toggle(L("確認用の格子（G）", "Grid (G)"), isOn: model.lookBinding(\.showGrid, false))
+                Text(L("点はプレビューか出力の窓でドラッグ。Tab で次の点、矢印で 1 px（shift で 10 px）。", "Drag points in the preview or an output. Tab: next point, arrows: 1 px (shift: 10 px)."))
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: "四隅・曲面（台形や曲がりを直す）", isOpen: $openWarp, help: "warp") }
+        } label: { FoldLabel(title: L("四隅・曲面（台形や曲がりを直す）", "Corner Pin & Mesh"), isOpen: $openWarp, help: "warp") }
         .id("warp")
     }
 
@@ -1102,22 +1109,22 @@ struct Inspector: View {
     }
 
     @ViewBuilder private var presetSection: some View {
-        SectionTitle("プリセット（ショー全体の配置を名前で残す）", help: "presets")
+        SectionTitle(L("プリセット（ショー全体の配置を名前で残す）", "Presets (the whole show's layout, by name)"), help: "presets")
         HStack {
-            TextField("名前", text: $presetName)
-            Button("この名前で保存") { model.savePreset(presetName) }
+            TextField(L("名前", "Name"), text: $presetName)
+            Button(L("この名前で保存", "Save as This Name")) { model.savePreset(presetName) }
                 .disabled(presetName.trimmingCharacters(in: .whitespaces).isEmpty)
         }
-        Text("キー: 1〜9 で呼び出し、⌘1〜⌘9 で保存").font(.caption).foregroundColor(.secondary)
+        Text(L("キー: 1〜9 で呼び出し、⌘1〜⌘9 で保存", "Keys: 1–9 recall, ⌘1–⌘9 save")).font(.caption).foregroundColor(.secondary)
         if model.presetNames.isEmpty {
-            Text("まだありません").foregroundColor(.secondary)
+            Text(L("まだありません", "None yet")).foregroundColor(.secondary)
         }
         ForEach(model.presetNames, id: \.self) { n in
             HStack {
                 Text(n).bold(n == model.lastPreset)
                 Spacer()
-                Button("読み込む") { model.loadPreset(n) }
-                Button("消す") { model.deletePreset(n) }
+                Button(L("読み込む", "Load")) { model.loadPreset(n) }
+                Button(L("消す", "Delete")) { model.deletePreset(n) }
             }
         }
     }
