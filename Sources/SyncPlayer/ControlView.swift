@@ -544,8 +544,8 @@ struct SeatsPanel: View {
 struct Sidebar: View {
     @ObservedObject var model: AppModel
     // List heights set by dragging the line under each list (0 = as tall as its rows; kept per Mac).
-    @AppStorage("ui.footageOpen") private var footageOpen = false
-    @State private var outputsOpen = false
+    // Left tabs (Akira 2026-11-26): 0 = outputs and layers (the default), 1 = footage. Kept per Mac.
+    @AppStorage("ui.leftTab") private var leftTab = 0
     @AppStorage("ui.h.layers") private var hLayers: Double = 0
     @AppStorage("ui.h.clips") private var hClips: Double = 0
 
@@ -577,38 +577,8 @@ struct Sidebar: View {
     }
 
 
-    /// The output whose layers are listed: its name and display, click to choose, add, rename,
-    /// set the display and full screen (set up once, so in a popover).
-    private var outputChipText: String {
-        guard let o = model.selectedOutputConfig else { return L("出力なし", "No output") }
-        let full: String = o.fullscreen ? L("・全画面", " · full") : ""
-        return o.name + " · " + L("ディスプレイ", "Display") + " \(o.screen + 1)" + full
-    }
-
-    private var outputChip: some View {
-        Button { outputsOpen = true } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "rectangle.on.rectangle").font(.system(size: 10))
-                Text(outputChipText).lineLimit(1).truncationMode(.middle)
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
-            }
-            .font(.caption)
-            .padding(.horizontal, 7).padding(.vertical, 2)
-            .background(Capsule().fill(Color.secondary.opacity(0.15)))
-        }
-        .buttonStyle(.plain)
-        .help(L("このレイヤーの一覧を出している出力。押すと、出力を選ぶ・足す・消す・名前・ディスプレイ・全画面", "The output whose layers are listed. Click to choose, add, delete, rename, set its display and full screen"))
-        .popover(isPresented: $outputsOpen, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 6) {
-                outputSection
-            }
-            .padding(10)
-            .frame(width: 320)
-        }
-    }
-
     @ViewBuilder private var outputSection: some View {
-        SectionTitle(L("出力", "Outputs") + (model.show.seats.count > 1 ? " — " + model.show.seat.name : ""), help: "outputs")
+        FoldSection(L("出力", "Outputs") + (model.show.seats.count > 1 ? " — " + model.show.seat.name : ""), key: "outputs", help: "outputs") {
         List {
             ForEach(model.show.outputs) { o in
                 HStack {
@@ -657,7 +627,7 @@ struct Sidebar: View {
             Toggle(L("全画面にする（F）", "Full Screen (F)"), isOn: model.outputBinding(\.fullscreen, false))
                 .help(L("このディスプレイいっぱいに出す。操作の窓とカーソルはそのディスプレイから消える", "Fill this display. The control window and pointer leave that display"))
         }
-
+        }
     }
 
     // MARK: picking rows and the right-click menus
@@ -727,13 +697,19 @@ struct Sidebar: View {
         // as their rows (they do not scroll themselves), so the wheel moves this column.
         ScrollView {
         VStack(alignment: .leading, spacing: 6) {
-            // Layers are what is touched while working, so they get the column; the output is a chip
-            // above them (plan 1, Akira 2026-11-25), seats are in the top bar, footage folds below.
-            HStack(spacing: 6) {
-                SectionTitle(L("レイヤー", "Layers"), help: "layers")
-                Spacer(minLength: 4)
-                outputChip
+            // Two tabs, like the right side (Akira 2026-11-26): outputs and layers are shown by default;
+            // footage is added once and then rarely touched, so it has its own tab. Seats are in the top bar.
+            Picker("", selection: $leftTab) {
+                Text(L("出力・レイヤー", "Outputs & Layers")).tag(0)
+                Text(L("映像ライブラリ", "Footage") + "（\(model.show.clips.count)）"
+                     + (model.show.clips.contains(where: { model.clipBroken($0.id) }) ? " ⚠︎" : "")).tag(1)
             }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .padding(.bottom, 2)
+            if leftTab == 0 {
+            outputSection
+            FoldSection(L("レイヤー", "Layers"), key: "layers", help: "layers") {
             List {
                 // Numbered from the front (1 = frontmost, like After Effects). Drag a row to change
                 // the order, like the tracks in Premiere.
@@ -800,8 +776,9 @@ struct Sidebar: View {
             }
 
             HeightHandle(height: $hLayers, auto: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 12))
-            // Footage: added once, then rarely touched, so folded by default (kept per Mac).
-            DisclosureGroup(isExpanded: $footageOpen) {
+            }
+            } else {
+                // Footage: added once, then rarely touched, so in its own tab (kept per Mac).
                 VStack(alignment: .leading, spacing: 6) {
                 // One line per movie (the list was 2 lines a movie and made the column long). Replace and
                 // remove act on the selected movie, like the layer buttons.
@@ -818,7 +795,7 @@ struct Sidebar: View {
                         .tag(Optional(c.id))
                         .selectedRow(model.clipPicks.isEmpty ? model.selectedClip == c.id : model.clipPicks.contains(c.id)) { clickClip(c.id) }
                         .contextMenu { clipMenu(c) }
-                        .help(L("\(c.name)\nレイヤーの行へドラッグすると、そのレイヤーの映像になる。右クリックで差し替え・外すなど。⌘・⇧ クリックで複数選べる", "\(c.name)\nDrag onto a layer row to show it on that layer. Right-click to replace, remove and more. ⌘ / ⇧ click to pick several"))
+                        .help(L("\(c.name)\n右クリックで、選んだレイヤーに出す・差し替え・外すなど。⌘・⇧ クリックで複数選べる", "\(c.name)\nRight-click to use it in the selected layer, replace, remove and more. ⌘ / ⇧ click to pick several"))
                         .draggable(ClipDrag.prefix + c.id)
                     }
                 }
@@ -827,6 +804,7 @@ struct Sidebar: View {
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
                 ListBar {
                     IconButton("plus", L("映像を足す…（ファイルを選ぶ）", "Add clips… (choose files)")) { model.addClips() }
+                    HelpButton(anchor: "clips")
                 }
                 HeightHandle(height: $hClips, auto: listHeight(model.show.clips.count, max: 6))
                 // The selected footage's details, like the top of After Effects' Project panel.
@@ -844,16 +822,6 @@ struct Sidebar: View {
                     .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
                     .contextMenu { Button(L("Finder で表示", "Reveal in Finder")) { model.revealClip(id) } }
                 }
-                }
-                .padding(.top, 4)
-            } label: {
-                HStack(spacing: 4) {
-                    Text(L("映像ライブラリ", "Footage") + "（\(model.show.clips.count)）").font(.headline)
-                        .onTapGesture { withAnimation { footageOpen.toggle() } }
-                    if model.show.clips.contains(where: { model.clipBroken($0.id) }) {
-                        Text("⚠︎").foregroundColor(.red).help(L("開けない映像があります", "Some footage can't be opened"))
-                    }
-                    HelpButton(anchor: "clips")
                 }
             }
         }
@@ -1154,6 +1122,36 @@ struct FoldLabel: View {
     }
 }
 
+/// A section that closes and opens by clicking its title, like After Effects (Akira 2026-11-26).
+/// Open by default; kept per Mac.
+struct FoldSection<Content: View>: View {
+    let title: String
+    var help: String?
+    @AppStorage private var open: Bool
+    @ViewBuilder let content: () -> Content
+    init(_ title: String, key: String, help: String? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title; self.help = help; self.content = content
+        _open = AppStorage(wrappedValue: true, "ui.fold." + key)
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+                    .frame(width: 10)
+                Text(title).font(.headline).lineLimit(1).truncationMode(.middle)
+                if let h = help { HelpButton(anchor: h) }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { open.toggle() } }
+            .help(open ? L("見出しを押すと閉じる", "Click the title to close") : L("見出しを押すと開く", "Click the title to open"))
+            if open { content() }
+        }
+    }
+}
+
 struct StepHeader: View {
     let title: String
     let anchor: String
@@ -1278,7 +1276,7 @@ struct Inspector: View {
 
     /// Settings for an exhibition: after a restart the Mac comes back as it was.
     @ViewBuilder private var exhibitSection: some View {
-        SectionTitle(L("展示の前の点検", "Pre-show Check"), help: "check")
+        FoldSection(L("展示の前の点検", "Pre-show Check"), key: "check", help: "check") {
         Button(L("点検する", "Check")) { model.runExhibitCheck() }
             .help(L("展示に入る前に、この Mac の設定とつながりを一度に確かめる", "Check this Mac's settings and connections at once before the exhibition"))
         if let at = model.checkedAt {
@@ -1298,10 +1296,11 @@ struct Inspector: View {
                 }
             }
         }
+        }
 
         if model.isMaster {
             Divider()
-            SectionTitle(L("つながっている Mac", "Connected Macs"), help: "macs")
+            FoldSection(L("つながっている Mac", "Connected Macs"), key: "macs", help: "macs") {
             if model.peers.isEmpty {
                 Text(L("フォロワーはまだ見えない。ほかの Mac で SyncPlayer を開くと、ここに並ぶ。", "No followers yet. Open SyncPlayer on other Macs and they appear here."))
                     .font(.caption).foregroundColor(.secondary)
@@ -1331,10 +1330,11 @@ struct Inspector: View {
                 }
                 .font(.caption)
             }
+            }
         }
 
         Divider()
-        SectionTitle(L("いまのこの Mac", "This Mac"), help: "exhibit")
+        FoldSection(L("いまのこの Mac", "This Mac"), key: "thisMac", help: "exhibit") {
         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
             GridRow { Text(L("操作の窓の色", "Appearance")).foregroundColor(.secondary)
                       Picker("", selection: Binding(get: { model.uiTheme }, set: { model.uiTheme = $0 })) {
@@ -1357,18 +1357,20 @@ struct Inspector: View {
                       Text(model.showFile.map { ($0 as NSString).lastPathComponent } ?? L("まだ保存していない", "Not saved yet")).lineLimit(1).truncationMode(.middle) }
         }
         .font(.callout)
+        }
 
         Divider()
-        SectionTitle(L("展示の設定（設営のとき 1 度だけ）", "Exhibition Setup (once, when installing)"))
+        FoldSection(L("展示の設定（設営のとき 1 度だけ）", "Exhibition Setup (once, when installing)"), key: "setup") {
         Toggle(L("ログインしたら SyncPlayer を開く", "Open SyncPlayer at Login"), isOn: Binding(get: { model.openAtLogin }, set: { model.openAtLogin = $0 }))
         Text(L("全台で入れる。再起動のあとログインするだけで、前と同じ全画面・音・マスクに戻る。", "Turn on for all Macs. After a restart, logging in brings back the same full screen, sound and masks."))
             .font(.caption).foregroundColor(.secondary)
         Toggle(L("この Mac を展示のマスターにする", "Make This Mac the Exhibition Master"), isOn: Binding(get: { model.exhibitMaster }, set: { model.setExhibitMaster($0) }))
         Text(L("全台のうち 1 台だけに入れる。入れるとすぐマスターになり、次から開くとマスターで始まって 3 秒後に自動で再生する。ほかの Mac は何もしなくてもフォロワーになり、どちらが先に開いても数秒でそろう。マスターを開き直すと、全台が頭から始め直す（2〜3 秒止まる）。", "One Mac only. It becomes master now, and from then on starts as master and plays 3 s after opening. The other Macs become followers by themselves and sync within seconds in any order. Reopening the master restarts all Macs from the top (2–3 s pause)."))
             .font(.caption).foregroundColor(.secondary)
+        }
 
         Divider()
-        SectionTitle(L("確かめる・困ったとき", "Checks and Troubleshooting"), help: "trouble")
+        FoldSection(L("確かめる・困ったとき", "Checks and Troubleshooting"), key: "trouble", help: "trouble") {
         if model.netBlocked {
             Text(L("⚠︎ この Mac からネットワークに届いていない。ローカルネットワークの許可が切れているか、ネットワークにつながっていない。", "⚠︎ This Mac can't reach the network. Local Network permission is off, or it isn't connected."))
                 .font(.caption).foregroundColor(.orange)
@@ -1383,6 +1385,7 @@ struct Inspector: View {
         }
         Text(L("1 台だけ映らない・ずれるときは、その Mac で Q キーを押して SyncPlayer を終了し、開き直す（数秒でそろう）。全部止まったときは、展示のマスターの Mac を開き直す。", "If one Mac is blank or off, press Q on it to quit SyncPlayer and reopen it (syncs in seconds). If all stopped, reopen the exhibition master."))
             .font(.caption).foregroundColor(.secondary)
+        }
     }
 
     @ViewBuilder private var layerSection: some View {
