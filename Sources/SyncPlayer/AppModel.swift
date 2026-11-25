@@ -833,6 +833,7 @@ final class AppModel: ObservableObject {
         let ids = Set(show.outputs.map(\.id))
         for (id, w) in outputs where !ids.contains(id) { w.close(); outputs[id] = nil }
         var created = false
+        var moved = false
         for (i, o) in show.outputs.enumerated() {
             if outputs[o.id] == nil {
                 guard let w = OutputWindow(id: o.id) else { print("Metal is not available"); exit(1) }
@@ -842,8 +843,21 @@ final class AppModel: ObservableObject {
                 w.apply(o, index: i, title: outputTitle(o))
                 w.window.orderFront(nil)
                 created = true
-            } else {
-                outputs[o.id]?.apply(o, index: i, title: outputTitle(o))
+            } else if outputs[o.id]?.apply(o, index: i, title: outputTitle(o)) == true {
+                moved = true
+            }
+        }
+        // A display or full screen changed from the control window (Akira 2026-11-26: the output
+        // seemed to vanish and Chrome behind came forward). Levels for the new screen at once, and
+        // SyncPlayer keeps the front with the control window as the key window where it can be seen.
+        if moved && !created {
+            refreshLevels()
+            NSApp.activate(ignoringOtherApps: true)
+            if let c = control, c.isVisible,
+               !outputs.values.contains(where: { $0.isFull && $0.window.frame.intersects(c.frame) }) || controlRaised {
+                c.makeKeyAndOrderFront(nil)
+            } else if let w = show.outputs.compactMap({ outputs[$0.id] }).first(where: { $0.isFull }) {
+                w.window.makeKeyAndOrderFront(nil)
             }
         }
         // A new windowed output must not hide the control window (full-screen outputs stay above it anyway).

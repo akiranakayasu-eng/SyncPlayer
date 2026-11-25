@@ -123,9 +123,11 @@ final class OutputWindow: NSObject, NSWindowDelegate {
 
     /// Put the window where the output says: its screen, full screen or a window on it.
     /// index: the output's place in the list, to stagger windows on the same screen.
-    func apply(_ o: OutputConfig, index: Int, title: String) {
+    /// Returns true when the window moved or changed between full screen and a window.
+    @discardableResult
+    func apply(_ o: OutputConfig, index: Int, title: String) -> Bool {
         window.title = title
-        guard o.fullscreen != isFull || o.screen != screenIndex else { return }
+        guard o.fullscreen != isFull || o.screen != screenIndex else { return false }
         let screens = NSScreen.screens
         let screen = screens.indices.contains(o.screen) ? screens[o.screen] : (NSScreen.main ?? screens[0])
         let movedScreen = o.screen != screenIndex
@@ -148,7 +150,10 @@ final class OutputWindow: NSObject, NSWindowDelegate {
         window.title = title
         isFull = o.fullscreen
         screenIndex = o.screen
-        window.orderFront(nil)
+        // Regardless of which app is in front: a full-screen output moved to another display stays
+        // up there (it seemed to vanish, Akira 2026-11-26).
+        window.orderFrontRegardless()
+        return true
     }
 
     /// Screens changed (a display was plugged or unplugged): place again.
