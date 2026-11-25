@@ -565,6 +565,12 @@ struct Inspector: View {
         Divider()
         SectionTitle("いまのこの Mac", help: "exhibit")
         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
+            GridRow { Text("操作の窓の色").foregroundColor(.secondary)
+                      Picker("", selection: Binding(get: { model.uiTheme }, set: { model.uiTheme = $0 })) {
+                          ForEach(AppModel.UITheme.allCases) { Text($0.label).tag($0) }
+                      }
+                      .labelsHidden().pickerStyle(.segmented).fixedSize()
+                      .help("自動は Mac の「外観」（ライト・ダーク）に合わせる。この Mac だけの設定") }
             GridRow { Text("名前").foregroundColor(.secondary); Text(model.opts.name) }
             GridRow { Text("版").foregroundColor(.secondary); Text(AppModel.version) }
             GridRow { Text("役").foregroundColor(.secondary); Text(model.isMaster ? "マスター" : "フォロワー") }

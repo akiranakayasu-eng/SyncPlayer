@@ -200,6 +200,7 @@ final class AppModel: ObservableObject {
         presetNames = ShowStore.presetNames()
 
         buildControlWindow()
+        applyTheme()
         show = show0
         selectedOutput = show.outputs.first?.id
         setRole(master: startMaster)
@@ -900,6 +901,28 @@ final class AppModel: ObservableObject {
     func notify(_ m: String) { message = m; messageUntil = hostNow() + 3 }
 
     // MARK: control window
+
+    /// The colour of the control window (and its dialogs): white, grey or black, or as the Mac is set.
+    enum UITheme: String, CaseIterable, Identifiable {
+        case auto, light, gray, dark
+        var id: String { rawValue }
+        var label: String {
+            switch self { case .auto: return "自動"; case .light: return "白"; case .gray: return "グレー"; case .dark: return "黒" }
+        }
+    }
+    @Published var uiTheme: UITheme = UITheme(rawValue: UserDefaults.standard.string(forKey: "ui.theme") ?? "") ?? .auto {
+        didSet { UserDefaults.standard.set(uiTheme.rawValue, forKey: "ui.theme"); applyTheme() }
+    }
+
+    func applyTheme() {
+        switch uiTheme {
+        case .auto: NSApp.appearance = nil
+        case .light: NSApp.appearance = NSAppearance(named: .aqua)
+        case .gray, .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+        control?.backgroundColor = uiTheme == .gray ? NSColor(white: 0.30, alpha: 1)
+            : uiTheme == .dark ? NSColor(white: 0.04, alpha: 1) : .windowBackgroundColor
+    }
 
     private func buildControlWindow() {
         let pv = PictureView(fps: 30)
