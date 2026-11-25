@@ -260,11 +260,6 @@ struct Sidebar: View {
     @ObservedObject var model: AppModel
     @State private var selectedClip: String?
 
-    /// The selected movie, or the only one when there is just one.
-    private var selectedClipID: String? {
-        if let id = selectedClip, model.show.clips.contains(where: { $0.id == id }) { return id }
-        return model.show.clips.count == 1 ? model.show.clips[0].id : nil
-    }
 
     var body: some View {
         // Scrolls when the window is low, so the top bar is never pushed out. The lists are as tall
@@ -349,6 +344,14 @@ struct Sidebar: View {
                             Text("⚠︎ 開けない").font(.caption).foregroundColor(.red)
                         }
                         Text(c.name).lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 4)
+                        // Replace and remove as small icons on the same line (Akira 2026-11-25).
+                        Button { model.replaceClip(c.id) } label: { Image(systemName: "arrow.triangle.2.circlepath") }
+                            .buttonStyle(.borderless)
+                            .help("差し替え: 別の映像と入れ替える（レイヤーの設定はそのまま）")
+                        Button { model.removeClip(c.id) } label: { Image(systemName: "xmark.circle") }
+                            .buttonStyle(.borderless)
+                            .help("外す: この映像と、それを使うレイヤーをショーから外す（確かめてから。ファイルは消えない）")
                     }
                     .tag(Optional(c.id))
                     .help("\(c.name)\nレイヤーの行へドラッグすると、そのレイヤーの映像になる")
@@ -358,15 +361,6 @@ struct Sidebar: View {
             .frame(height: listHeight(model.show.clips.count, max: 6))
             ListBar {
                 IconButton("plus", "映像を足す…（ファイルを選ぶ）") { model.addClips() }
-                IconButton("minus", "選んだ映像と、それを使うレイヤーをショーから外す（確かめてから。ファイルは消えない）") {
-                    if let id = selectedClipID { model.removeClip(id) }
-                }
-                .disabled(selectedClipID == nil)
-                Divider().frame(height: 14)
-                IconButton("arrow.triangle.2.circlepath", "差し替え: 選んだ映像を別の映像と入れ替える（レイヤーの設定はそのまま）") {
-                    if let id = selectedClipID { model.replaceClip(id) }
-                }
-                .disabled(selectedClipID == nil)
             }
         }
         .padding(8)
