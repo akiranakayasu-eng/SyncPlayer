@@ -173,16 +173,16 @@ struct TopBar: View {
             HStack(spacing: 10) {
                 if status.isMaster {
                     Button { model.master?.jump(to: 0) } label: { Label("頭へ", systemImage: "backward.end.fill") }
-                        .help("R キー")
+                        .help("R か ↑ キー")
                     Button { model.master?.jump(by: -5) } label: { Label("5 秒戻る", systemImage: "gobackward.5") }
-                        .help("← キー")
+                        .help("5 秒戻る（← で 1 コマ、shift+← で 1 秒）")
                     Button { model.master?.togglePlay() } label: {
                         Label(status.playing ? "停止" : "再生", systemImage: status.playing ? "pause.fill" : "play.fill")
                             .frame(minWidth: 56)
                     }
                     .help("space キー。全部の Mac がいっしょに再生・停止する")
                     Button { model.master?.jump(by: 5) } label: { Label("5 秒進む", systemImage: "goforward.5") }
-                        .help("→ キー")
+                        .help("5 秒進む（→ で 1 コマ、shift+→ で 1 秒）")
                 } else {
                     Text("再生・停止と位置の操作は、マスターの Mac で行う")
                         .foregroundColor(.secondary)

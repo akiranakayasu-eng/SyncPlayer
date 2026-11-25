@@ -91,7 +91,7 @@ final class AppModel: ObservableObject {
     private var keyMonitor: Any?
 
     static let keyHelp = """
-    space 再生／停止（マスター）  R 頭へ  ← → 5 秒（shift 1 秒）
+    space 再生／停止（マスター）  R・↑ 頭へ  ↓ 終わりの 3 秒前  ← → 1 コマ（shift 1 秒）
     N 名前とディスプレイの番号  M マスター⇔フォロワー  A 音
     S 操作の窓を出す／隠す  I 情報  H キー一覧  Q 終了
     O 次の出力  L 次のレイヤー  F 全画面  D 次のディスプレイ  G 格子
@@ -1091,15 +1091,35 @@ final class AppModel: ObservableObject {
             // Only in our own windows, and never while a text field is being typed in.
             guard let w = NSApp.keyWindow, w === self.control || self.outputs.values.contains(where: { $0.window === w })
             else { return e }
-            if w.firstResponder is NSText { return e }
+            if w.firstResponder is NSText {
+                // esc leaves the field, so space and the arrows work again.
+                if e.keyCode == 53 { w.makeFirstResponder(nil); return nil }
+                return e
+            }
             return self.key(e) ? nil : e
         }
+        // A click anywhere outside the text field being typed in leaves it. Otherwise a field
+        // clicked once (a name, a number) kept the keys, and space no longer played (Pro, 2026-11-25).
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { e in
+            guard let w = e.window, let editor = w.firstResponder as? NSTextView, editor.isFieldEditor,
+                  let field = editor.delegate as? NSView else { return e }
+            let p = field.convert(e.locationInWindow, from: nil)
+            if !field.bounds.contains(p) { DispatchQueue.main.async { w.makeFirstResponder(nil) } }
+            return e
+        }
     }
+    private var clickMonitor: Any?
 
     /// The overlay to nudge in pixels: the selected output's window, else the preview.
     private var nudgeOverlay: EditOverlay? {
         if let id = selectedOutput, let w = outputs[id] { return w.picture.overlay }
         return preview?.overlay
+    }
+
+    /// One frame of the longest movie (s), 1/30 s until known.
+    private var frameStep: Double {
+        let f = transport.primary?.frameDuration ?? 0
+        return f > 0 ? f : 1.0 / 30
     }
 
     func key(_ e: NSEvent) -> Bool {
@@ -1126,14 +1146,21 @@ final class AppModel: ObservableObject {
         case 49: master?.togglePlay(); return true                      // space
         case 48: nudgeOverlay?.selectNext(shift ? -1 : 1); return true   // tab
         case 53: if editing { toggleEdit(editMode) }; return true       // esc
+        // Like Premiere / After Effects: ← → one frame (shift: 1 s), ↑ to the start, ↓ to 3 s before
+        // the loop point (to look at the seam). While editing corners they move the point.
         case 123:                                                       // ←
-            if editing { nudgeOverlay?.nudge(dx: -px, dy: 0) } else { master?.jump(by: shift ? -1 : -5) }
+            if editing { nudgeOverlay?.nudge(dx: -px, dy: 0) } else { master?.jump(by: shift ? -1 : -frameStep) }
             return true
         case 124:                                                       // →
-            if editing { nudgeOverlay?.nudge(dx: px, dy: 0) } else { master?.jump(by: shift ? 1 : 5) }
+            if editing { nudgeOverlay?.nudge(dx: px, dy: 0) } else { master?.jump(by: shift ? 1 : frameStep) }
             return true
-        case 125: if editing { nudgeOverlay?.nudge(dx: 0, dy: -px) }; return true   // ↓
-        case 126: if editing { nudgeOverlay?.nudge(dx: 0, dy: px) }; return true    // ↑
+        case 125:                                                       // ↓
+            if editing { nudgeOverlay?.nudge(dx: 0, dy: -px) }
+            else if transport.duration > 3 { master?.jump(to: transport.duration - 3) }
+            return true
+        case 126:                                                       // ↑
+            if editing { nudgeOverlay?.nudge(dx: 0, dy: px) } else { master?.jump(to: 0) }
+            return true
         default: break
         }
 
