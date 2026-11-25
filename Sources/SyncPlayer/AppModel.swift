@@ -73,6 +73,9 @@ final class AppModel: ObservableObject {
     var control: NSWindow?
     var preview: PictureView?
     var previewBox: AspectBox?
+    /// The preview's zoom (nil = fit), shown and chosen under the preview.
+    @Published var previewZoom: Double?
+    func setPreviewZoom(_ z: Double?) { previewBox?.setZoom(z) }
     var showHelp = false
     /// Info text on windowed outputs (shown unless I hides it).
     var infoHidden = false
@@ -1495,7 +1498,17 @@ final class AppModel: ObservableObject {
                      viewAspect: { [weak self] in self?.selectedOutputAspect ?? 16.0 / 9.0 })
         // Click the preview to select the layer under the pointer (frontmost first, like Adobe).
         pv.overlay.pick = { [weak self] p in self?.pickLayer(at: p) }
-        previewBox = AspectBox(child: pv)
+        let box = AspectBox(child: pv)
+        previewBox = box
+        pv.overlay.panBy = { [weak box] dx, dy in box?.panBy(dx, dy) }
+        // 100 % is the selected output's own pixels.
+        box.outputPixels = { [weak self] in
+            // The selected output's display in pixels (the same when windowed or full screen).
+            guard let self, let o = self.selectedOutputConfig else { return CGSize(width: 1920, height: 1080) }
+            let sc = NSScreen.screens.indices.contains(o.screen) ? NSScreen.screens[o.screen] : (NSScreen.main ?? NSScreen.screens[0])
+            return CGSize(width: sc.frame.width * sc.backingScaleFactor, height: sc.frame.height * sc.backingScaleFactor)
+        }
+        box.onZoom = { [weak self] z in self?.previewZoom = z }
 
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let vf = screen.visibleFrame
@@ -1734,6 +1747,7 @@ final class AppModel: ObservableObject {
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
             // A click outside the left lists (preview, tabs, output windows) forgets what delete
             // would remove, so delete never removes something picked long ago (check 39).
+            AppModel.undoHold = false   // a leftover drag's undo hold ends with the next click (check 47 L3)
             if let self, self.deleteTarget != nil || self.arrowTarget != nil {
                 var v: NSView? = nil
                 if let w = e.window, let cv = w.contentView {

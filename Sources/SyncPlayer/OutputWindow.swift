@@ -17,23 +17,100 @@ final class AspectBox: NSView {
     let child: NSView
     var aspect: Double = 16.0 / 9.0 { didSet { if aspect != oldValue { needsLayout = true } } }
 
+    // Zoom and pan of the preview, like After Effects' Composition panel (Akira 2026-11-26).
+    // zoom nil = fit; otherwise 1 = 100 % (one pixel of the output is one pixel here).
+    private(set) var zoom: Double?
+    private var pan = CGPoint.zero
+    /// The output's size in pixels (for 100 %), supplied by the model.
+    var outputPixels: () -> CGSize = { CGSize(width: 1920, height: 1080) }
+    /// Told whenever the zoom changes (the % shown under the preview).
+    var onZoom: ((Double?) -> Void)?
+    static let zoomRange: ClosedRange<Double> = 0.05...4
+    /// The picture is never made bigger than this (points), to keep the Metal drawable small.
+    private static let maxSide: CGFloat = 4096
+
     init(child: NSView) {
         self.child = child
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
+        layer?.masksToBounds = true
         addSubview(child)
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    private var fitSize: CGSize {
+        let b = bounds
+        guard b.width > 0, b.height > 0, aspect > 0 else { return .zero }
+        var w = b.width, h = b.width / aspect
+        if h > b.height { h = b.height; w = h * aspect }
+        return CGSize(width: w, height: h)
+    }
+    private var scale: CGFloat { window?.backingScaleFactor ?? 2 }
+    /// The zoom the fit size is, as a %.
+    var fitZoom: Double {
+        let px = outputPixels()
+        guard px.width > 0 else { return 1 }
+        return Double(fitSize.width * scale / px.width)
+    }
+    /// What the zoom is now (fit too), 1 = 100 %.
+    var currentZoom: Double { zoom ?? fitZoom }
+
     override func layout() {
         super.layout()
         let b = bounds
-        guard b.width > 0, b.height > 0, aspect > 0 else { return }
-        var w = b.width, h = b.width / aspect
-        if h > b.height { h = b.height; w = h * aspect }
-        child.frame = NSRect(x: (b.width - w) / 2, y: (b.height - h) / 2, width: w, height: h)
+        let f = fitSize
+        guard f.width > 0 else { return }
+        var w = f.width, h = f.height
+        if let z = zoom {
+            let px = outputPixels()
+            w = px.width * CGFloat(z) / scale
+            h = w / CGFloat(aspect)
+            let k = min(1, AspectBox.maxSide / max(w, h))
+            w *= k; h *= k
+        }
+        child.frame = NSRect(x: (b.width - w) / 2 + pan.x, y: (b.height - h) / 2 + pan.y, width: w, height: h)
     }
+
+    /// Set a zoom (nil = fit). Keeps the point under `at` (in this view) where it is.
+    func setZoom(_ z: Double?, at: CGPoint? = nil) {
+        guard let z else { zoom = nil; pan = .zero; needsLayout = true; onZoom?(nil); return }
+        let nz = min(max(z, AspectBox.zoomRange.lowerBound), AspectBox.zoomRange.upperBound)
+        let old = currentZoom
+        let c = at ?? CGPoint(x: bounds.midX, y: bounds.midY)
+        // The picture point under c stays under c: scale its offset from the centre.
+        let k = CGFloat(nz / max(old, 0.0001))
+        let mid = CGPoint(x: bounds.midX, y: bounds.midY)
+        let off = CGPoint(x: c.x - (mid.x + pan.x), y: c.y - (mid.y + pan.y))
+        pan = CGPoint(x: c.x - mid.x - off.x * k, y: c.y - mid.y - off.y * k)
+        zoom = nz
+        needsLayout = true
+        onZoom?(nz)
+    }
+
+    func panBy(_ dx: CGFloat, _ dy: CGFloat) {
+        if zoom == nil { zoom = fitZoom; onZoom?(zoom) }
+        pan.x += dx; pan.y += dy
+        needsLayout = true
+    }
+
+    // Wheel: zoom around the pointer. A trackpad's two-finger scroll moves the picture, a pinch zooms.
+    override func scrollWheel(with e: NSEvent) {
+        if e.hasPreciseScrollingDeltas && e.phase != [] || e.momentumPhase != [] {
+            panBy(e.scrollingDeltaX, -e.scrollingDeltaY)
+            return
+        }
+        let d = e.scrollingDeltaY
+        guard d != 0 else { return }
+        setZoom(currentZoom * pow(1.1, Double(d > 0 ? 1 : -1)), at: convert(e.locationInWindow, from: nil))
+    }
+    override func magnify(with e: NSEvent) {
+        setZoom(currentZoom * (1 + Double(e.magnification)), at: convert(e.locationInWindow, from: nil))
+    }
+    // Middle-button (wheel) drag moves the picture.
+    override func otherMouseDragged(with e: NSEvent) { panBy(e.deltaX, -e.deltaY) }
+    override func otherMouseDown(with e: NSEvent) {}
+    override func otherMouseUp(with e: NSEvent) {}
 }
 
 /// The picture, the edit handles and the info text: used by output windows and the preview.
@@ -137,14 +214,22 @@ final class OutputWindow: NSObject, NSWindowDelegate {
             window.setFrame(screen.frame, display: true)
         } else {
             window.styleMask = OutputWindow.windowed
+            // A windowed output keeps its display's shape, so the layers are laid out the same as at
+            // full screen and the preview matches the display (Akira 2026-11-26: it only matched after F).
+            let ratio = screen.frame.width / max(screen.frame.height, 1)
+            window.contentAspectRatio = screen.frame.size
             var f = windowedFrame ?? .zero
             if movedScreen || windowedFrame == nil || !screen.frame.intersects(f) {
                 // Top right and small, so it does not hide the control window (bottom left).
                 let vf = screen.visibleFrame
                 let off = CGFloat(index * 40)
-                let w = min(640, vf.width / 2), h = w * 9 / 16
+                let w = min(640, vf.width / 2), h = w / ratio
                 f = NSRect(x: vf.maxX - w - 20 - off, y: vf.maxY - h - 20 - off, width: w, height: h)
             }
+            // The content (not the title bar) has the display's shape; the top edge stays put.
+            let c = window.contentRect(forFrameRect: f)
+            f = window.frameRect(forContentRect: NSRect(x: c.minX, y: c.maxY - c.width / ratio,
+                                                        width: c.width, height: c.width / ratio))
             window.setFrame(f, display: true)
         }
         window.title = title

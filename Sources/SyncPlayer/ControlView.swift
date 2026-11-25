@@ -52,6 +52,7 @@ struct ControlView: View {
                             .font(.caption).foregroundColor(.secondary)
                         PreviewView(model: model)
                             .frame(minHeight: 160)
+                        PreviewBar(model: model)
                     }
                     .padding(8)
                     .frame(minHeight: 200)
@@ -627,7 +628,7 @@ struct Sidebar: View {
                     } else {
                         Text(o.name)
                             .onTapGesture(count: 2) { renameText = o.name; renamingOutput = o.id }
-                            .simultaneousGesture(TapGesture().onEnded { model.selectedOutput = o.id })
+                            .simultaneousGesture(TapGesture().onEnded { model.selectedOutput = o.id; model.deleteTarget = nil; model.arrowTarget = nil })
                             .help(L("ダブルクリックで名前を変える", "Double-click to rename"))
                     }
                     Spacer()
@@ -1012,6 +1013,83 @@ struct HelpButton: View {
 }
 
 // MARK: preview
+
+/// Under the preview, like the bottom of After Effects' Composition panel (Akira 2026-11-26): the zoom
+/// (Fit, 25–400 %; the wheel zooms, a drag or the wheel button moves the picture) and the view switches
+/// with their keys (G grid, N names, I info, E corners, W mesh, F full screen).
+struct PreviewBar: View {
+    @ObservedObject var model: AppModel
+    private static let zooms: [Double] = [0.25, 0.5, 1, 2, 4]
+
+    private var zoomText: String {
+        guard let z = model.previewZoom else { return L("全体", "Fit") }
+        return "\(Int((z * 100).rounded())) %"
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Menu {
+                Button(L("全体（画面に合わせる）", "Fit")) { model.setPreviewZoom(nil) }
+                Divider()
+                ForEach(PreviewBar.zooms, id: \.self) { z in
+                    Button("\(Int(z * 100)) %") { model.setPreviewZoom(z) }
+                }
+            } label: {
+                Text(zoomText).font(.caption.monospacedDigit())
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help(L("拡大率。ホイールで拡大・縮小、ドラッグかホイールのボタンを押したままのドラッグで動かす。100 % は出力の画素そのまま", "Zoom. The wheel zooms; drag (or drag with the wheel button) to move. 100 % is the output's own pixels"))
+            BarIcon("arrow.up.left.and.down.right.and.arrow.up.right.and.down.left", on: model.previewZoom == nil,
+                    L("全体を表示（画面に合わせる）", "Fit")) { model.setPreviewZoom(nil) }
+            Divider().frame(height: 14)
+            BarIcon("grid", on: model.selectedLook?.showGrid == true, L("確認用の格子（G）", "Grid (G)")) {
+                model.lookBinding(\.showGrid, false).wrappedValue.toggle()
+            }
+            .disabled(model.selectedLook == nil)
+            BarIcon("number.square", on: model.showIdent, L("Mac 名とディスプレイの番号（N）", "Mac names and display numbers (N)")) {
+                model.showIdent.toggle()
+            }
+            BarIcon("info.circle", on: model.infoShownNow, L("動作確認の文字（I）", "Info text (I)")) {
+                model.setInfoShown(!model.infoShownNow)
+            }
+            Divider().frame(height: 14)
+            BarIcon("perspective", on: model.editMode == .corners, L("四隅を動かす（E）", "Corner pin (E)")) { model.toggleEdit(.corners) }
+                .disabled(model.selectedLook == nil)
+            BarIcon("squareshape.split.3x3", on: model.editMode == .mesh, L("曲面メッシュ（W）", "Mesh (W)")) { model.toggleEdit(.mesh) }
+                .disabled(model.selectedLook == nil)
+            Divider().frame(height: 14)
+            BarIcon("rectangle.inset.filled", on: model.selectedOutputConfig?.fullscreen == true, L("選んだ出力を全画面に（F）", "Selected output full screen (F)")) {
+                model.toggleFullscreen()
+            }
+            .disabled(model.selectedOutputConfig == nil)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 2)
+    }
+}
+
+/// A small icon switch under the preview: highlighted while on.
+struct BarIcon: View {
+    let icon: String
+    let on: Bool
+    let help: String
+    let action: () -> Void
+    init(_ icon: String, on: Bool, _ help: String, action: @escaping () -> Void) {
+        self.icon = icon; self.on = on; self.help = help; self.action = action
+    }
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .frame(width: 22, height: 18)
+                .foregroundColor(on ? .accentColor : .primary)
+                .background(RoundedRectangle(cornerRadius: 4).fill(on ? Color.accentColor.opacity(0.18) : .clear))
+        }
+        .buttonStyle(.borderless)
+        .help(help)
+    }
+}
 
 struct PreviewView: NSViewRepresentable {
     let model: AppModel

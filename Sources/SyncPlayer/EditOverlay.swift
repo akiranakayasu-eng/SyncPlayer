@@ -16,7 +16,11 @@ final class EditOverlay: NSView {
     var onChange: ((DisplaySettings) -> Void)?
     /// When not editing: a click picks the layer under it (normalized window point). Preview only.
     var pick: ((SIMD2<Double>) -> Void)?
+    /// When not editing: a left drag moves the picture (preview only, Akira 2026-11-26).
+    var panBy: ((CGFloat, CGFloat) -> Void)?
     private var dragging: Int?
+    private var downAt: NSPoint?
+    private var panning = false
 
     var mode: EditMode { settings() == nil ? .none : modeOf() }
     var selected: Int { selectedOf() }
@@ -85,7 +89,12 @@ final class EditOverlay: NSView {
     override func mouseDown(with e: NSEvent) {
         let p = convert(e.locationInWindow, from: nil)
         if mode == .none {
-            if bounds.width > 0, bounds.height > 0 { pick?(SIMD2(Double(p.x / bounds.width), Double(p.y / bounds.height))) }
+            // A click picks the layer (on release, so a drag can move the picture instead).
+            if panBy == nil {
+                if bounds.width > 0, bounds.height > 0 { pick?(SIMD2(Double(p.x / bounds.width), Double(p.y / bounds.height))) }
+            } else {
+                downAt = e.locationInWindow; panning = false
+            }
             return
         }
         var best = -1, bestD = 18.0
@@ -98,11 +107,26 @@ final class EditOverlay: NSView {
     }
 
     override func mouseDragged(with e: NSEvent) {
+        if mode == .none, let d = downAt, let pan = panBy {
+            if !panning && hypot(e.locationInWindow.x - d.x, e.locationInWindow.y - d.y) > 3 { panning = true }
+            if panning { pan(e.deltaX, -e.deltaY) }
+            return
+        }
         guard let k = dragging, bounds.width > 0, bounds.height > 0 else { return }
         move(k, by: SIMD2(Double(e.deltaX) / bounds.width, Double(-e.deltaY) / bounds.height))
     }
 
-    override func mouseUp(with e: NSEvent) { dragging = nil }
+    override func mouseUp(with e: NSEvent) {
+        if let d = downAt {
+            downAt = nil
+            if !panning, mode == .none {
+                let p = convert(d, from: nil)
+                if bounds.width > 0, bounds.height > 0 { pick?(SIMD2(Double(p.x / bounds.width), Double(p.y / bounds.height))) }
+            }
+            panning = false
+        }
+        dragging = nil
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard mode != .none, let s = settings() else { return }
