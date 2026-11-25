@@ -1102,7 +1102,7 @@ final class AppModel: ObservableObject {
                 do {
                     let f = try Follower(transport: transport, provisionalOffset: wasMaster ? 0 : nil)
                     f.report = { [weak self] in
-                        guard let self else { return ("", "", nil, nil, "") }
+                        guard let self else { return ("", "", nil, nil, "", nil) }
                         let err = self.transport.schedule != nil ? self.transport.maxError * 1000 : nil
                         return (self.opts.name, AppModel.version, err, self.problemNow(), String(self.show.fileLabel.prefix(200)),
                                 self.show.seats.count > 1 ? self.show.seat.name : nil)
