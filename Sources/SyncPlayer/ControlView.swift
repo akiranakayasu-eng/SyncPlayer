@@ -402,13 +402,16 @@ struct TopBar: View {
                                 guard status.isMaster else { return }
                                 timeText = timeString(status.position); editingTime = true
                             }
-                            // Drag left/right to move the playhead (0.02 s a point, shift: 0.002 s); all Macs follow on release.
-                            .modifier(Scrub(enabled: status.isMaster, perPoint: 0.02,
+                            // Drag left/right to move the playhead (0.1 s a point, shift: every 10 points); all Macs follow on release.
+                            .modifier(Scrub(enabled: status.isMaster, step: 0.1,
+                                            limit: 0...max(0, status.duration - 0.001),
                                             start: { status.position },
-                                            change: { v, done in
-                                                let t = min(max(v, 0), max(0, status.duration - 0.001))
-                                                if done { dragging = false; model.master?.jump(to: t) }
-                                                else { dragging = true; value = t }
+                                            change: { t, phase in
+                                                switch phase {
+                                                case .moving: dragging = true; value = t
+                                                case .done: dragging = false; model.master?.jump(to: t)
+                                                case .cancel: dragging = false
+                                                }
                                             }))
                             .help(status.isMaster ? L("押すと位置を打てる。After Effects のように数字だけなら右から 1/100 秒・秒・分（200 で 2 秒、10000 で 1 分）。1:23.5 の形でもよい。Return で全部の Mac がその位置へ", "Click to type a time. Digits read from the right as 1/100 s, seconds, minutes, like After Effects (200 = 2 s, 10000 = 1 min). 1:23.5 also works. Return moves all Macs there") : L("いまの位置", "Current time"))
                     }
@@ -431,12 +434,15 @@ struct TopBar: View {
                                 guard status.isMaster else { return }
                                 loopText = timeString(status.duration); editingLoop = true
                             }
-                            // Drag left/right to change the loop length (0.05 s a point, shift: 0.005 s); set on release.
-                            .modifier(Scrub(enabled: status.isMaster, perPoint: 0.05,
+                            // Drag left/right to change the loop length (0.1 s a point, shift: every 10 points); set on release.
+                            .modifier(Scrub(enabled: status.isMaster, step: 0.1, limit: 1...86_400,
                                             start: { status.duration },
-                                            change: { v, done in
-                                                let x = max(v, 1)
-                                                if done { loopScrub = nil; setLoop(x) } else { loopScrub = x }
+                                            change: { x, phase in
+                                                switch phase {
+                                                case .moving: loopScrub = x
+                                                case .done: loopScrub = nil; setLoop(x)
+                                                case .cancel: loopScrub = nil
+                                                }
                                             }))
                             .help(status.isMaster ? L("ループの長さ。押すと打てる（200 で 2 秒、1:30 で 1 分 30 秒。0 でいちばん長い映像の長さ）。全部の Mac がこの長さで頭へ戻る", "Loop length. Click to type (200 = 2 s, 1:30 = 1 min 30 s, 0 = longest clip). All Macs go back to the start at this length") : L("ループの長さ（マスターの Mac で変える）", "Loop length (changed on the master)"))
                     }
@@ -636,11 +642,13 @@ struct Sidebar: View {
         let order = (model.selectedOutputConfig?.layers ?? []).reversed().map(\.id)
         model.clickLayerRow(id, order: order)
         model.deleteTarget = { [weak m = model] in m?.removeLayer() }
+        model.arrowTarget = { [weak m = model] d in m?.stepLayerRow(d) }
     }
 
     private func clickClip(_ id: String) {
         model.clickClipRow(id)
         model.deleteTarget = { [weak m = model] in m?.removeSelectedClips() }
+        model.arrowTarget = { [weak m = model] d in m?.stepClipRow(d) }
     }
 
     /// A right-click on a row that is not among the picked ones acts on that row only (like Finder).
@@ -709,7 +717,9 @@ struct Sidebar: View {
             .padding(.bottom, 2)
             if leftTab == 0 {
             outputSection
+            ThinLine()
             FoldSection(L("レイヤー", "Layers"), key: "layers", help: "layers") {
+            ScrollViewReader { proxy in
             List {
                 // Numbered from the front (1 = frontmost, like After Effects). Drag a row to change
                 // the order, like the tracks in Premiere.
@@ -764,6 +774,9 @@ struct Sidebar: View {
             .frame(height: listH(hLayers, model.selectedOutputConfig?.layers.count ?? 0, max: 12))
             .scrollContentBackground(.hidden)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
+            // Keep the row picked with ↑ ↓ in view.
+            .onChange(of: model.selectedLayer) { id in if let id { proxy.scrollTo(id) } }
+            }
             // One row of small icon buttons under the list, like the + − bar under macOS lists.
             ListBar {
                 IconButton("plus", L("レイヤーを足す", "Add a layer")) { model.addLayer() }
@@ -782,6 +795,7 @@ struct Sidebar: View {
                 VStack(alignment: .leading, spacing: 6) {
                 // One line per movie (the list was 2 lines a movie and made the column long). Replace and
                 // remove act on the selected movie, like the layer buttons.
+                ScrollViewReader { proxy in
                 List {
                     ForEach(model.show.clips) { c in
                         HStack(spacing: 4) {
@@ -802,6 +816,8 @@ struct Sidebar: View {
                 .frame(height: listH(hClips, model.show.clips.count, max: 6))
                 .scrollContentBackground(.hidden)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
+                .onChange(of: model.selectedClip) { id in if let id { proxy.scrollTo(id) } }
+                }
                 ListBar {
                     IconButton("plus", L("映像を足す…（ファイルを選ぶ）", "Add clips… (choose files)")) { model.addClips() }
                     HelpButton(anchor: "clips")
@@ -976,39 +992,68 @@ struct PreviewView: NSViewRepresentable {
 
 // MARK: right side
 
-/// Like After Effects: drag a number left or right to change it; with shift held, in finer steps
-/// (Akira 2026-11-26). A click without dragging still opens the field to type.
+/// Drag a number left or right to change it, like After Effects (Akira 2026-11-25). One point is one
+/// step of what is shown (1 %, 0.1°, 0.1 s); with shift, one step every 10 points (Akira asked shift
+/// for finer moves, the other way round from AE). Values snap to the step, so nothing hidden is set.
+/// The first few points are slack, so a click that slips a little stays a click. A drag is one undo step.
+enum ScrubPhase { case moving, done, cancel }
 struct Scrub: ViewModifier {
     let enabled: Bool
-    /// Change per point dragged (shift: a tenth of it).
-    let perPoint: Double
+    let step: Double
+    let limit: ClosedRange<Double>
     let start: () -> Double
-    /// The new value, and whether the drag has ended.
-    let change: (Double, Bool) -> Void
+    let change: (Double, ScrubPhase) -> Void
     @State private var from: Double?
     @State private var lastX: CGFloat = 0
-    @State private var acc = 0.0
+    @State private var points = 0.0
+    @State private var moved = false
     @State private var hovering = false
+    private static let slack: CGFloat = 4
+
+    private func value() -> Double {
+        let raw = (from ?? 0) + points.rounded(.towardZero) * step
+        let v = (raw / step).rounded() * step
+        return min(max(v, limit.lowerBound), limit.upperBound)
+    }
+    private func endHover() { if hovering { NSCursor.pop(); hovering = false } }
+    private func finish(_ phase: ScrubPhase) {
+        guard let f = from else { return }
+        let v = value()
+        let wasMoved = moved
+        from = nil; moved = false
+        AppModel.undoHold = false
+        // A click that slipped a little, or stopped part way: leave it as it was (check 45 M4, L1).
+        if phase == .done && wasMoved { change(v, .done) } else { change(f, .cancel) }
+    }
 
     func body(content: Content) -> some View {
         content
             .onHover { inside in
                 guard enabled || hovering else { return }
                 if inside && !hovering { NSCursor.resizeLeftRight.push(); hovering = true }
-                else if !inside && hovering { NSCursor.pop(); hovering = false }
+                else if !inside { endHover() }
             }
-            .gesture(DragGesture(minimumDistance: 3)
+            // Clicking swaps the number for a text field: give the cursor back (check 45 M1).
+            .onDisappear { endHover(); if from != nil { finish(.cancel) } }
+            .onChange(of: enabled) { on in if !on { endHover(); if from != nil { finish(.cancel) } } }
+            .gesture(DragGesture(minimumDistance: Scrub.slack)
                 .onChanged { g in
-                    if from == nil { from = start(); lastX = 0; acc = 0 }
+                    guard enabled else { return }
+                    if from == nil {
+                        from = start(); lastX = g.translation.width; points = 0; moved = false
+                        AppModel.undoHold = true; AppModel.undoHoldUsed = false
+                    }
                     let dx = Double(g.translation.width - lastX)
                     lastX = g.translation.width
-                    acc += dx * perPoint * (NSEvent.modifierFlags.contains(.shift) ? 0.1 : 1)
-                    change((from ?? 0) + acc, false)
+                    points += dx * (NSEvent.modifierFlags.contains(.shift) ? 0.1 : 1)
+                    // Past an end, coming back moves at once (check 45 L2).
+                    let f = from ?? 0
+                    points = min(max(points, (limit.lowerBound - f) / step - 0.5), (limit.upperBound - f) / step + 0.5)
+                    if points.rounded(.towardZero) != 0 { moved = true }
+                    if moved { change(value(), .moving) }
                 }
-                .onEnded { _ in
-                    change((from ?? 0) + acc, true)
-                    from = nil
-                }, including: enabled ? .all : .subviews)
+                .onEnded { _ in finish(.done) },
+                including: enabled ? .all : .subviews)
     }
 }
 
@@ -1018,6 +1063,8 @@ struct ValueUnit {
     let digits: Int
     let suffix: String
     var signed = false
+    /// One step of what is shown (1 % is 0.01, 0.1° is 0.1).
+    var step: Double { pow(10, Double(-digits)) / scale }
     func text(_ v: Double) -> String {
         String(format: signed ? "%+.\(digits)f" : "%.\(digits)f", v * scale) + suffix
     }
@@ -1078,9 +1125,9 @@ struct SliderRow: View {
                     .frame(width: 52, alignment: .trailing)
                     .contentShape(Rectangle())
                     .onTapGesture { text = unit.text(value); editing = true }
-                    .modifier(Scrub(enabled: true, perPoint: (range.upperBound - range.lowerBound) / 400,
+                    .modifier(Scrub(enabled: true, step: unit.step, limit: range,
                                     start: { value },
-                                    change: { v, _ in value = min(max(v, range.lowerBound), range.upperBound) }))
+                                    change: { v, phase in if phase != .cancel || value != v { value = v } }))
                     .help(L("押すと数字を打てる（Return で決める、esc でやめる）。左右にドラッグでも変わり、shift を押しながらだと細かく変わる", "Click to type a value (Return to set, esc to cancel). Drag left or right to change it; hold shift for fine steps"))
             }
             if defaultValue != nil {
@@ -1149,6 +1196,14 @@ struct FoldSection<Content: View>: View {
             .help(open ? L("見出しを押すと閉じる", "Click the title to close") : L("見出しを押すと開く", "Click the title to open"))
             if open { content() }
         }
+    }
+}
+
+/// A faint line between sections and property groups, like After Effects' Effect Controls (Akira 2026-11-26).
+struct ThinLine: View {
+    var body: some View {
+        Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1).opacity(0.7)
+            .padding(.vertical, 2)
     }
 }
 
@@ -1299,7 +1354,7 @@ struct Inspector: View {
         }
 
         if model.isMaster {
-            Divider()
+            ThinLine()
             FoldSection(L("つながっている Mac", "Connected Macs"), key: "macs", help: "macs") {
             if model.peers.isEmpty {
                 Text(L("フォロワーはまだ見えない。ほかの Mac で SyncPlayer を開くと、ここに並ぶ。", "No followers yet. Open SyncPlayer on other Macs and they appear here."))
@@ -1333,7 +1388,7 @@ struct Inspector: View {
             }
         }
 
-        Divider()
+        ThinLine()
         FoldSection(L("いまのこの Mac", "This Mac"), key: "thisMac", help: "exhibit") {
         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
             GridRow { Text(L("操作の窓の色", "Appearance")).foregroundColor(.secondary)
@@ -1359,7 +1414,7 @@ struct Inspector: View {
         .font(.callout)
         }
 
-        Divider()
+        ThinLine()
         FoldSection(L("展示の設定（設営のとき 1 度だけ）", "Exhibition Setup (once, when installing)"), key: "setup") {
         Toggle(L("ログインしたら SyncPlayer を開く", "Open SyncPlayer at Login"), isOn: Binding(get: { model.openAtLogin }, set: { model.openAtLogin = $0 }))
         Text(L("全台で入れる。再起動のあとログインするだけで、前と同じ全画面・音・マスクに戻る。", "Turn on for all Macs. After a restart, logging in brings back the same full screen, sound and masks."))
@@ -1369,7 +1424,7 @@ struct Inspector: View {
             .font(.caption).foregroundColor(.secondary)
         }
 
-        Divider()
+        ThinLine()
         FoldSection(L("確かめる・困ったとき", "Checks and Troubleshooting"), key: "trouble", help: "trouble") {
         if model.netBlocked {
             Text(L("⚠︎ この Mac からネットワークに届いていない。ローカルネットワークの許可が切れているか、ネットワークにつながっていない。", "⚠︎ This Mac can't reach the network. Local Network permission is off, or it isn't connected."))
@@ -1395,6 +1450,7 @@ struct Inspector: View {
         }
         SliderRow(label: L("不透明度", "Opacity"), value: model.layerBinding(\.opacity, 1), range: 0...1, defaultValue: 1, unit: ValueText.percent)
 
+        ThinLine()
         DisclosureGroup(isExpanded: $openPlace) {
             VStack(alignment: .leading, spacing: 6) {
                 SliderRow(label: L("横の位置", "Position X"), value: model.lookBinding(\.posX, 0), range: -1...1, defaultValue: 0, unit: ValueText.signedPercent,
@@ -1412,6 +1468,7 @@ struct Inspector: View {
             .padding(.top, 4)
         } label: { FoldLabel(title: L("位置・大きさ・回転", "Transform"), isOpen: $openPlace, help: "place") }
 
+        ThinLine()
         DisclosureGroup(isExpanded: $openCrop) {
             VStack(alignment: .leading, spacing: 6) {
                 SliderRow(label: L("左", "Left"), value: model.lookBinding(\.cropL, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
@@ -1422,6 +1479,7 @@ struct Inspector: View {
             .padding(.top, 4)
         } label: { FoldLabel(title: L("切り取り（映像の端を削る）", "Crop"), isOpen: $openCrop, help: "crop") }
 
+        ThinLine()
         DisclosureGroup(isExpanded: $openMask) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -1440,6 +1498,7 @@ struct Inspector: View {
             .padding(.top, 4)
         } label: { FoldLabel(title: L("マスク（白黒の画像で形を抜く）", "Mask"), isOpen: $openMask, warn: maskBroken, help: "mask") }
 
+        ThinLine()
         DisclosureGroup(isExpanded: $openBlend) {
             VStack(alignment: .leading, spacing: 6) {
                 SliderRow(label: L("左", "Left"), value: model.lookBinding(\.blendL, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
@@ -1453,6 +1512,7 @@ struct Inspector: View {
             .padding(.top, 4)
         } label: { FoldLabel(title: L("エッジブレンド（プロジェクターの重なり）", "Edge Blend"), isOpen: $openBlend, help: "blend") }
 
+        ThinLine()
         DisclosureGroup(isExpanded: $openWarp) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {

@@ -39,7 +39,7 @@ final class AppModel: ObservableObject {
             if selectedLayer != oldValue { selectedHandle = 0; redrawOverlays() }
             // Chosen from the preview, L or a menu (not a click in the list): the ⌘/⇧ group and
             // the delete target no longer match what is shown (check 39).
-            if !rowClicking && selectedLayer != oldValue { layerPicks = []; deleteTarget = nil }
+            if !rowClicking && selectedLayer != oldValue { layerPicks = []; deleteTarget = nil; arrowTarget = nil }
         }
     }
     private var rowClicking = false
@@ -691,14 +691,20 @@ final class AppModel: ObservableObject {
     private var undoing = false
     private var lastUndoAt = 0.0
 
+    /// While a number is dragged (Scrub), all its changes are one step however slowly it moves.
+    static var undoHold = false
+    static var undoHoldUsed = false
+
     /// Changes in quick succession (a slider dragged, keys held) are one step.
     private func recordUndo(_ old: Show) {
         guard !undoing else { return }
         let now = hostNow()
-        if undoStack.isEmpty || now - lastUndoAt > 0.7 {
+        let sameStep = AppModel.undoHold ? AppModel.undoHoldUsed : now - lastUndoAt <= 0.7
+        if undoStack.isEmpty || !sameStep {
             undoStack.append(old)
             if undoStack.count > 100 { undoStack.removeFirst() }
         }
+        if AppModel.undoHold { AppModel.undoHoldUsed = true }
         lastUndoAt = now
         redoStack.removeAll()
     }
@@ -1638,6 +1644,29 @@ final class AppModel: ObservableObject {
     /// What the delete key removes: set when a row of a left list is clicked (seat, output, layer,
     /// clip). Each removal asks first. Cleared after use.
     var deleteTarget: (() -> Void)?
+    /// What ↑ ↓ move through, set with deleteTarget when a layer or footage row is clicked and
+    /// cleared with it (Akira 2026-11-26: pick a row, then move with the arrow keys).
+    var arrowTarget: ((Int) -> Void)?
+
+    /// ↑ ↓ in the layer list: the row above or below becomes the selected one (picks are dropped).
+    func stepLayerRow(_ d: Int) {
+        let order = (selectedOutputConfig?.layers ?? []).reversed().map(\.id)
+        guard let cur = selectedLayer, let i = order.firstIndex(of: cur) else { return }
+        let j = min(max(i + d, 0), order.count - 1)
+        guard j != i else { return }
+        rowClicking = true; defer { rowClicking = false }
+        layerPicks = []
+        selectedLayer = order[j]
+    }
+    /// ↑ ↓ in the footage list.
+    func stepClipRow(_ d: Int) {
+        let order = show.clips.map(\.id)
+        guard let cur = selectedClip, let i = order.firstIndex(of: cur) else { return }
+        let j = min(max(i + d, 0), order.count - 1)
+        guard j != i else { return }
+        clipPicks = []
+        selectedClip = order[j]
+    }
 
     private func installKeys() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
@@ -1651,7 +1680,12 @@ final class AppModel: ObservableObject {
                 if e.keyCode == 53 { FieldEsc.at = ProcessInfo.processInfo.systemUptime; w.makeFirstResponder(nil); return nil }
                 return e
             }
-            // In a list (outputs, layers, clips) ↑ ↓ move the selection, not the playhead.
+            // After a layer or footage row is clicked, ↑ ↓ move the selection in that list, not the playhead.
+            if (e.keyCode == 125 || e.keyCode == 126), let step = self.arrowTarget, w === self.control,
+               self.editMode == .none, !e.modifierFlags.contains(.command) {
+                step(e.keyCode == 125 ? 1 : -1)
+                return nil
+            }
             if (e.keyCode == 125 || e.keyCode == 126) && w.firstResponder is NSTableView { return e }
             return self.key(e) ? nil : e
         }
@@ -1660,14 +1694,14 @@ final class AppModel: ObservableObject {
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
             // A click outside the left lists (preview, tabs, output windows) forgets what delete
             // would remove, so delete never removes something picked long ago (check 39).
-            if let self, self.deleteTarget != nil {
+            if let self, self.deleteTarget != nil || self.arrowTarget != nil {
                 var v: NSView? = nil
                 if let w = e.window, let cv = w.contentView {
                     v = cv.hitTest(cv.superview?.convert(e.locationInWindow, from: nil) ?? e.locationInWindow)
                 }
                 var inList = false
                 while let x = v { if x is NSTableView { inList = true; break }; v = x.superview }
-                if !inList || e.window !== self.control { self.deleteTarget = nil }
+                if !inList || e.window !== self.control { self.deleteTarget = nil; self.arrowTarget = nil }
             }
             guard let w = e.window, let editor = w.firstResponder as? NSTextView, editor.isFieldEditor,
                   let field = editor.delegate as? NSView else { return e }
