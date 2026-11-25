@@ -102,6 +102,21 @@ struct TopBar: View {
     @State private var dragging = false
     @State private var value = 0.0
     @State private var editingTime = false
+    @State private var editingLoop = false
+    @State private var loopText = ""
+    @FocusState private var loopFocused: Bool
+
+    /// Loop length typed in the time display: turns on "loop together" with that length (0 = auto).
+    private func setLoopTyped(_ text: String) {
+        guard let t = parseTime(text) else { model.notify("長さは 2000（20 秒）や 1:30 の形で"); leaveField(); return }
+        let x = t <= 0 ? 0 : max(t, Show.minLoop)
+        var s = model.show
+        s.loopTogether = true
+        s.loopLength = x
+        if s != model.show { model.show = s }
+        model.notify(x == 0 ? "ループの長さ: いちばん長い映像に合わせる" : "ループの長さ: \(timeString(x))")
+        leaveField()
+    }
     @State private var timeText = ""
     @FocusState private var timeFocused: Bool
 
@@ -186,11 +201,28 @@ struct TopBar: View {
                             }
                             .help(status.isMaster ? "押すと位置を打てる。After Effects のように数字だけなら右から 1/100 秒・秒・分（200 で 2 秒、10000 で 1 分）。1:23.5 の形でもよい。Return で全部の Mac がその位置へ" : "いまの位置")
                     }
-                    Text(" / \(timeString(status.duration))")
-                        .font(.system(size: 12, design: .monospaced))
-                        .help("ループの長さ")
+                    Text(" / ").font(.system(size: 12, design: .monospaced))
+                    if editingLoop {
+                        TextField("", text: $loopText)
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(width: 56)
+                            .focused($loopFocused)
+                            .onSubmit { setLoopTyped(loopText); editingLoop = false }
+                            .onExitCommand { editingLoop = false; leaveField() }
+                            .onChange(of: loopFocused) { f in if !f { editingLoop = false } }
+                            .onAppear { loopFocused = true }
+                    } else {
+                        Text(timeString(status.duration))
+                            .font(.system(size: 12, design: .monospaced))
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                guard status.isMaster else { return }
+                                loopText = timeString(status.duration); editingLoop = true
+                            }
+                            .help(status.isMaster ? "ループの長さ。押すと打てる（200 で 2 秒、1:30 で 1 分 30 秒。0 でいちばん長い映像の長さ）。全部の Mac がこの長さで頭へ戻る" : "ループの長さ（マスターの Mac で変える）")
+                    }
                 }
-                .frame(width: 120)
+                .frame(minWidth: 120)
                 Slider(value: Binding(get: { dragging ? value : min(status.position, max(0.1, status.duration)) },
                                       set: { value = $0 }),
                        in: 0...max(0.1, status.duration),
