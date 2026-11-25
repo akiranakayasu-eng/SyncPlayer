@@ -96,6 +96,26 @@ struct TopBar: View {
     @State private var dragging = false
     @State private var value = 0.0
     @State private var jumpText = ""
+    @State private var editingTime = false
+    @State private var timeText = ""
+    @FocusState private var timeFocused: Bool
+
+    private func leaveField() {
+        // Leave the field, so space and the arrows work again at once.
+        DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
+    }
+
+    private func jumpTyped(_ text: String) {
+        if let t = parseTime(text) {
+            model.master?.jump(to: t)
+            if status.duration > 0, t >= status.duration {
+                model.notify("尺（\(timeString(status.duration))）を超えたので、ループの中の位置へ折り返しました")
+            }
+        } else {
+            model.notify("位置は 1:23.5 か 83.5 の形で")
+        }
+        leaveField()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -139,10 +159,33 @@ struct TopBar: View {
                         .frame(minHeight: 24)
                 }
 
-                Text("\(timeString(dragging ? value : status.position)) / \(timeString(status.duration))")
-                    .font(.system(size: 12, design: .monospaced))
-                    .frame(width: 120)
-                    .help("いまの位置 / ループの長さ")
+                HStack(spacing: 0) {
+                    if editingTime {
+                        TextField("", text: $timeText)
+                            .font(.system(size: 12, design: .monospaced))
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 56)
+                            .focused($timeFocused)
+                            .onSubmit { jumpTyped(timeText); editingTime = false }
+                            .onExitCommand { editingTime = false; leaveField() }
+                            .onChange(of: timeFocused) { f in if !f { editingTime = false } }
+                            .onAppear { timeFocused = true }
+                    } else {
+                        Text(timeString(dragging ? value : status.position))
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(width: 56, alignment: .trailing)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                guard status.isMaster else { return }
+                                timeText = timeString(status.position); editingTime = true
+                            }
+                            .help(status.isMaster ? "押すと位置を打てる（分:秒 か 秒、Return で全部の Mac がその位置へ）" : "いまの位置")
+                    }
+                    Text(" / \(timeString(status.duration))")
+                        .font(.system(size: 12, design: .monospaced))
+                        .help("ループの長さ")
+                }
+                .frame(width: 120)
                 Slider(value: Binding(get: { dragging ? value : min(status.position, max(0.1, status.duration)) },
                                       set: { value = $0 }),
                        in: 0...max(0.1, status.duration),
@@ -156,18 +199,7 @@ struct TopBar: View {
                     Text("ここへ飛ぶ").foregroundColor(.secondary)
                     TextField("0:00.0", text: $jumpText)
                         .frame(width: 64)
-                        .onSubmit {
-                            if let t = parseTime(jumpText) {
-                                model.master?.jump(to: t)
-                                if status.duration > 0, t >= status.duration {
-                                    model.notify("尺（\(timeString(status.duration))）を超えたので、ループの中の位置へ折り返しました")
-                                }
-                            } else {
-                                model.notify("位置は 1:23.5 か 83.5 の形で")
-                            }
-                            // Leave the field, so space and the arrows work again at once.
-                            DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
-                        }
+                        .onSubmit { jumpTyped(jumpText) }
                         .help("分:秒 か 秒を打って Return。全部の Mac がその位置へ")
                 }
             }
@@ -179,6 +211,13 @@ struct TopBar: View {
 
 struct Sidebar: View {
     @ObservedObject var model: AppModel
+    @State private var selectedClip: String?
+
+    /// The selected movie, or the only one when there is just one.
+    private var selectedClipID: String? {
+        if let id = selectedClip, model.show.clips.contains(where: { $0.id == id }) { return id }
+        return model.show.clips.count == 1 ? model.show.clips[0].id : nil
+    }
 
     var body: some View {
         // Scrolls when the window is low, so the top bar is never pushed out. The lists are as tall
@@ -250,27 +289,30 @@ struct Sidebar: View {
 
             Divider().padding(.vertical, 2)
             SectionTitle("映像", help: "clips")
-            List {
+            // One line per movie (the list was 2 lines a movie and made the column long). Replace and
+            // remove act on the selected movie, like the layer buttons.
+            List(selection: $selectedClip) {
                 ForEach(model.show.clips) { c in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 4) {
-                            if model.clipBroken(c.id) {
-                                Text("⚠︎ 開けない").font(.caption).foregroundColor(.red)
-                            }
-                            Text(c.name).lineLimit(1).truncationMode(.middle).help(c.name)
+                    HStack(spacing: 4) {
+                        if model.clipBroken(c.id) {
+                            Text("⚠︎ 開けない").font(.caption).foregroundColor(.red)
                         }
-                        HStack(spacing: 4) {
-                            Spacer()
-                            Button("差し替え") { model.replaceClip(c.id) }
-                                .help("別の映像と入れ替える（レイヤーの設定はそのまま）")
-                            Button("外す") { model.removeClip(c.id) }
-                                .help("この映像と、それを使うレイヤーをショーから外す（確かめてから。ファイルは消えない）")
-                        }
-                        .controlSize(.small)
+                        Text(c.name).lineLimit(1).truncationMode(.middle).help(c.name)
                     }
+                    .tag(Optional(c.id))
                 }
             }
-            .frame(height: listHeight(model.show.clips.count, max: 12, row: 46))
+            .frame(height: listHeight(model.show.clips.count, max: 6))
+            HStack(spacing: 4) {
+                Button("差し替え") { if let id = selectedClipID { model.replaceClip(id) } }
+                    .disabled(selectedClipID == nil)
+                    .help("選んだ映像を別の映像と入れ替える（レイヤーの設定はそのまま）")
+                Button("外す") { if let id = selectedClipID { model.removeClip(id) } }
+                    .disabled(selectedClipID == nil)
+                    .help("選んだ映像と、それを使うレイヤーをショーから外す（確かめてから。ファイルは消えない）")
+                Spacer()
+            }
+            .controlSize(.small)
             HStack {
                 Button("映像を足す…") { model.addClips() }
                 Spacer()
@@ -343,30 +385,91 @@ struct PreviewView: NSViewRepresentable {
 
 // MARK: right side
 
-/// value → the text shown at the right of a slider, with its unit.
-enum ValueText {
-    static func percent(_ v: Double) -> String { String(format: "%.0f%%", v * 100) }
-    static func signedPercent(_ v: Double) -> String { String(format: "%+.0f%%", v * 100) }
-    static func degrees(_ v: Double) -> String { String(format: "%.1f°", v) }
-    static func plain(_ v: Double) -> String { String(format: "%.2f", v) }
+/// How a slider's value is shown and typed: shown = value * scale, with the suffix.
+struct ValueUnit {
+    let scale: Double
+    let digits: Int
+    let suffix: String
+    var signed = false
+    func text(_ v: Double) -> String {
+        String(format: signed ? "%+.\(digits)f" : "%.\(digits)f", v * scale) + suffix
+    }
+    /// Typed text → value ("50", "50%", "+12.5", full-width digits too). Nil when not a number.
+    func parse(_ t: String) -> Double? {
+        var h = t.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? t
+        for x in ["%", "°", "+", " "] { h = h.replacingOccurrences(of: x, with: "") }
+        h = h.replacingOccurrences(of: "−", with: "-")
+        guard let n = Double(h), n.isFinite else { return nil }
+        return n / scale
+    }
 }
 
+/// The units the sliders use.
+enum ValueText {
+    static let percent = ValueUnit(scale: 100, digits: 0, suffix: "%")
+    static let signedPercent = ValueUnit(scale: 100, digits: 0, suffix: "%", signed: true)
+    static let degrees = ValueUnit(scale: 1, digits: 1, suffix: "°")
+    static let plain = ValueUnit(scale: 1, digits: 2, suffix: "")
+}
+
+/// A slider with its value. Like After Effects: click the number to type a value (Return to set,
+/// esc to cancel), and the ↺ button (or a double-click on the name) puts the default back.
 struct SliderRow: View {
     let label: String
     @Binding var value: Double
     let range: ClosedRange<Double>
-    var unit: (Double) -> String = ValueText.plain
+    var defaultValue: Double? = nil
+    var unit: ValueUnit = ValueText.plain
     var help = ""
+
+    @State private var editing = false
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    private var atDefault: Bool { defaultValue.map { abs(value - $0) < 1e-9 } ?? true }
 
     var body: some View {
         HStack(spacing: 6) {
             Text(label).frame(width: 64, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { reset() }
             Slider(value: $value, in: range)
-            Text(unit(value))
-                .font(.system(size: 11, design: .monospaced))
-                .frame(width: 52, alignment: .trailing)
+            if editing {
+                TextField("", text: $text)
+                    .font(.system(size: 11, design: .monospaced))
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 52)
+                    .focused($focused)
+                    .onSubmit { commit() }
+                    .onExitCommand { editing = false }
+                    .onChange(of: focused) { f in if !f && editing { commit() } }
+                    .onAppear { focused = true }
+            } else {
+                Text(unit.text(value))
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(width: 52, alignment: .trailing)
+                    .contentShape(Rectangle())
+                    .onTapGesture { text = unit.text(value); editing = true }
+                    .help("押すと数字を打てる（Return で決める、esc でやめる）")
+            }
+            if defaultValue != nil {
+                Button { reset() } label: { Image(systemName: "arrow.counterclockwise") }
+                    .buttonStyle(.borderless)
+                    .disabled(atDefault)
+                    .opacity(atDefault ? 0.3 : 1)
+                    .help("最初の値（\(unit.text(defaultValue ?? 0))）に戻す。名前のダブルクリックでも戻る")
+            }
         }
         .help(help)
+    }
+
+    private func reset() { if let d = defaultValue { value = d } }
+
+    private func commit() {
+        editing = false
+        if let v = unit.parse(text) { value = min(max(v, range.lowerBound), range.upperBound) }
+        // Leave the field so the keys (space, arrows) work again at once.
+        DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
     }
 }
 
@@ -616,17 +719,17 @@ struct Inspector: View {
         Picker("映像", selection: model.layerBinding(\.clipID, "")) {
             ForEach(model.show.clips) { c in Text(c.name).tag(c.id) }
         }
-        SliderRow(label: "不透明度", value: model.layerBinding(\.opacity, 1), range: 0...1, unit: ValueText.percent)
+        SliderRow(label: "不透明度", value: model.layerBinding(\.opacity, 1), range: 0...1, defaultValue: 1, unit: ValueText.percent)
 
         DisclosureGroup(isExpanded: $openPlace) {
             VStack(alignment: .leading, spacing: 6) {
-                SliderRow(label: "横の位置", value: model.lookBinding(\.posX, 0), range: -1...1, unit: ValueText.signedPercent,
+                SliderRow(label: "横の位置", value: model.lookBinding(\.posX, 0), range: -1...1, defaultValue: 0, unit: ValueText.signedPercent,
                           help: "レイヤーの枠（4 分割なら 1 ます）の幅に対する割合。＋で右へ")
-                SliderRow(label: "縦の位置", value: model.lookBinding(\.posY, 0), range: -1...1, unit: ValueText.signedPercent,
+                SliderRow(label: "縦の位置", value: model.lookBinding(\.posY, 0), range: -1...1, defaultValue: 0, unit: ValueText.signedPercent,
                           help: "レイヤーの枠の高さに対する割合")
-                SliderRow(label: "大きさ", value: model.lookBinding(\.scale, 1), range: 0.1...4, unit: ValueText.percent,
+                SliderRow(label: "大きさ", value: model.lookBinding(\.scale, 1), range: 0.1...4, defaultValue: 1, unit: ValueText.percent,
                           help: "100% でレイヤーの枠いっぱい")
-                SliderRow(label: "回転", value: model.lookBinding(\.rotation, 0), range: -180...180, unit: ValueText.degrees)
+                SliderRow(label: "回転", value: model.lookBinding(\.rotation, 0), range: -180...180, defaultValue: 0, unit: ValueText.degrees)
                 Button("位置・大きさ・回転を戻す（0）") {
                     guard var s = model.selectedLook else { return }
                     s.resetTransform(); model.updateLook(s)
@@ -637,10 +740,10 @@ struct Inspector: View {
 
         DisclosureGroup(isExpanded: $openCrop) {
             VStack(alignment: .leading, spacing: 6) {
-                SliderRow(label: "左", value: model.lookBinding(\.cropL, 0), range: 0...0.5, unit: ValueText.percent)
-                SliderRow(label: "右", value: model.lookBinding(\.cropR, 0), range: 0...0.5, unit: ValueText.percent)
-                SliderRow(label: "上", value: model.lookBinding(\.cropT, 0), range: 0...0.5, unit: ValueText.percent)
-                SliderRow(label: "下", value: model.lookBinding(\.cropB, 0), range: 0...0.5, unit: ValueText.percent)
+                SliderRow(label: "左", value: model.lookBinding(\.cropL, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: "右", value: model.lookBinding(\.cropR, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: "上", value: model.lookBinding(\.cropT, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: "下", value: model.lookBinding(\.cropB, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
             }
             .padding(.top, 4)
         } label: { FoldLabel(title: "切り取り（映像の端を削る）", isOpen: $openCrop, help: "crop") }
@@ -665,11 +768,11 @@ struct Inspector: View {
 
         DisclosureGroup(isExpanded: $openBlend) {
             VStack(alignment: .leading, spacing: 6) {
-                SliderRow(label: "左", value: model.lookBinding(\.blendL, 0), range: 0...0.5, unit: ValueText.percent)
-                SliderRow(label: "右", value: model.lookBinding(\.blendR, 0), range: 0...0.5, unit: ValueText.percent)
-                SliderRow(label: "上", value: model.lookBinding(\.blendT, 0), range: 0...0.5, unit: ValueText.percent)
-                SliderRow(label: "下", value: model.lookBinding(\.blendB, 0), range: 0...0.5, unit: ValueText.percent)
-                SliderRow(label: "ガンマ", value: model.lookBinding(\.blendGamma, 2.2), range: 0.5...4,
+                SliderRow(label: "左", value: model.lookBinding(\.blendL, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: "右", value: model.lookBinding(\.blendR, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: "上", value: model.lookBinding(\.blendT, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: "下", value: model.lookBinding(\.blendB, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: "ガンマ", value: model.lookBinding(\.blendGamma, 2.2), range: 0.5...4, defaultValue: 2.2,
                           help: "重なりの明るさの合い方。ふつうは 2.2")
                 Text("重なる幅を、画面の幅（高さ）に対する割合で。").font(.caption).foregroundColor(.secondary)
             }
