@@ -53,6 +53,11 @@ final class SyncNode {
     /// stops and the main thread reading currentTime deadlocked inside MediaToolbox (Pro, 2026-11-25).
     private(set) var muted: Bool
     private var audioApplied = false
+    /// Item timebases, taken once when ready (reading item.timebase each tick is avoidable).
+    private var timebases: [CMTimebase?] = []
+    /// A player to pause a little after a loop handover (local host time), so the audible clip's
+    /// audio stop does not land in the same moment as the new player's start.
+    private var pendingPause: (index: Int, at: Double)?
 
     init(url: URL, muted: Bool) {
         self.url = url
@@ -175,6 +180,7 @@ final class SyncNode {
 
     /// Schedule the idle player to start at 0 at the loop point (local host time).
     private func arm(loopAt at: Double) {
+        if pendingPause?.index == 1 - active { pendingPause = nil }
         players[1 - active].setRate(1.0, time: .zero,
                                     atHostTime: CMTime(seconds: at, preferredTimescale: 1_000_000_000))
         armedAt = at
@@ -202,6 +208,8 @@ final class SyncNode {
     /// is ready, so tick() calls this once then.
     private func applyAudio() {
         guard items.allSatisfy({ $0.status == .readyToPlay }) else { return }
+        // Tracks can still be empty right after ready: try again on the next tick then.
+        guard items.allSatisfy({ !$0.tracks.isEmpty }) else { return }
         audioApplied = true
         for it in items {
             for t in it.tracks where t.assetTrack?.mediaType == .audio && t.isEnabled == muted {
@@ -216,7 +224,8 @@ final class SyncNode {
     /// Media time of a player read from its item's timebase. AVPlayer.currentTime() takes the
     /// player's internal lock, which audio stops at the clip's end also hold; the timebase does not.
     private func mediaTime(_ i: Int) -> Double {
-        if let tb = items[i].timebase { return CMTimebaseGetTime(tb).seconds }
+        if timebases.count != items.count || timebases[i] == nil { timebases = items.map(\.timebase) }
+        if let tb = timebases[i] { return CMTimebaseGetTime(tb).seconds }
         return players[i].currentTime().seconds
     }
 
@@ -239,12 +248,18 @@ final class SyncNode {
 
         if needsResync { resync(); return }
         let now = hostNow()
+        if let pp = pendingPause, now >= pp.at {
+            pendingPause = nil
+            if pp.index != active && players[pp.index].rate != 0 { players[pp.index].pause() }
+        }
 
         // Loop: hand over to the armed player once its start time has passed.
         if let at = armedAt, now >= at + 0.005 {
             let old = active
             active = 1 - active
-            players[old].pause()
+            // Do not stop the old player in the same moment the new one starts (with sound, both
+            // touch the audio queue together). A clip that reached its end has stopped by itself.
+            pendingPause = (old, now + 0.3)
             armedAt = nil
             loopCount += 1
             settleUntil = now + 0.1

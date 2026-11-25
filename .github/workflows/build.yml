@@ -11,8 +11,6 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Build universal app
         run: UNIVERSAL=1 VERSION="0.0.0-pr" sh tools/make-app.sh dist
       - name: Check the app
