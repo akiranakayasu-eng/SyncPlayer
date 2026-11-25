@@ -2,7 +2,7 @@ import AppKit
 
 // SyncPlayer
 //   SyncPlayer [--master | --follower] [<movie> ...] [--show FILE.syncshow]
-// Options: --name A  --preset NAME  --fullscreen  --screen 1 (first output)  --audio | --mute
+// Options: --name A  --seat NAME  --fullscreen  --screen 1 (first output)  --audio | --mute
 //          --broadcast 192.168.1.255  --to 192.168.1.23 (extra master->follower address, repeatable)
 //          --log  --log-interval 0.1  --autoplay 2 (master starts by itself)  --quit-after 60
 //          --switch-after 30 (test: switch master <-> follower after 30 s)
@@ -26,6 +26,8 @@ struct Options {
     var autoplay: Double? = nil
     var quitAfter: Double? = nil
     var preset: String?
+    /// The seat this Mac is, by name (else the one it remembers, else it asks).
+    var seat: String?
     var switchAfter: Double? = nil   // test: switch role (master <-> follower) after N seconds
 
     init(_ args: [String]) {
@@ -46,12 +48,13 @@ struct Options {
             case "--help", "-h":
                 // Print the options and stop, before any window opens or the show is saved
                 // (2026-11-25: --help used to start the app and rewrite current.syncshow).
-                print("usage: SyncPlayer [movies…] [--show file] [--master|--follower] [--name n] [--fullscreen] [--screen i] [--audio|--mute] [--broadcast a] [--to host] [--log] [--log-interval s] [--autoplay s] [--quit-after s] [--switch-after s] [--preset name] [--bgra] [--frames 420v|422v|x422|BGRA]")
+                print("usage: SyncPlayer [movies…] [--show file] [--master|--follower] [--name n] [--fullscreen] [--screen i] [--audio|--mute] [--broadcast a] [--to host] [--log] [--log-interval s] [--autoplay s] [--quit-after s] [--switch-after s] [--seat name] [--bgra] [--frames 420v|422v|x422|BGRA]")
                 exit(0)
             case "--log-interval": log = true; logInterval = Double(next()) ?? 1
             case "--autoplay": autoplay = Double(next()) ?? 2
             case "--quit-after": quitAfter = Double(next())
             case "--preset": preset = next()
+            case "--seat": seat = next()
             case "--switch-after": switchAfter = Double(next())
             case "--show": showFile = next()
             case "--bgra": FrameFormat.bgra = true   // test: frames as BGRA (the v0.3 way) instead of YUV

@@ -38,8 +38,6 @@ final class AppModel: ObservableObject {
     @Published var selectedHandle = 0 { didSet { redrawOverlays() } }
     @Published var isMaster = false
     @Published var audioOn = false
-    @Published var presetNames: [String] = []
-    @Published var lastPreset = ""
     /// The .syncshow opened or saved; changes are written to it as well as to current.syncshow.
     @Published var showFile: String? = nil {
         didSet { updateRepresented(); UserDefaults.standard.set(showFile, forKey: "showFile") }
@@ -130,9 +128,10 @@ final class AppModel: ObservableObject {
             KeyItem(key: "Tab", what: L("次の点", "Next point")),
             KeyItem(key: "↑ ↓ ← →", what: L("点を 1 px 動かす", "Move the point 1 px")),
             KeyItem(key: "⇧ + ↑ ↓ ← →", what: L("点を 10 px 動かす", "Move the point 10 px"))]),
-        KeyGroup(title: L("ショーとプリセット", "Show and presets"), keys: [
-            KeyItem(key: "1〜9", what: L("プリセット呼び出し", "Recall a preset")),
-            KeyItem(key: "⌘1〜⌘9", what: L("プリセット保存", "Save a preset")),
+        KeyGroup(title: L("展示のファイル", "Show file"), keys: [
+            KeyItem(key: "⌘O", what: L("展示のファイルを開く", "Open a show")),
+            KeyItem(key: "⌘S", what: L("別名で保存", "Save As")),
+            KeyItem(key: "⇧⌘E", what: L("素材をまとめる", "Collect Files")),
             KeyItem(key: "⌘O", what: L("ショーを開く", "Open show")),
             KeyItem(key: "⌘S", what: L("ショーを保存", "Save show")),
             KeyItem(key: "⌘Z", what: L("戻す", "Undo")),
@@ -160,14 +159,14 @@ final class AppModel: ObservableObject {
             s = ShowStore.read(URL(fileURLWithPath: f))
             if s == nil { print("cannot read show: \(f)") } else { showFile = absolute(f); fileShow = s }
         }
-        let overridden = !opts.files.isEmpty || opts.preset != nil
+        let overridden = !opts.files.isEmpty
         if overridden { detachShowFile(forget: false) }
         if s == nil {
             s = ShowStore.loadCurrent()
             // Keep writing to the show file opened last time, if it still holds the same show
             // (not when it was changed elsewhere since).
             if !overridden, let cur = s, let f = UserDefaults.standard.string(forKey: "showFile"),
-               let fs = ShowStore.read(URL(fileURLWithPath: f)), fs == cur { showFile = f; fileShow = fs }
+               let fs = ShowStore.read(URL(fileURLWithPath: f)), fs.fileContent == cur.fileContent { showFile = f; fileShow = fs }
         }
         if !opts.files.isEmpty {
             let paths = opts.files.map(absolute)
@@ -203,7 +202,7 @@ final class AppModel: ObservableObject {
                 s = p
             } else
             { guard !urls.isEmpty else {
-                print("usage: SyncPlayer [--master|--follower] <movie>... [--show FILE] [--preset NAME] [--audio|--mute] ...")
+                print("usage: SyncPlayer [--master|--follower] <movie>... [--show FILE] [--seat NAME] [--audio|--mute] ...")
                 exit(1)
             }
             if var cur = s, cur.clips.count == urls.count {
@@ -228,14 +227,8 @@ final class AppModel: ObservableObject {
             }
         }
         guard var show0 = s else { exit(1) }
-        if let p = opts.preset {
-            switch ShowStore.loadPreset(p) {
-            case .show(let ps): show0 = ps; lastPreset = p
-            case .look(let l): if !show0.outputs.isEmpty, !show0.outputs[0].layers.isEmpty {
-                show0.outputs[0].layers[0].look = l; lastPreset = p }
-            case nil: print("no preset: \(p)")
-            }
-        }
+        if opts.preset != nil { print("--preset: presets were removed; a show file holds every seat (--show, --seat)") }
+        show0 = chooseSeat(show0, asking: opts.seat == nil && !opts.roleGiven)
         if show0.outputs.isEmpty, let c = show0.clips.first {
             show0.outputs = [OutputConfig(name: L("出力 1", "Output 1"), layers: [Layer(clipID: c.id)])]
         }
@@ -244,7 +237,6 @@ final class AppModel: ObservableObject {
         // The exhibition master (kept per Mac, not in the show) opens as master and plays.
         let startMaster = opts.roleGiven ? opts.master : exhibitMaster
         audioOn = opts.audio ?? show0.audioOn ?? startMaster
-        presetNames = ShowStore.presetNames()
 
         buildControlWindow()
         applyTheme()
@@ -302,6 +294,16 @@ final class AppModel: ObservableObject {
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: L("SyncPlayer を終了", "Quit SyncPlayer"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
+        let fileItem = NSMenuItem()
+        main.addItem(fileItem)
+        let file = NSMenu(title: L("ファイル", "File"))
+        file.addItem(MenuAction.item(L("開く…", "Open…"), key: "o") { [weak self] in self?.openShow() })
+        file.addItem(MenuAction.item(L("別名で保存…", "Save As…"), key: "s") { [weak self] in self?.saveShowAs() })
+        file.addItem(.separator())
+        let col = MenuAction.item(L("素材をまとめる…", "Collect Files…"), key: "e") { [weak self] in self?.showCollectWindow() }
+        col.keyEquivalentModifierMask = [.command, .shift]
+        file.addItem(col)
+        fileItem.submenu = file
         // Text editing (copy / paste in the name fields).
         let editItem = NSMenuItem()
         main.addItem(editItem)
@@ -342,9 +344,9 @@ final class AppModel: ObservableObject {
 
     private func showDidChange(_ old: Show) {
         recordUndo(old)
-        if show.clips != old.clips { transport.setClips(show.clips) }
-        // A show opened or a preset loaded brings this Mac's sound setting with it.
-        var soundChanged = show.clips != old.clips || show.audioClip != old.audioClip
+        if show.seatClips != old.seatClips { transport.setClips(show.seatClips) }
+        // A show opened or another seat brings this Mac's sound setting with it.
+        var soundChanged = show.seatClips != old.seatClips || show.audioClip != old.audioClip
         if show.audioOn != old.audioOn, let a = show.audioOn, a != audioOn, opts.audio == nil { audioOn = a; soundChanged = true }
         if soundChanged { applyAudio() }
         if show.outputs != old.outputs { syncOutputs() }
@@ -363,10 +365,202 @@ final class AppModel: ObservableObject {
     func saveNow() {
         saveWork?.cancel()
         _ = ShowStore.write(show, to: ShowStore.currentURL)
-        if let f = showFile, show != fileShow {
+        if let f = showFile, show.fileContent != fileShow?.fileContent {
             backUpOnce(f)
+            mergeFromDisk(f)
             if ShowStore.write(show, to: URL(fileURLWithPath: f)) { fileShow = show }
             else { notify(L("ショーのファイルに書けません: \((f as NSString).lastPathComponent)", "Can't write the show file: \((f as NSString).lastPathComponent)")) }
+        }
+    }
+
+    /// Several Macs may write one show file (a shared or synced folder). When the file was changed
+    /// elsewhere since this Mac read or wrote it, the other seats are taken from it (each Mac
+    /// edits its own seat), new seats and clips there are kept, then this Mac's seat is written.
+    private func mergeFromDisk(_ f: String) {
+        guard let disk = ShowStore.read(URL(fileURLWithPath: f)), let mine = fileShow,
+              disk.id == show.id, disk.fileContent != mine.fileContent else { return }
+        var m = show
+        for d in disk.seats where d.id != show.seatID {
+            if let i = m.seats.firstIndex(where: { $0.id == d.id }) {
+                // Changed on that Mac (not by this one since): take it.
+                if mine.seats.first(where: { $0.id == d.id }) == m.seats[i] { m.seats[i] = d }
+            } else if !mine.seats.contains(where: { $0.id == d.id }) {
+                m.seats.append(d)          // a seat added elsewhere
+            }
+        }
+        for c in disk.clips where !m.clips.contains(where: { $0.id == c.id }) && !mine.clips.contains(where: { $0.id == c.id }) {
+            m.clips.append(c)              // a clip added elsewhere
+        }
+        guard m != show else { return }
+        undoing = true; show = m; undoing = false
+        notify(L("ほかの Mac の変更（ほかの席）を取り込みました", "Took in changes made on another Mac (other seats)"))
+    }
+
+    // MARK: seats
+
+    /// Sets this Mac's seat in s: --seat, else the one remembered for this exhibition, else (when
+    /// asking and there are several) the seat chooser, else the first.
+    func chooseSeat(_ s: Show, asking: Bool) -> Show {
+        var s = s
+        if let n = opts.seat, let st = s.seats.first(where: { $0.name == n || $0.id == n }) { s.seatID = st.id }
+        else if let r = ShowStore.rememberedSeat(s), s.seats.contains(where: { $0.id == r }) { s.seatID = r }
+        else if s.seats.count > 1 && asking, let id = runSeatChooser(s) { s.seatID = id }
+        else { s.seatID = s.seats.first?.id ?? "" }
+        if s.seats.count > 1 { ShowStore.rememberSeat(s.seatID, for: s) }
+        return s
+    }
+
+    /// The seat chooser in its own window, waiting for the answer. nil = cancelled (keeps the first).
+    private func runSeatChooser(_ s: Show) -> String? {
+        NSApp.activate(ignoringOtherApps: true)
+        var picked: String?
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 360),
+                         styleMask: [.titled], backing: .buffered, defer: false)
+        w.title = showFile.map { ($0 as NSString).lastPathComponent } ?? "SyncPlayer"
+        w.isReleasedWhenClosed = false
+        w.contentView = NSHostingView(rootView: SeatChooserView(show: s, current: ShowStore.rememberedSeat(s)) { id in
+            picked = id
+            NSApp.stopModal()
+        })
+        w.center()
+        panelOpen = true
+        NSApp.runModal(for: w)
+        panelOpen = false
+        w.orderOut(nil)
+        return picked
+    }
+
+    /// Another Mac (or this master) is the same seat.
+    func seatClash(_ name: String?) -> Bool {
+        guard let n = name, show.seats.count > 1 else { return false }
+        return peers.filter { $0.seat == n }.count + (show.seat.name == n ? 1 : 0) > 1
+    }
+
+    /// Makes this Mac another seat: its outputs, layers and sound change to that seat's.
+    func switchSeat(_ id: String, ask: Bool = true) {
+        guard id != show.seatID, let st = show.seats.first(where: { $0.id == id }) else { return }
+        if ask && !confirm(L("この Mac を席「\(st.name)」にしますか？", "Make this Mac seat “\(st.name)”?"),
+                           L("出力・レイヤー・音がその席のものに変わります。いまの席「\(show.seat.name)」の設定はファイルに残ります。",
+                             "Outputs, layers and sound change to that seat's. The current seat “\(show.seat.name)” stays in the file as it is.")) { return }
+        saveNow()
+        var s = show
+        s.seatID = id
+        ShowStore.rememberSeat(id, for: s)
+        applyShow(s)
+        selectedOutput = show.outputs.first?.id
+        notify(L("この Mac は席「\(st.name)」", "This Mac is now seat “\(st.name)”"))
+    }
+
+    func addSeat() {
+        var s = show
+        let n = s.newSeatName()
+        s.seats.append(Seat(name: n, outputs: [OutputConfig(name: L("出力 1", "Output 1"))]))
+        show = s
+        notify(L("席「\(n)」を足しました。その席の Mac で開き、席に選んでください", "Added seat “\(n)”. Open the show on that seat's Mac and choose it there"))
+    }
+
+    /// A copy of a seat (its outputs and layers), as a start for a similar place.
+    func duplicateSeat(_ id: String) {
+        guard let st = show.seats.first(where: { $0.id == id }) else { return }
+        var s = show
+        var c = st
+        c.id = UUID().uuidString
+        c.name = s.newSeatName()
+        for o in c.outputs.indices {
+            c.outputs[o].id = UUID().uuidString
+            for l in c.outputs[o].layers.indices { c.outputs[o].layers[l].id = UUID().uuidString }
+        }
+        s.seats.append(c)
+        show = s
+        notify(L("席「\(st.name)」を「\(c.name)」に複製", "Duplicated seat “\(st.name)” as “\(c.name)”"))
+    }
+
+    func renameSeat(_ id: String, _ name: String) {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty, let i = show.seats.firstIndex(where: { $0.id == id }), show.seats[i].name != n else { return }
+        if show.seats.contains(where: { $0.name == n && $0.id != id }) { notify(L("席「\(n)」はもうあります", "There is already a seat “\(n)”")); return }
+        show.seats[i].name = n
+    }
+
+    func deleteSeat(_ id: String) {
+        guard show.seats.count > 1, let st = show.seats.first(where: { $0.id == id }) else { return }
+        guard confirm(L("席「\(st.name)」を消しますか？", "Delete seat “\(st.name)”?"),
+                      L("その席の出力とレイヤーがファイルから消えます（⌘Z で戻せます）。映像は消えません。",
+                        "Its outputs and layers are removed from the file (⌘Z brings them back). Clips are kept.")) else { return }
+        var s = show
+        s.seats.removeAll { $0.id == id }
+        if id == show.seatID { s.seatID = s.seats[0].id; ShowStore.rememberSeat(s.seatID, for: s) }
+        show = s
+        notify(L("席「\(st.name)」を消しました", "Deleted seat “\(st.name)”"))
+    }
+
+    // MARK: collect files
+
+    private var collectWindow: NSWindow?
+    @Published var collecting = false
+
+    /// File > 素材をまとめる (⇧⌘E): the window listing every file, then the copy.
+    func showCollectWindow() {
+        saveNow()
+        if collectWindow == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
+                             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            w.title = L("素材をまとめる", "Collect Files")
+            w.isReleasedWhenClosed = false
+            w.contentView = NSHostingView(rootView: CollectView(model: self))
+            w.center()
+            collectWindow = w
+        }
+        collectWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    func closeCollectWindow() { collectWindow?.orderOut(nil) }
+
+    /// Point a missing movie or mask at its file (in every seat that uses it).
+    func relink(_ item: Collect.Item) {
+        let urls = pickMovies(message: L("「\(item.name)」を探す", "Locate “\(item.name)”"), multiple: false,
+                              images: item.kind == "mask")
+        guard let u = urls.first else { return }
+        var s = show
+        if item.kind == "movie" {
+            for i in s.clips.indices where s.clips[i].path == item.path { s.clips[i].path = u.path }
+        } else {
+            for k in s.seats.indices { for o in s.seats[k].outputs.indices { for l in s.seats[k].outputs[o].layers.indices
+                where s.seats[k].outputs[o].layers[l].mask == item.path { s.seats[k].outputs[o].layers[l].mask = u.path } } }
+        }
+        show = s
+    }
+
+    /// Asks where, then copies in the background. seatOnly: only this Mac's seat.
+    func collect(zip: Bool, seatOnly: Bool, reveal: Bool) {
+        saveNow()
+        let p = NSSavePanel()
+        let base = showFile.map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension } ?? "show"
+        p.nameFieldStringValue = seatOnly ? "\(base)-\(show.seat.name)" : base
+        p.message = zip ? L("zip の名前と置き場所", "Name and place of the zip")
+                        : L("新しいフォルダの名前と置き場所（中に .syncshow・movies・masks を作ります）", "Name and place of a new folder (the .syncshow, movies and masks go inside)")
+        if zip { p.allowedContentTypes = [.zip] }
+        guard runPanel(p) == .OK, let u = p.url else { return }
+        let s = Collect.scoped(show, seat: seatOnly ? show.seatID : nil)
+        collecting = true
+        notify(L("素材をまとめています…", "Collecting files…"))
+        DispatchQueue.global(qos: .userInitiated).async {
+            let r = Result { try Collect.run(s, to: u, zip: zip) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.collecting = false
+                switch r {
+                case .success(let res):
+                    let miss = res.missing.isEmpty ? "" : L("（見つからない \(res.missing.count) 件は report.txt に）", " (\(res.missing.count) not found: see report.txt)")
+                    self.notify(L("まとめました: \(res.folder.lastPathComponent)、\(res.copied) 件", "Collected: \(res.folder.lastPathComponent), \(res.copied) files") + miss)
+                    self.closeCollectWindow()
+                    if reveal { NSWorkspace.shared.activateFileViewerSelecting([res.folder]) }
+                case .failure(let e):
+                    self.notify(L("まとめられませんでした: ", "Couldn't collect: ") + e.localizedDescription)
+                    let a = NSAlert(); a.messageText = L("素材をまとめられませんでした", "Couldn't collect the files")
+                    a.informativeText = e.localizedDescription; a.runModal()
+                }
+            }
         }
     }
 
@@ -398,7 +592,7 @@ final class AppModel: ObservableObject {
         if selectedLayer == nil || !layers.contains(where: { $0.id == selectedLayer }) {
             selectedLayer = layers.last?.id
         }
-        // The mesh may have fewer points now (size changed, show or preset loaded).
+        // The mesh may have fewer points now (size changed, show or seat changed).
         if let n = nudgeOverlay?.handleCount, selectedHandle >= n { selectedHandle = 0 }
     }
 
@@ -748,10 +942,10 @@ final class AppModel: ObservableObject {
 
     // MARK: clips
 
-    private func pickMovies(message: String, multiple: Bool) -> [URL] {
+    private func pickMovies(message: String, multiple: Bool, images: Bool = false) -> [URL] {
         let p = NSOpenPanel()
         p.message = message
-        p.allowedContentTypes = [.movie, .video, .quickTimeMovie, .mpeg4Movie]
+        p.allowedContentTypes = images ? [.image] : [.movie, .video, .quickTimeMovie, .mpeg4Movie]
         p.allowsMultipleSelection = multiple
         return runPanel(p) == .OK ? p.urls : []
     }
@@ -807,14 +1001,17 @@ final class AppModel: ObservableObject {
 
     func removeClip(_ id: String) {
         guard show.clips.count > 1 else { notify(L("映像は 1 つ以上要ります", "At least one clip is needed")); return }
-        let users = show.outputs.reduce(0) { $0 + $1.layers.filter { $0.clipID == id }.count }
+        let users = show.seats.flatMap(\.outputs).reduce(0) { $0 + $1.layers.filter { $0.clipID == id }.count }
         guard confirm(L("映像「\(clipName(id))」をショーから外しますか？", "Remove clip “\(clipName(id))” from the show?"),
                       users > 0 ? L("この映像を使うレイヤー \(users) つと、その調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。", "\(users) layer(s) using it and their adjustments are deleted too. The movie file is kept.")
                                 : L("映像のファイルは消えません。", "The movie file is kept."), ok: L("外す", "Remove")) else { return }
         var s = show
         s.clips.removeAll { $0.id == id }
-        for o in s.outputs.indices { s.outputs[o].layers.removeAll { $0.clipID == id } }
-        if s.audioClip == id { s.audioClip = nil }
+        // Every seat: its layers that show the clip go too.
+        for k in s.seats.indices {
+            for o in s.seats[k].outputs.indices { s.seats[k].outputs[o].layers.removeAll { $0.clipID == id } }
+            if s.seats[k].audioClip == id { s.seats[k].audioClip = nil }
+        }
         show = s
     }
 
@@ -826,7 +1023,7 @@ final class AppModel: ObservableObject {
 
     func clipName(_ id: String) -> String { show.clip(id)?.name ?? L("（なし）", "(none)") }
 
-    // MARK: show files & presets
+    // MARK: show files
 
     func openShow() {
         let p = NSOpenPanel()
@@ -841,7 +1038,8 @@ final class AppModel: ObservableObject {
         saveNow()   // finish writing the previous file first
         showFile = u.path
         fileShow = s
-        applyShow(s)
+        applyShow(chooseSeat(s, asking: true))
+        selectedOutput = show.outputs.first?.id
         notify(L("ショー: \(u.lastPathComponent)", "Show: \(u.lastPathComponent)"))
     }
 
@@ -856,45 +1054,10 @@ final class AppModel: ObservableObject {
     }
 
     func applyShow(_ s: Show) {
-        // Another show (opened, a preset, the practice show): undo starts again from here.
+        // Another show or seat (opened, the practice show): undo starts again from here.
         undoing = true; show = s; undoing = false
         undoStack.removeAll(); redoStack.removeAll()
         fixSelection()
-    }
-
-    func savePreset(_ name: String) {
-        let n = name.trimmingCharacters(in: .whitespaces)
-        guard !n.isEmpty else { return }
-        if ShowStore.savePreset(show, as: n) { lastPreset = n; notify(L("プリセット「\(n)」を保存", "Saved preset “\(n)”")) }
-        presetNames = ShowStore.presetNames()
-    }
-
-    func loadPreset(_ name: String) {
-        switch ShowStore.loadPreset(name) {
-        case .show(let s):
-            // A preset is another show: keep the opened file as it is.
-            if let f = showFile {
-                saveNow(); detachShowFile(forget: false)
-                notify(L("プリセット「\(name)」を読み込み（\((f as NSString).lastPathComponent) には書きません）", "Loaded preset “\(name)” (not written to \((f as NSString).lastPathComponent))"))
-                applyShow(s); lastPreset = name
-                return
-            }
-            applyShow(s)
-        case .look(let l):
-            var l = l
-            if let cur = selectedLook { l.screen = cur.screen; l.fullscreen = cur.fullscreen }
-            updateLook(l)
-        case nil: notify(L("プリセット「\(name)」はありません", "No preset “\(name)”")); return
-        }
-        lastPreset = name
-        notify(L("プリセット「\(name)」を読み込み", "Loaded preset “\(name)”"))
-    }
-
-    func deletePreset(_ name: String) {
-        guard confirm(L("プリセット「\(name)」を消しますか？", "Delete preset “\(name)”?"), L("キーやボタンで呼び出せなくなります。ショーそのものは変わりません。", "It can no longer be recalled. The show itself doesn't change.")) else { return }
-        ShowStore.deletePreset(name)
-        presetNames = ShowStore.presetNames()
-        notify(L("プリセット「\(name)」を削除", "Deleted preset “\(name)”"))
     }
 
     // MARK: role & audio
@@ -941,7 +1104,8 @@ final class AppModel: ObservableObject {
                     f.report = { [weak self] in
                         guard let self else { return ("", "", nil, nil, "") }
                         let err = self.transport.schedule != nil ? self.transport.maxError * 1000 : nil
-                        return (self.opts.name, AppModel.version, err, self.problemNow(), String(self.show.fileLabel.prefix(200)))
+                        return (self.opts.name, AppModel.version, err, self.problemNow(), String(self.show.fileLabel.prefix(200)),
+                                self.show.seats.count > 1 ? self.show.seat.name : nil)
                     }
                     follower = f
                 }
@@ -1000,7 +1164,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func applyAudio() { transport.setAudio(clipID: show.audioClip ?? show.clips.first?.id, on: audioOn) }
+    func applyAudio() { transport.setAudio(clipID: show.audioClip ?? show.seatClips.first?.id, on: audioOn) }
 
     func setAudio(_ on: Bool) {
         audioOn = on
@@ -1248,10 +1412,10 @@ final class AppModel: ObservableObject {
 
         if cmd {
             guard let c = e.charactersIgnoringModifiers?.lowercased(), let ch = c.first else { return false }
-            if let d = Int(String(ch)), d >= 1 && d <= 9 { savePreset(String(d)); return true }
             switch ch {
             case "o": openShow(); return true
             case "s": saveShowAs(); return true
+            case "e" where shift: showCollectWindow(); return true
             case "z": if shift { redoShow() } else { undoShow() }; return true
             case ",": toggleControl(); return true
             default: return false   // ⌘Q, copy / paste and the rest go to the menu
@@ -1281,7 +1445,6 @@ final class AppModel: ObservableObject {
         }
 
         guard let c = e.charactersIgnoringModifiers?.lowercased(), let ch = c.first else { return false }
-        if let d = Int(String(ch)), d >= 1 && d <= 9 { loadPreset(String(d)); return true }
         switch ch {
         case "r": master?.jump(to: 0)
         case "m": toggleRole()
@@ -1353,7 +1516,7 @@ final class AppModel: ObservableObject {
             var q = p; q.at = 0; q.err = q.err.map { ($0 * 10).rounded() / 10 }; return q
         }
         if ps != peers {
-            let shape = { (a: [Master.Peer]) in a.map { [$0.name, $0.ver, $0.warn ?? "", $0.file ?? ""] } }
+            let shape = { (a: [Master.Peer]) in a.map { [$0.name, $0.ver, $0.warn ?? "", $0.file ?? "", $0.seat ?? ""] } }
             let now = hostNow()
             if shape(ps) != shape(peers) || now - peersAt >= 1 { peers = ps; peersAt = now }
         }
@@ -1592,7 +1755,6 @@ final class AppModel: ObservableObject {
         if editMode != .none, nudgeOverlay != nil {
             s += L("\n編集: ", "\nEditing: ") + (editMode == .corners ? L("四隅", "corner pin") : L("曲面メッシュ", "mesh")) + L("  点 ", "  point ") + "\(selectedHandle + 1)/\(nudgeOverlay?.handleCount ?? 0)"
         }
-        if !lastPreset.isEmpty { s += L("  プリセット \(lastPreset)", "  preset \(lastPreset)") }
         if hostNow() < messageUntil { s += "\n" + message }
         if showHelp { s += "\n" + AppModel.keyHelp }
         return s

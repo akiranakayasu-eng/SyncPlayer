@@ -41,6 +41,7 @@ struct Message: Codable {
     var ver: String? = nil  // beacon / ping: the app version ("0.3.3 (abc1234)")
     var err: Double? = nil  // ping: the follower's current offset (ms)
     var warn: String? = nil // ping: the follower's first problem in a few words
+    var seat: String? = nil // ping: the seat the follower is (its name), when the show has several
 
     func encoded() -> Data { (try? JSONEncoder().encode(self)) ?? Data() }
     static func decode(_ d: Data) -> Message? { try? JSONDecoder().decode(Message.self, from: d) }

@@ -24,7 +24,7 @@ func timeString(_ t: Double) -> String {
 
 /// The control window: what is happening and playback on top; outputs, layers and movies on the
 /// left; the selected output's preview and the detailed state in the middle; settings on the right
-/// in three tabs (adjusting the picture, the exhibition settings of this Mac, presets).
+/// in three tabs (steps, adjusting the picture, the exhibition settings of this Mac); seats at the top left.
 struct ControlView: View {
     @ObservedObject var model: AppModel
     let status: StatusModel
@@ -319,6 +319,7 @@ struct TopBar: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 StatusBadge(status: status)
+                SeatChip(model: model)
                 Spacer(minLength: 8)
                 RoleSwitch(isMaster: model.isMaster) { model.setRoleByHand(master: $0) }
                 .help(L("この Mac の役（M キー）。マスターが再生を決め、ほかの Mac（フォロワー）は付いてくる。マスターは全台で 1 台だけ", "This Mac's role (M). The master controls playback; the other Macs (followers) follow. Only one master."))
@@ -329,7 +330,7 @@ struct TopBar: View {
                 }
                 .toggleStyle(.button)
                 .help(model.audioOn ? L("この Mac で音を出している（A キーで消す）", "Sound on for this Mac (A to mute)") : L("この Mac では音を出さない（A キーで出す）", "Sound off for this Mac (A to turn on)"))
-                Picker("", selection: Binding(get: { model.show.audioClip ?? model.show.clips.first?.id ?? "" },
+                Picker("", selection: Binding(get: { model.show.audioClip ?? model.show.seatClips.first?.id ?? "" },
                                               set: { model.setAudioClip($0) })) {
                     ForEach(model.show.clips) { c in Text(c.name).tag(c.id) }
                 }
@@ -342,6 +343,8 @@ struct TopBar: View {
                     .help(L("ショーを開く（⌘O）", "Open Show (⌘O)"))
                 Button { model.saveShowAs() } label: { Image(systemName: "square.and.arrow.down") }
                     .help(L("ショーとして保存（⌘S）", "Save Show (⌘S)"))
+                Button { model.showCollectWindow() } label: { Image(systemName: "shippingbox") }
+                    .help(L("素材をまとめる（⇧⌘E）: ショーと映像・マスクを 1 つのフォルダか zip に写す。ほかの Mac へ運ぶとき", "Collect Files (⇧⌘E): copy the show, clips and masks into one folder or zip, to carry to other Macs"))
             }
             HStack(spacing: 10) {
                 // Transport as symbols only (Akira 2026-11-25: the icons say enough).
@@ -434,6 +437,64 @@ struct TopBar: View {
 struct Sidebar: View {
     @ObservedObject var model: AppModel
     @State private var selectedClip: String?
+    @State private var selectedSeat: String?
+    @State private var renamingSeat: String?
+
+    private func finishSeatRename(_ id: String) {
+        renamingSeat = nil
+        model.renameSeat(id, renameText)
+        DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
+    }
+
+    /// Seats: the places of the exhibition (a Mac and its projectors). The one marked is this Mac.
+    @ViewBuilder private var seatSection: some View {
+        SectionTitle(L("席（Mac とプロジェクターの組）", "Seats"), help: "seats")
+        List {
+            ForEach(Array(model.show.seats.enumerated()), id: \.element.id) { k, st in
+                HStack(spacing: 6) {
+                    SeatBadge(index: k, on: st.id == model.show.seatID)
+                    if renamingSeat == st.id {
+                        TextField("", text: $renameText)
+                            .focused($renameFocused)
+                            .onSubmit { finishSeatRename(st.id) }
+                            .onExitCommand { renamingSeat = nil }
+                            .onChange(of: renameFocused) { f in if !f && renamingSeat == st.id { if FieldEsc.recent { renamingSeat = nil } else { finishSeatRename(st.id) } } }
+                            .onAppear { renameFocused = true }
+                    } else {
+                        Text(st.name).lineLimit(1).truncationMode(.middle)
+                            .onTapGesture(count: 2) { renameText = st.name; renamingSeat = st.id }
+                            .simultaneousGesture(TapGesture().onEnded { selectedSeat = st.id })
+                            .help(L("ダブルクリックで名前を変える", "Double-click to rename"))
+                    }
+                    Spacer(minLength: 4)
+                    if st.id == model.show.seatID {
+                        Text(L("この Mac", "This Mac")).font(.caption2.bold())
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(Color.accentColor)).foregroundColor(.white)
+                    } else {
+                        let who = model.peers.filter { $0.seat == st.name }.map(\.name)
+                        Text(who.isEmpty ? (model.isMaster ? L("空き", "free") : "") : who.joined(separator: ", "))
+                            .font(.caption).foregroundColor(who.count > 1 ? .orange : .secondary).lineLimit(1)
+                    }
+                }
+                .selectedRow((selectedSeat ?? model.show.seatID) == st.id) { selectedSeat = st.id }
+            }
+        }
+        .frame(height: listHeight(model.show.seats.count, max: 6))
+        .scrollContentBackground(.hidden)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
+        let sel = selectedSeat.flatMap { id in model.show.seats.first { $0.id == id } } ?? model.show.seat
+        ListBar {
+            IconButton("plus", L("席を足す（Mac をもう 1 台使うとき）", "Add a seat (for another Mac)")) { model.addSeat() }
+            IconButton("plus.square.on.square", L("選んだ席を複製（出力とレイヤーごと）", "Duplicate the selected seat (with its outputs and layers)")) { model.duplicateSeat(sel.id) }
+            IconButton("minus", L("選んだ席を消す", "Delete the selected seat")) { model.deleteSeat(sel.id) }
+                .disabled(model.show.seats.count < 2)
+            Divider().frame(height: 14)
+            IconButton("desktopcomputer", L("この Mac を選んだ席にする（出力・レイヤー・音がその席のものになる）", "Make this Mac the selected seat (its outputs, layers and sound)")) { model.switchSeat(sel.id) }
+                .disabled(sel.id == model.show.seatID)
+        }
+        Divider().padding(.vertical, 2)
+    }
     @State private var renamingOutput: String?
     @State private var renamingLayer: String?
 
@@ -466,7 +527,8 @@ struct Sidebar: View {
         // as their rows (they do not scroll themselves), so the wheel moves this column.
         ScrollView {
         VStack(alignment: .leading, spacing: 6) {
-            SectionTitle(L("出力（ディスプレイに出す絵）", "Outputs"), help: "outputs")
+            seatSection
+            SectionTitle(L("出力（ディスプレイに出す絵）", "Outputs") + (model.show.seats.count > 1 ? " — " + model.show.seat.name : ""), help: "outputs")
             List {
                 ForEach(model.show.outputs) { o in
                     HStack {
@@ -912,7 +974,6 @@ struct StepLine: View {
 
 struct Inspector: View {
     @ObservedObject var model: AppModel
-    @State private var presetName = ""
     /// Opens on 画面の調整 (or on 手順 until the show is saved), never on 展示の設定, which is
     /// touched once while setting up.
     @State private var tab = 0
@@ -929,7 +990,6 @@ struct Inspector: View {
                 Text(L("手順", "Steps")).tag(3)
                 Text(L("画面の調整", "Layer")).tag(0)
                 Text(L("展示の設定", "Exhibit")).tag(1)
-                Text(L("プリセット", "Presets")).tag(2)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -942,7 +1002,6 @@ struct Inspector: View {
                     switch tab {
                     case 3: stepsSection
                     case 1: exhibitSection
-                    case 2: presetSection
                     default:
                         if model.selectedLayerIndex == nil {
                             Text(L("左の「レイヤー」で 1 つ選ぶと、ここで位置・大きさ・切り取り・マスク・エッジブレンド・四隅を調整できる", "Select a layer at the left to adjust its transform, crop, mask, edge blend and corner pin here"))
@@ -1044,12 +1103,17 @@ struct Inspector: View {
                 Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 3) {
                     GridRow {
                         Text(L("名前", "Name")).foregroundColor(.secondary)
+                        Text(L("席", "Seat")).foregroundColor(.secondary)
                         Text(L("ずれ", "Error")).foregroundColor(.secondary)
                         Text(L("版・注意", "Version / Notes")).foregroundColor(.secondary)
                     }
                     ForEach(Array(model.peers.enumerated()), id: \.offset) { _, p in
                         GridRow {
                             Text(p.name).lineLimit(1).truncationMode(.middle)
+                            let clash = model.seatClash(p.seat)
+                            Text(p.seat.map { clash ? "⚠︎ " + $0 : $0 } ?? "—").lineLimit(1)
+                                .foregroundColor(clash ? .orange : .primary)
+                                .help(clash ? L("同じ席の Mac がほかにもあります。どちらかの席を変えてください", "Another Mac is the same seat. Change the seat on one of them") : "")
                             Text(p.err.map { String(format: "%.1f ms", abs($0)) } ?? "—")
                                 .font(.system(size: 11, design: .monospaced))
                             let other = p.ver != AppModel.version
@@ -1209,24 +1273,4 @@ struct Inspector: View {
         model.updateLook(s)
     }
 
-    @ViewBuilder private var presetSection: some View {
-        SectionTitle(L("プリセット（ショー全体の配置を名前で残す）", "Presets (the whole show's layout, by name)"), help: "presets")
-        HStack {
-            TextField(L("名前", "Name"), text: $presetName)
-            Button(L("この名前で保存", "Save as This Name")) { model.savePreset(presetName) }
-                .disabled(presetName.trimmingCharacters(in: .whitespaces).isEmpty)
-        }
-        Text(L("キー: 1〜9 で呼び出し、⌘1〜⌘9 で保存", "Keys: 1–9 recall, ⌘1–⌘9 save")).font(.caption).foregroundColor(.secondary)
-        if model.presetNames.isEmpty {
-            Text(L("まだありません", "None yet")).foregroundColor(.secondary)
-        }
-        ForEach(model.presetNames, id: \.self) { n in
-            HStack {
-                Text(n).bold(n == model.lastPreset)
-                Spacer()
-                Button(L("読み込む", "Load")) { model.loadPreset(n) }
-                Button(L("消す", "Delete")) { model.deletePreset(n) }
-            }
-        }
-    }
 }

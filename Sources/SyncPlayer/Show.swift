@@ -68,37 +68,141 @@ struct OutputConfig: Codable, Equatable, Identifiable {
     }
 }
 
-/// Everything one Mac needs: the clips, the outputs and their layers. Saved as a .syncshow file (JSON).
-struct Show: Codable, Equatable {
-    var version = 1
-    var clips: [Clip] = []
+/// One place in the exhibition: a Mac and the projectors / displays it drives. Each seat has its
+/// own outputs (and their layers) and its own sound. Every Mac opens the same show file and
+/// remembers which seat it is.
+struct Seat: Codable, Equatable, Identifiable {
+    var id = UUID().uuidString
+    var name: String
     var outputs: [OutputConfig] = []
-    /// The clip whose sound is played (nil = the first clip).
+    /// The clip whose sound this seat plays (nil = the first clip it uses).
     var audioClip: String?
+    /// This seat plays sound (nil = not set: only a Mac started as master).
+    var audioOn: Bool?
+
+    init(name: String, outputs: [OutputConfig] = [], audioClip: String? = nil, audioOn: Bool? = nil) {
+        self.name = name
+        self.outputs = outputs
+        self.audioClip = audioClip
+        self.audioOn = audioOn
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "A"
+        outputs = try c.decodeIfPresent([OutputConfig].self, forKey: .outputs) ?? []
+        audioClip = try c.decodeIfPresent(String.self, forKey: .audioClip)
+        audioOn = try c.decodeIfPresent(Bool.self, forKey: .audioOn)
+    }
+}
+
+/// The whole exhibition: the clips (shared by all seats), the seats with their outputs and layers,
+/// and the loop. Saved as one .syncshow file (JSON) that every Mac opens.
+/// outputs / audioClip / audioOn are those of the seat this Mac is (seatID, kept per Mac, not in the file).
+struct Show: Codable, Equatable {
+    var version = 2
+    /// Identifies the exhibition, so each Mac can remember its seat in it (also after copying the file).
+    var id = UUID().uuidString
+    var clips: [Clip] = []
+    var seats: [Seat] = [Seat(name: "A")]
+    /// The seat this Mac is (not saved in the file).
+    var seatID = ""
     /// Loop all clips on all Macs together (a shorter clip holds its last frame). Used on the master.
     var loopTogether = true
     /// Loop length in seconds when looping together; 0 = the longest clip on any Mac.
     var loopLength = 0.0
-    /// This Mac plays sound (nil = not set: only a Mac started with --master). Saved with the
-    /// show, since each Mac keeps its own show file.
-    var audioOn: Bool?
+
+    var seatIndex: Int {
+        seats.firstIndex(where: { $0.id == seatID }) ?? 0
+    }
+    var seat: Seat { seats.isEmpty ? Seat(name: "A") : seats[seatIndex] }
+
+    /// This Mac's outputs (those of its seat).
+    var outputs: [OutputConfig] {
+        get { seat.outputs }
+        set { ensureSeat(); seats[seatIndex].outputs = newValue }
+    }
+    /// The clip whose sound is played on this Mac (nil = the first clip its seat uses).
+    var audioClip: String? {
+        get { seat.audioClip }
+        set { ensureSeat(); seats[seatIndex].audioClip = newValue }
+    }
+    /// This Mac plays sound (nil = not set: only a Mac started with --master).
+    var audioOn: Bool? {
+        get { seat.audioOn }
+        set { ensureSeat(); seats[seatIndex].audioOn = newValue }
+    }
+    private mutating func ensureSeat() { if seats.isEmpty { seats = [Seat(name: "A")]; seatID = seats[0].id } }
+
+    /// The clips this Mac plays: those on its seat's layers and its sound clip (all clips when none is used yet).
+    var seatClips: [Clip] {
+        var used = Set(outputs.flatMap { $0.layers.map(\.clipID) })
+        if let a = audioClip { used.insert(a) }
+        let c = clips.filter { used.contains($0.id) }
+        return c.isEmpty ? clips : c
+    }
 
     init(clips: [Clip] = [], outputs: [OutputConfig] = [], audioClip: String? = nil) {
         self.clips = clips
-        self.outputs = outputs
-        self.audioClip = audioClip
+        self.seats = [Seat(name: "A", outputs: outputs, audioClip: audioClip)]
+        self.seatID = seats[0].id
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case version, id, clips, seats, loopTogether, loopLength
+        case outputs, audioClip, audioOn   // this seat's, also written so older versions can open the file
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         clips = try c.decode([Clip].self, forKey: .clips)          // required: tells a show from an old preset
-        outputs = try c.decode([OutputConfig].self, forKey: .outputs)
-        audioClip = try c.decodeIfPresent(String.self, forKey: .audioClip)
+        if let ss = try c.decodeIfPresent([Seat].self, forKey: .seats), !ss.isEmpty {
+            seats = ss
+        } else {
+            // A show from before seats: one seat with its outputs and sound.
+            let outs = try c.decode([OutputConfig].self, forKey: .outputs)
+            seats = [Seat(name: "A", outputs: outs,
+                          audioClip: try c.decodeIfPresent(String.self, forKey: .audioClip),
+                          audioOn: try c.decodeIfPresent(Bool.self, forKey: .audioOn))]
+        }
+        // Two seats with the same id (hand-edited file) would be one seat: give the later one a new id.
+        var seen = Set<String>()
+        for i in seats.indices { if !seen.insert(seats[i].id).inserted { seats[i].id = UUID().uuidString } }
+        seatID = seats[0].id
         loopTogether = try c.decodeIfPresent(Bool.self, forKey: .loopTogether) ?? true
         loopLength = max(0, try c.decodeIfPresent(Double.self, forKey: .loopLength) ?? 0)
         if loopLength > 0 && loopLength < Show.minLoop { loopLength = Show.minLoop }
-        audioOn = try c.decodeIfPresent(Bool.self, forKey: .audioOn)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(2, forKey: .version)
+        try c.encode(id, forKey: .id)
+        try c.encode(clips, forKey: .clips)
+        try c.encode(seats, forKey: .seats)
+        try c.encode(loopTogether, forKey: .loopTogether)
+        try c.encode(loopLength, forKey: .loopLength)
+        try c.encode(outputs, forKey: .outputs)
+        try c.encodeIfPresent(audioClip, forKey: .audioClip)
+        try c.encodeIfPresent(audioOn, forKey: .audioOn)
+    }
+
+    /// The same exhibition as saved in the file (this Mac's seat choice left out), for comparing.
+    var fileContent: Show { var s = self; s.seatID = ""; return s }
+
+    /// A name for a new seat: the next free letter (A, B, C …), then numbers.
+    func newSeatName() -> String {
+        let names = Set(seats.map(\.name))
+        for u in 65...90 {
+            let n = String(Character(UnicodeScalar(UInt8(u))))
+            if !names.contains(n) { return n }
+        }
+        var k = seats.count + 1
+        while names.contains("\(k)") { k += 1 }
+        return "\(k)"
     }
 
     func clip(_ id: String) -> Clip? { clips.first { $0.id == id } }
@@ -161,42 +265,53 @@ struct Show: Codable, Equatable {
 
 /// Files in ~/Library/Application Support/SyncPlayer/:
 ///   current.syncshow — the show in use, saved on every change
-///   presets/<name>.syncshow — named presets (whole shows). Older presets/<name>.json hold
-///   only a picture setting (v0.2) and are applied to the selected layer.
+/// (presets/ from v0.3 and older is no longer used and is left as it is.)
 enum ShowStore {
     static var base: URL {
         let u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("SyncPlayer", isDirectory: true)
-        try? FileManager.default.createDirectory(at: u.appendingPathComponent("presets"),
-                                                 withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
     }
-    static var presetDir: URL { base.appendingPathComponent("presets", isDirectory: true) }
     static var currentURL: URL { base.appendingPathComponent("current.syncshow") }
     static let fileType = UTType("com.nakayasu.syncshow") ?? UTType(filenameExtension: "syncshow", conformingTo: .json) ?? .json
 
-    static func write(_ show: Show, to url: URL) -> Bool {
+    static func encode(_ show: Show) -> Data? {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let d = try? enc.encode(show) else { return false }
+        return try? enc.encode(show)
+    }
+
+    static func write(_ show: Show, to url: URL) -> Bool {
+        guard let d = encode(show) else { return false }
         return (try? d.write(to: url, options: .atomic)) != nil
     }
 
-    /// Reads a show. A movie that is not at its saved path is looked for next to the show file
-    /// (so a folder with the show and its movies can be copied to another Mac).
+    /// Reads a show. Paths may be relative to the show file (a collected folder). A movie or mask
+    /// that is not at its saved path is looked for next to the show file and in its movies/ and
+    /// masks/ folders (so a folder with the show and its files can be copied to another Mac).
     static func read(_ url: URL) -> Show? {
         guard let d = try? Data(contentsOf: url), var s = try? JSONDecoder().decode(Show.self, from: d) else { return nil }
         let folder = url.deletingLastPathComponent()
         let fm = FileManager.default
-        for i in s.clips.indices where !fm.fileExists(atPath: s.clips[i].path) {
-            let near = folder.appendingPathComponent(s.clips[i].name).path
-            if fm.fileExists(atPath: near) { s.clips[i].path = near }
+        func find(_ p: String, _ sub: String) -> String {
+            if p.hasPrefix("/") && fm.fileExists(atPath: p) { return p }
+            if !p.hasPrefix("/") {
+                let rel = folder.appendingPathComponent(p).standardizedFileURL.path
+                if fm.fileExists(atPath: rel) { return rel }
+            }
+            let name = (p as NSString).lastPathComponent
+            for cand in [folder.appendingPathComponent(name), folder.appendingPathComponent(sub).appendingPathComponent(name)]
+            where fm.fileExists(atPath: cand.path) { return cand.path }
+            // Not found: keep it (absolute when it was relative, so it reads the same later).
+            return p.hasPrefix("/") ? p : folder.appendingPathComponent(p).standardizedFileURL.path
         }
-        for o in s.outputs.indices {
-            for l in s.outputs[o].layers.indices {
-                guard let m = s.outputs[o].layers[l].mask, !fm.fileExists(atPath: m) else { continue }
-                let near = folder.appendingPathComponent((m as NSString).lastPathComponent).path
-                if fm.fileExists(atPath: near) { s.outputs[o].layers[l].mask = near }
+        for i in s.clips.indices { s.clips[i].path = find(s.clips[i].path, "movies") }
+        for k in s.seats.indices {
+            for o in s.seats[k].outputs.indices {
+                for l in s.seats[k].outputs[o].layers.indices {
+                    if let m = s.seats[k].outputs[o].layers[l].mask { s.seats[k].outputs[o].layers[l].mask = find(m, "masks") }
+                }
             }
         }
         return s
@@ -213,42 +328,140 @@ enum ShowStore {
         return Show.make(paths: [movie], look: look)
     }
 
-    static func safe(_ name: String) -> String {
-        let bad = CharacterSet(charactersIn: "/\\:?*\"<>|")
-        return name.components(separatedBy: bad).joined(separator: "_").trimmingCharacters(in: .whitespaces)
+    // MARK: this Mac's seat (kept per Mac, by the exhibition's id)
+
+    static func rememberedSeat(_ show: Show) -> String? {
+        (UserDefaults.standard.dictionary(forKey: "seats") as? [String: String])?[show.id]
     }
 
-    static func presetNames() -> [String] {
-        let files = (try? FileManager.default.contentsOfDirectory(atPath: presetDir.path)) ?? []
-        var names = Set<String>()
-        for f in files {
-            if f.hasSuffix(".syncshow") { names.insert(String(f.dropLast(9))) }
-            else if f.hasSuffix(".json") { names.insert(String(f.dropLast(5))) }
+    static func rememberSeat(_ seatID: String, for show: Show) {
+        var d = (UserDefaults.standard.dictionary(forKey: "seats") as? [String: String]) ?? [:]
+        d[show.id] = seatID
+        UserDefaults.standard.set(d, forKey: "seats")
+    }
+}
+
+/// "Collect Files" (like After Effects): the show and every movie and mask it uses, copied into one
+/// folder (or zip) with paths relative to the show, so the folder can be carried to any Mac.
+enum Collect {
+    struct Item: Identifiable, Equatable {
+        var id: String { kind + ":" + path }
+        var kind: String          // "movie" or "mask"
+        var path: String
+        var seats: [String]       // seat names that use it ("" for a clip no seat uses)
+        var size: Int64?          // nil = not found
+        var name: String { (path as NSString).lastPathComponent }
+    }
+
+    /// The show to write: every seat, or only the given seat (and only the clips it uses).
+    static func scoped(_ show: Show, seat: String?) -> Show {
+        guard let sid = seat, let st = show.seats.first(where: { $0.id == sid }) else { return show }
+        var s = show
+        s.seats = [st]; s.seatID = st.id
+        let used = Set(st.outputs.flatMap { $0.layers.map(\.clipID) } + [st.audioClip].compactMap { $0 })
+        s.clips = show.clips.filter { used.contains($0.id) }
+        return s
+    }
+
+    /// Every file the show uses, with the seats that use it and its size.
+    static func items(_ show: Show) -> [Item] {
+        let fm = FileManager.default
+        func size(_ p: String) -> Int64? {
+            guard fm.fileExists(atPath: p) else { return nil }
+            return (try? fm.attributesOfItem(atPath: p)[.size] as? NSNumber)?.int64Value ?? 0
         }
-        return names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        var out: [Item] = []
+        for c in show.clips {
+            let names = show.seats.filter { st in
+                st.audioClip == c.id || st.outputs.contains { $0.layers.contains { $0.clipID == c.id } }
+            }.map(\.name)
+            out.append(Item(kind: "movie", path: c.path, seats: names, size: size(c.path)))
+        }
+        var masks: [String: [String]] = [:]
+        var order: [String] = []
+        for st in show.seats {
+            for o in st.outputs { for l in o.layers { if let m = l.mask {
+                if masks[m] == nil { order.append(m); masks[m] = [] }
+                if !masks[m]!.contains(st.name) { masks[m]!.append(st.name) }
+            } } }
+        }
+        for m in order { out.append(Item(kind: "mask", path: m, seats: masks[m]!, size: size(m))) }
+        return out
     }
 
-    enum Preset { case show(Show), look(DisplaySettings) }
+    struct Result { var folder: URL; var copied: Int; var missing: [String] }
 
-    static func savePreset(_ show: Show, as name: String) -> Bool {
-        let n = safe(name)
-        guard !n.isEmpty else { return false }
-        // A v0.3 preset replaces an old one of the same name.
-        try? FileManager.default.removeItem(at: presetDir.appendingPathComponent(n + ".json"))
-        return write(show, to: presetDir.appendingPathComponent(n + ".syncshow"))
-    }
-
-    static func loadPreset(_ name: String) -> Preset? {
-        let n = safe(name)
-        if let s = read(presetDir.appendingPathComponent(n + ".syncshow")) { return .show(s) }
-        if let d = try? Data(contentsOf: presetDir.appendingPathComponent(n + ".json")),
-           let s = try? JSONDecoder().decode(DisplaySettings.self, from: d) { return .look(s) }
-        return nil
-    }
-
-    static func deletePreset(_ name: String) {
-        let n = safe(name)
-        try? FileManager.default.removeItem(at: presetDir.appendingPathComponent(n + ".syncshow"))
-        try? FileManager.default.removeItem(at: presetDir.appendingPathComponent(n + ".json"))
+    /// Copies into dest (a new folder named after it): <name>.syncshow, movies/, masks/, report.txt.
+    /// zip: makes dest.zip instead and leaves no folder. Runs the copying on the caller's thread.
+    static func run(_ show: Show, to dest: URL, zip: Bool) throws -> Result {
+        let fm = FileManager.default
+        let showName = dest.deletingPathExtension().lastPathComponent
+        let work: URL
+        if zip {
+            work = fm.temporaryDirectory.appendingPathComponent("SyncPlayer-collect-\(UUID().uuidString)")
+                .appendingPathComponent(showName, isDirectory: true)
+        } else {
+            work = dest
+            if fm.fileExists(atPath: work.path) {
+                throw NSError(domain: "Collect", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                    L("「\(work.lastPathComponent)」はもうあります。別の名前にしてください", "“\(work.lastPathComponent)” already exists. Please choose another name")])
+            }
+        }
+        try fm.createDirectory(at: work.appendingPathComponent("movies"), withIntermediateDirectories: true)
+        var s = show
+        var copied = 0
+        var missing: [String] = []
+        var taken: Set<String> = []
+        var done: [String: String] = [:]   // source path -> relative path in the folder
+        func place(_ src: String, _ sub: String) throws -> String? {
+            if let r = done[src] { return r }
+            guard fm.fileExists(atPath: src) else { missing.append(src); return nil }
+            let n = (src as NSString).lastPathComponent
+            let base = (n as NSString).deletingPathExtension, ext = (n as NSString).pathExtension
+            var name = n, k = 2
+            while taken.contains(sub + "/" + name.lowercased()) {
+                name = ext.isEmpty ? "\(base)-\(k)" : "\(base)-\(k).\(ext)"; k += 1
+            }
+            taken.insert(sub + "/" + name.lowercased())
+            let dir = work.appendingPathComponent(sub, isDirectory: true)
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try fm.copyItem(at: URL(fileURLWithPath: src), to: dir.appendingPathComponent(name))
+            copied += 1
+            let rel = sub + "/" + name
+            done[src] = rel
+            return rel
+        }
+        for i in s.clips.indices { if let r = try place(s.clips[i].path, "movies") { s.clips[i].path = r } }
+        for k in s.seats.indices {
+            for o in s.seats[k].outputs.indices {
+                for l in s.seats[k].outputs[o].layers.indices {
+                    if let m = s.seats[k].outputs[o].layers[l].mask, let r = try place(m, "masks") {
+                        s.seats[k].outputs[o].layers[l].mask = r
+                    }
+                }
+            }
+        }
+        guard ShowStore.write(s, to: work.appendingPathComponent(showName + ".syncshow")) else {
+            throw NSError(domain: "Collect", code: 2, userInfo: [NSLocalizedDescriptionKey: L("ショーを書けませんでした", "Couldn't write the show")])
+        }
+        var report = "SyncPlayer \(AppModel.version)  \(Date())\n"
+        report += "\(showName).syncshow  seats: \(s.seats.map(\.name).joined(separator: ", "))\n\n"
+        report += "copied (\(copied)):\n" + done.values.sorted().map { "  " + $0 }.joined(separator: "\n") + "\n"
+        if !missing.isEmpty { report += "\nnot found (\(missing.count)):\n" + missing.map { "  " + $0 }.joined(separator: "\n") + "\n" }
+        try report.write(to: work.appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
+        if zip {
+            let z = dest.pathExtension.lowercased() == "zip" ? dest : dest.appendingPathExtension("zip")
+            try? fm.removeItem(at: z)
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            p.arguments = ["-c", "-k", "--sequesterRsrc", "--keepParent", work.path, z.path]
+            try p.run(); p.waitUntilExit()
+            try? fm.removeItem(at: work.deletingLastPathComponent())
+            guard p.terminationStatus == 0 else {
+                throw NSError(domain: "Collect", code: 3, userInfo: [NSLocalizedDescriptionKey: L("zip を作れませんでした", "Couldn't make the zip")])
+            }
+            return Result(folder: z, copied: copied, missing: missing)
+        }
+        return Result(folder: work, copied: copied, missing: missing)
     }
 }
