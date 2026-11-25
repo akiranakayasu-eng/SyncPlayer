@@ -654,6 +654,16 @@ final class AppModel: ObservableObject {
         show.outputs[i.o].layers.swapAt(i.l, j)
     }
 
+    /// Drag in the layer list. The list shows the layers front first (reversed), so the offsets
+    /// are in that order.
+    func moveLayers(fromDisplayed src: IndexSet, toDisplayed dst: Int) {
+        guard let o = selectedOutputConfig.flatMap({ c in show.outputs.firstIndex { $0.id == c.id } }) else { return }
+        var shown = Array(show.outputs[o].layers.reversed())
+        shown.move(fromOffsets: src, toOffset: dst)
+        let layers = Array(shown.reversed())
+        if layers.map(\.id) != show.outputs[o].layers.map(\.id) { show.outputs[o].layers = layers }
+    }
+
     func selectNextLayer() {
         guard let o = selectedOutputConfig, !o.layers.isEmpty else { return }
         let ids = o.layers.reversed().map(\.id)   // the order the list shows
@@ -1275,7 +1285,7 @@ final class AppModel: ObservableObject {
         var c: [CheckItem] = []
         func add(_ ok: Bool?, _ text: String, _ fix: String) { c.append(CheckItem(ok: ok, text: text, fix: fix)) }
         add(showFile != nil, "ショーを保存してある", "上の「保存…」で保存する（再起動のあと、このショーが開く）")
-        add(!show.clips.contains { clipBroken($0.id) }, "映像が全部開ける", "左の映像の「⚠︎ 開けない」の行で「差し替え」")
+        add(!show.clips.contains { clipBroken($0.id) }, "映像が全部開ける", "左の映像で「⚠︎ 開けない」の行を選んで ⟳（差し替え）")
         let masks = show.outputs.flatMap { $0.layers.compactMap(\.mask) }
         add(!masks.contains { !FileManager.default.fileExists(atPath: $0) || GPU.shared?.maskReady($0) == false },
             "マスクが全部読める", "「画面の調整」のマスクで画像を選び直す")

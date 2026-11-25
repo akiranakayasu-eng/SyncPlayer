@@ -236,12 +236,10 @@ struct Sidebar: View {
                 }
             }
             .frame(height: listHeight(model.show.outputs.count, max: 8))
-            HStack {
-                Button { model.addOutput() } label: { Label("足す", systemImage: "plus") }.help("出力を足す（別のディスプレイに出すとき）")
-                Button { model.removeOutput() } label: { Label("消す", systemImage: "minus") }.help("選んだ出力を消す")
-                Spacer()
+            ListBar {
+                IconButton("plus", "出力を足す（別のディスプレイに出すとき）") { model.addOutput() }
+                IconButton("minus", "選んだ出力を消す") { model.removeOutput() }
             }
-            .controlSize(.small)
             if model.selectedOutputConfig != nil {
                 HStack {
                     Text("名前").foregroundColor(.secondary)
@@ -259,33 +257,33 @@ struct Sidebar: View {
             }
 
             Divider().padding(.vertical, 2)
-            SectionTitle("レイヤー（上が手前）", help: "layers")
+            SectionTitle("レイヤー（上が手前、ドラッグで入れ替え）", help: "layers")
             List(selection: $model.selectedLayer) {
-                ForEach(Array((model.selectedOutputConfig?.layers ?? []).reversed())) { l in
+                // Numbered from the front (1 = frontmost, like After Effects). Drag a row to change
+                // the order, like the tracks in Premiere.
+                ForEach(Array((model.selectedOutputConfig?.layers ?? []).reversed().enumerated()), id: \.element.id) { k, l in
                     HStack {
+                        Text("\(k + 1)").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
+                            .frame(minWidth: 16, alignment: .trailing)
                         Toggle("", isOn: model.visibleBinding(l.id)).labelsHidden().help("入れると見える")
                         Text(model.clipName(l.clipID)).lineLimit(1).truncationMode(.middle)
                     }
                     .tag(Optional(l.id))
+                    .help("ドラッグで順番を入れ替える（上が手前）")
                 }
+                .onMove { model.moveLayers(fromDisplayed: $0, toDisplayed: $1) }
             }
             .frame(height: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 12))
-            HStack(spacing: 4) {
-                Button { model.addLayer() } label: { Label("足す", systemImage: "plus") }.help("レイヤーを足す")
-                Button { model.removeLayer() } label: { Label("消す", systemImage: "minus") }.help("選んだレイヤーを消す")
-                Spacer()
+            // One row of small icon buttons under the list, like the + − bar under macOS lists.
+            ListBar {
+                IconButton("plus", "レイヤーを足す") { model.addLayer() }
+                IconButton("minus", "選んだレイヤーを消す") { model.removeLayer() }
+                Divider().frame(height: 14)
+                IconButton("arrow.up", "選んだレイヤーを手前へ（ドラッグでも入れ替えられる）") { model.moveLayer(1) }
+                IconButton("arrow.down", "選んだレイヤーを奥へ") { model.moveLayer(-1) }
+                Divider().frame(height: 14)
+                IconButton("square.grid.2x2", "4 分割などに並べる: この出力のレイヤーを、数に合わせて 2×2 などの格子に並べる") { model.arrangeGrid() }
             }
-            .controlSize(.small)
-            HStack(spacing: 4) {
-                Button { model.moveLayer(1) } label: { Label("手前へ", systemImage: "arrow.up") }.help("選んだレイヤーを手前へ")
-                Button { model.moveLayer(-1) } label: { Label("奥へ", systemImage: "arrow.down") }.help("選んだレイヤーを奥へ")
-                Spacer()
-            }
-            .controlSize(.small)
-            Button("4 分割などに並べる") { model.arrangeGrid() }
-                .controlSize(.small)
-                .fixedSize()
-                .help("この出力のレイヤーを、数に合わせて 2×2 などの格子に並べる")
 
             Divider().padding(.vertical, 2)
             SectionTitle("映像", help: "clips")
@@ -303,19 +301,17 @@ struct Sidebar: View {
                 }
             }
             .frame(height: listHeight(model.show.clips.count, max: 6))
-            HStack(spacing: 4) {
-                Button("差し替え") { if let id = selectedClipID { model.replaceClip(id) } }
-                    .disabled(selectedClipID == nil)
-                    .help("選んだ映像を別の映像と入れ替える（レイヤーの設定はそのまま）")
-                Button("外す") { if let id = selectedClipID { model.removeClip(id) } }
-                    .disabled(selectedClipID == nil)
-                    .help("選んだ映像と、それを使うレイヤーをショーから外す（確かめてから。ファイルは消えない）")
-                Spacer()
-            }
-            .controlSize(.small)
-            HStack {
-                Button("映像を足す…") { model.addClips() }
-                Spacer()
+            ListBar {
+                IconButton("plus", "映像を足す…（ファイルを選ぶ）") { model.addClips() }
+                IconButton("minus", "選んだ映像と、それを使うレイヤーをショーから外す（確かめてから。ファイルは消えない）") {
+                    if let id = selectedClipID { model.removeClip(id) }
+                }
+                .disabled(selectedClipID == nil)
+                Divider().frame(height: 14)
+                IconButton("arrow.triangle.2.circlepath", "差し替え: 選んだ映像を別の映像と入れ替える（レイヤーの設定はそのまま）") {
+                    if let id = selectedClipID { model.replaceClip(id) }
+                }
+                .disabled(selectedClipID == nil)
             }
             Toggle("全部いっしょにループ", isOn: Binding(get: { model.show.loopTogether },
                                                     set: { v in if model.show.loopTogether != v { model.show.loopTogether = v } }))
@@ -350,6 +346,29 @@ struct Sidebar: View {
     private var screenChoices: [Int] {
         let n = max(model.screenNames.count, (model.selectedOutputConfig?.screen ?? 0) + 1)
         return Array(0..<n)
+    }
+}
+
+/// The row of small buttons under a list.
+struct ListBar<Content: View>: View {
+    @ViewBuilder let content: Content
+    var body: some View {
+        HStack(spacing: 2) { content; Spacer() }
+            .controlSize(.small)
+            .padding(.top, -2)
+    }
+}
+
+/// A small icon-only button; the words are in the tooltip.
+struct IconButton: View {
+    let icon: String
+    let help: String
+    let action: () -> Void
+    init(_ icon: String, _ help: String, action: @escaping () -> Void) { self.icon = icon; self.help = help; self.action = action }
+    var body: some View {
+        Button(action: action) { Image(systemName: icon).frame(width: 18, height: 14) }
+            .buttonStyle(.bordered)
+            .help(help)
     }
 }
 
@@ -595,7 +614,7 @@ struct Inspector: View {
         StepLine(done: model.learnedSet.contains("fullscreen"), text: "左の「全画面にする（F）」を入れ、S で操作の窓を出し入れする")
 
         StepHeader(title: "2. 画面を作る", anchor: "step2")
-        StepLine(done: model.learnedSet.contains("added"), text: "「映像を足す…」か「差し替え」で自分の映像を入れる")
+        StepLine(done: model.learnedSet.contains("added"), text: "左の「映像」の ＋ か ⟳（差し替え）で自分の映像を入れる")
         StepLine(done: model.learnedSet.contains("adjusted"), text: "「画面の調整」で位置・大きさ・四隅などを変える（⌘Z で戻せる）")
         StepLine(done: model.learnedSet.contains("mask"), text: "自分のマスク画像を使う（なくてもよい）")
         StepLine(done: model.showFile != nil, text: "上の「保存…」でショーを保存する")
