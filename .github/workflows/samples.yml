@@ -1,0 +1,37 @@
+# Remakes only the sample kit (movies + shows + 使い方.txt) and replaces it on an existing release.
+# Use it when samples/ changes but the app does not. Run it from the Actions tab with the release's version.
+name: samples
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version of an existing release (e.g. 0.3.3). Its samples zip is replaced."
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  samples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - name: Make the sample kit
+        run: |
+          DIR="SyncPlayer-サンプル"
+          bash tools/make-samples.sh "$DIR"
+          cp samples/* "$DIR/"
+          ZIP="SyncPlayer-${{ inputs.version }}-samples.zip"
+          python3 -c 'import sys,os,zipfile
+          z=zipfile.ZipFile(sys.argv[1],"w",zipfile.ZIP_DEFLATED)
+          for r,ds,fs in os.walk(sys.argv[2]):
+              for f in sorted(fs): z.write(os.path.join(r,f))
+          z.close()' "$ZIP" "$DIR"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+      - name: Replace it on the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v${{ inputs.version }}" "$ZIP" --clobber
