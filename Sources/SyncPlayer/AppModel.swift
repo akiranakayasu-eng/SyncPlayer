@@ -946,26 +946,30 @@ final class AppModel: ObservableObject {
 
     // MARK: control window
 
-    /// The colour of the control window (and its dialogs): white, grey or black, or as the Mac is set.
+    /// The colour of the control window (and its dialogs): light or dark (Akira 2026-11-25: two kinds
+    /// are enough). Older saved values: grey and black become dark; "auto" (and nothing saved) take
+    /// the Mac's appearance at that moment.
     enum UITheme: String, CaseIterable, Identifiable {
-        case auto, light, gray, dark
+        case light, dark
         var id: String { rawValue }
-        var label: String {
-            switch self { case .auto: return "自動"; case .light: return "白"; case .gray: return "グレー"; case .dark: return "黒" }
+        var label: String { self == .light ? "ライト" : "ダーク" }
+        static func saved() -> UITheme {
+            switch UserDefaults.standard.string(forKey: "ui.theme") {
+            case "light": return .light
+            case "dark", "gray": return .dark
+            default:
+                let sys = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+                return sys == .darkAqua ? .dark : .light
+            }
         }
     }
-    @Published var uiTheme: UITheme = UITheme(rawValue: UserDefaults.standard.string(forKey: "ui.theme") ?? "") ?? .auto {
+    @Published var uiTheme: UITheme = UITheme.saved() {
         didSet { UserDefaults.standard.set(uiTheme.rawValue, forKey: "ui.theme"); applyTheme() }
     }
 
     func applyTheme() {
-        switch uiTheme {
-        case .auto: NSApp.appearance = nil
-        case .light: NSApp.appearance = NSAppearance(named: .aqua)
-        case .gray, .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
-        }
-        control?.backgroundColor = uiTheme == .gray ? NSColor(white: 0.30, alpha: 1)
-            : uiTheme == .dark ? NSColor(white: 0.04, alpha: 1) : .windowBackgroundColor
+        NSApp.appearance = NSAppearance(named: uiTheme == .light ? .aqua : .darkAqua)
+        control?.backgroundColor = .windowBackgroundColor
     }
 
     private func buildControlWindow() {

@@ -758,7 +758,7 @@ struct Inspector: View {
                           ForEach(AppModel.UITheme.allCases) { Text($0.label).tag($0) }
                       }
                       .labelsHidden().pickerStyle(.segmented).fixedSize()
-                      .help("自動は Mac の「外観」（ライト・ダーク）に合わせる。この Mac だけの設定") }
+                      .help("ライトかダーク。この Mac だけの設定") }
             GridRow { Text("名前").foregroundColor(.secondary); Text(model.opts.name) }
             GridRow { Text("版").foregroundColor(.secondary); Text(AppModel.version) }
             GridRow { Text("役").foregroundColor(.secondary); Text(model.isMaster ? "マスター" : "フォロワー") }
