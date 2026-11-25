@@ -1,0 +1,12 @@
+{
+  "movie": "movie.mp4",
+  "role": "follower",
+  "name": "box-1",
+  "autoplay": true,
+  "audio": false,
+  "loop": 0,
+  "broadcast": "255.255.255.255",
+  "to": [],
+  "log": false,
+  "mpvArgs": ["--vo=gpu", "--gpu-context=drm", "--hwdec=auto"]
+}

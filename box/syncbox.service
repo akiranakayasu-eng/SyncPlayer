@@ -1,0 +1,16 @@
+[Unit]
+Description=SyncBox (SyncPlayer movie player for Raspberry Pi)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=@USER@
+Group=@USER@
+SupplementaryGroups=video render audio
+WorkingDirectory=@HOME@/syncbox
+ExecStart=/usr/bin/python3 /opt/syncbox/syncbox.py --config @HOME@/syncbox/syncbox.json
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
