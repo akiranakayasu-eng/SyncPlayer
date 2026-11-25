@@ -894,7 +894,7 @@ struct WidthHandle: View {
             .frame(width: 1)
             .padding(.horizontal, 3)
             .contentShape(Rectangle())
-            .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+            .overlay(CursorArea(cursor: .resizeLeftRight))
             .gesture(DragGesture(minimumDistance: 1)
                 .onChanged { g in
                     if start == nil { start = width }
@@ -919,10 +919,8 @@ struct HeightHandle: View {
             .frame(height: hover || start != nil ? 2 : 1)
             .padding(.vertical, 4)
             .contentShape(Rectangle())
-            .onHover { inside in
-                hover = inside
-                if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
-            }
+            .onHover { inside in hover = inside }
+            .overlay(CursorArea(cursor: .resizeUpDown))
             .gesture(DragGesture(minimumDistance: 1)
                 .onChanged { g in
                     if start == nil { start = height > 0 ? height : Double(auto) }
@@ -1007,7 +1005,6 @@ struct Scrub: ViewModifier {
     @State private var lastX: CGFloat = 0
     @State private var points = 0.0
     @State private var moved = false
-    @State private var hovering = false
     private static let slack: CGFloat = 4
 
     private func value() -> Double {
@@ -1015,7 +1012,6 @@ struct Scrub: ViewModifier {
         let v = (raw / step).rounded() * step
         return min(max(v, limit.lowerBound), limit.upperBound)
     }
-    private func endHover() { if hovering { NSCursor.pop(); hovering = false } }
     private func finish(_ phase: ScrubPhase) {
         guard let f = from else { return }
         let v = value()
@@ -1028,14 +1024,11 @@ struct Scrub: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onHover { inside in
-                guard enabled || hovering else { return }
-                if inside && !hovering { NSCursor.resizeLeftRight.push(); hovering = true }
-                else if !inside { endHover() }
-            }
-            // Clicking swaps the number for a text field: give the cursor back (check 45 M1).
-            .onDisappear { endHover(); if from != nil { finish(.cancel) } }
-            .onChange(of: enabled) { on in if !on { endHover(); if from != nil { finish(.cancel) } } }
+            // The left/right cursor is a cursor rect (push/pop on hover was lost inside scroll views,
+            // and leaked when the number turned into a field; Akira 2026-11-26, check 45 M1).
+            .overlay(enabled ? CursorArea(cursor: .resizeLeftRight) : nil)
+            .onDisappear { if from != nil { finish(.cancel) } }
+            .onChange(of: enabled) { on in if !on && from != nil { finish(.cancel) } }
             .gesture(DragGesture(minimumDistance: Scrub.slack)
                 .onChanged { g in
                     guard enabled else { return }
@@ -1196,6 +1189,22 @@ struct FoldSection<Content: View>: View {
             .help(open ? L("見出しを押すと閉じる", "Click the title to close") : L("見出しを押すと開く", "Click the title to open"))
             if open { content() }
         }
+    }
+}
+
+/// Shows a cursor over its area with a cursor rect, which AppKit keeps right inside scroll views and
+/// lists (NSCursor.push on hover was reset there, so the handles showed the arrow; Akira 2026-11-26).
+/// Clicks and drags pass through to the view underneath.
+struct CursorArea: NSViewRepresentable {
+    let cursor: NSCursor
+    final class Area: NSView {
+        var cursor: NSCursor = .arrow
+        override func resetCursorRects() { addCursorRect(bounds, cursor: cursor) }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+    func makeNSView(context: Context) -> Area { let v = Area(); v.cursor = cursor; return v }
+    func updateNSView(_ v: Area, context: Context) {
+        if v.cursor !== cursor { v.cursor = cursor; v.window?.invalidateCursorRects(for: v) }
     }
 }
 
