@@ -556,13 +556,17 @@ struct Sidebar: View {
 
     /// The output whose layers are listed: its name and display, click to choose, add, rename,
     /// set the display and full screen (set up once, so in a popover).
+    private var outputChipText: String {
+        guard let o = model.selectedOutputConfig else { return L("出力なし", "No output") }
+        let full: String = o.fullscreen ? L("・全画面", " · full") : ""
+        return o.name + " · " + L("ディスプレイ", "Display") + " \(o.screen + 1)" + full
+    }
+
     private var outputChip: some View {
         Button { outputsOpen = true } label: {
             HStack(spacing: 4) {
                 Image(systemName: "rectangle.on.rectangle").font(.system(size: 10))
-                Text((model.selectedOutputConfig?.name ?? L("出力なし", "No output"))
-                     + (model.selectedOutputConfig.map { " · " + L("ディスプレイ", "Display") + " \($0.screen + 1)" + ($0.fullscreen ? L("・全画面", " · full") : "") } ?? ""))
-                    .lineLimit(1).truncationMode(.middle)
+                Text(outputChipText).lineLimit(1).truncationMode(.middle)
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
             }
             .font(.caption)
