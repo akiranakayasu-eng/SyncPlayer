@@ -16,6 +16,12 @@ APP="$OUT/SyncPlayer.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN" "$APP/Contents/MacOS/SyncPlayer"
+# App icon (logo H, 2026-11-25): tools/icon/AppIcon.iconset -> AppIcon.icns
+ICONSET="$(dirname "$0")/icon/AppIcon.iconset"
+if [ -d "$ICONSET" ] && command -v iconutil >/dev/null; then
+  mkdir -p "$APP/Contents/Resources"
+  iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+fi
 VER=$(git rev-parse --short HEAD 2>/dev/null || echo dev)
 SHORT=${VERSION:-0.3}
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -26,6 +32,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>com.nakayasu.syncplayer</string>
   <key>CFBundleExecutable</key><string>SyncPlayer</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>$SHORT</string>
   <key>CFBundleVersion</key><string>$VER</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
