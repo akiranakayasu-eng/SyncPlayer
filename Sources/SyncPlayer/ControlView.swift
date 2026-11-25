@@ -280,6 +280,14 @@ struct TopBar: View {
                 .opacity(status.isMaster ? 1 : 0.35)
                 .help(status.isMaster ? "" : L("再生と位置はマスターの Mac で操作する", "Playback is controlled on the master Mac"))
 
+                VStack(alignment: .leading, spacing: 0) {
+                // Small captions over the two times, like Premiere's current time / duration.
+                HStack(spacing: 0) {
+                    Text(L("位置", "Current")).frame(width: 56, alignment: .trailing)
+                    Text(" / ")
+                    Text(L("ループ", "Loop"))
+                }
+                .font(.system(size: 9)).foregroundColor(.secondary)
                 HStack(spacing: 0) {
                     if editingTime {
                         TextField("", text: $timeText)
@@ -322,6 +330,7 @@ struct TopBar: View {
                             }
                             .help(status.isMaster ? L("ループの長さ。押すと打てる（200 で 2 秒、1:30 で 1 分 30 秒。0 でいちばん長い映像の長さ）。全部の Mac がこの長さで頭へ戻る", "Loop length. Click to type (200 = 2 s, 1:30 = 1 min 30 s, 0 = longest clip). All Macs go back to the start at this length") : L("ループの長さ（マスターの Mac で変える）", "Loop length (changed on the master)"))
                     }
+                }
                 }
                 .frame(minWidth: 120)
                 Slider(value: Binding(get: { dragging ? value : min(status.position, max(0.1, status.duration)) },
