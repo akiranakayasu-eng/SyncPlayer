@@ -1850,6 +1850,7 @@ final class AppModel: ObservableObject {
                 infoHidden = false; infoOnFull = true
             } else if let h = helpSaved {
                 (infoHidden, infoOnFull) = h   // back to how it was before H
+                objectWillChange.send()        // the I switch under the preview follows (check 48 L5)
                 helpSaved = nil
             }
             refreshInfo()

@@ -26,8 +26,19 @@ final class AspectBox: NSView {
     /// Told whenever the zoom changes (the % shown under the preview).
     var onZoom: ((Double?) -> Void)?
     static let zoomRange: ClosedRange<Double> = 0.05...4
-    /// The picture is never made bigger than this (points), to keep the Metal drawable small.
-    private static let maxSide: CGFloat = 4096
+    /// The picture view is never made bigger than this (points).
+    private static let maxSide: CGFloat = 6144
+    /// The preview is drawn at most this many pixels on its long side, then scaled (check 48 M1).
+    private static let maxDrawable: CGFloat = 4096
+    private var drawableWork: DispatchWorkItem?
+
+    /// The largest zoom for this output on this screen (the frame cap), never over 400 %.
+    var maxZoom: Double {
+        let px = outputPixels()
+        let long = max(px.width, px.height)
+        guard long > 0 else { return AspectBox.zoomRange.upperBound }
+        return min(AspectBox.zoomRange.upperBound, Double(AspectBox.maxSide * scale / long))
+    }
 
     init(child: NSView) {
         self.child = child
@@ -64,18 +75,44 @@ final class AspectBox: NSView {
         var w = f.width, h = f.height
         if let z = zoom {
             let px = outputPixels()
-            w = px.width * CGFloat(z) / scale
+            w = px.width * CGFloat(min(z, maxZoom)) / scale
             h = w / CGFloat(aspect)
-            let k = min(1, AspectBox.maxSide / max(w, h))
-            w *= k; h *= k
         }
+        // Keep at least a strip of the picture inside, so it can't be dragged away (check 48 L3).
+        let keep: CGFloat = 60
+        let mx = max(0, (w + b.width) / 2 - keep), my = max(0, (h + b.height) / 2 - keep)
+        pan = CGPoint(x: min(max(pan.x, -mx), mx), y: min(max(pan.y, -my), my))
         child.frame = NSRect(x: (b.width - w) / 2 + pan.x, y: (b.height - h) / 2 + pan.y, width: w, height: h)
+        updateDrawable()
+    }
+
+    /// The Metal drawable follows the picture's size only once the size has settled. While a panel
+    /// edge is dragged the old drawable is stretched, instead of making a new one every step, which
+    /// made the preview and the dragging jitter (Akira 2026-11-26).
+    private func updateDrawable() {
+        guard let pv = child as? PictureView else { return }
+        let mtk = pv.mtk
+        if mtk.autoResizeDrawable {
+            mtk.autoResizeDrawable = false
+            mtk.layer?.contentsGravity = .resize
+        }
+        let sz = child.frame.size
+        var target = CGSize(width: sz.width * scale, height: sz.height * scale)
+        let long = max(target.width, target.height)
+        if long > AspectBox.maxDrawable { let k = AspectBox.maxDrawable / long; target.width *= k; target.height *= k }
+        target = CGSize(width: max(1, target.width.rounded()), height: max(1, target.height.rounded()))
+        if mtk.drawableSize == target { return }
+        drawableWork?.cancel()
+        let set = DispatchWorkItem { [weak mtk] in mtk?.drawableSize = target }
+        drawableWork = set
+        // The first time (and from a tiny size) at once; otherwise after the size stops changing.
+        if mtk.drawableSize.width < 4 { set.perform() } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: set) }
     }
 
     /// Set a zoom (nil = fit). Keeps the point under `at` (in this view) where it is.
     func setZoom(_ z: Double?, at: CGPoint? = nil) {
         guard let z else { zoom = nil; pan = .zero; needsLayout = true; onZoom?(nil); return }
-        let nz = min(max(z, AspectBox.zoomRange.lowerBound), AspectBox.zoomRange.upperBound)
+        let nz = min(max(z, AspectBox.zoomRange.lowerBound), maxZoom)
         let old = currentZoom
         let c = at ?? CGPoint(x: bounds.midX, y: bounds.midY)
         // The picture point under c stays under c: scale its offset from the centre.

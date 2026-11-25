@@ -927,7 +927,8 @@ struct WidthHandle: View {
         // A wider grab area (9 pt) and a blue line while over it, like the list handles (Akira 2026-11-26).
         Rectangle()
             .fill(hover || start != nil ? Color.accentColor : Color(nsColor: .separatorColor))
-            .frame(width: hover || start != nil ? 2 : 1)
+            .frame(width: 1)
+            .overlay(Rectangle().fill(hover || start != nil ? Color.accentColor : .clear).frame(width: 3))
             .padding(.horizontal, 4)
             .contentShape(Rectangle())
             .onHover { hover = $0 }
@@ -935,6 +936,7 @@ struct WidthHandle: View {
             // Measured on the screen, not on the line itself: the line moves while dragged, which made it jitter (Akira 2026-11-26).
             .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                 .onChanged { g in
+                    NSCursor.resizeLeftRight.set()
                     if start == nil { start = width }
                     width = min(max((start ?? width) + g.translation.width, range.lowerBound), range.upperBound)
                 }
@@ -954,7 +956,8 @@ struct HeightHandle: View {
     var body: some View {
         Rectangle()
             .fill(hover || start != nil ? Color.accentColor : Color(nsColor: .separatorColor))
-            .frame(height: hover || start != nil ? 2 : 1)
+            .frame(height: 1)
+            .overlay(Rectangle().fill(hover || start != nil ? Color.accentColor : .clear).frame(height: 3))
             .padding(.vertical, 4)
             .contentShape(Rectangle())
             .onHover { inside in hover = inside }
@@ -962,6 +965,7 @@ struct HeightHandle: View {
             // Measured on the screen, not on the line itself: the line moves while dragged, which made it jitter (Akira 2026-11-26).
             .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                 .onChanged { g in
+                    NSCursor.resizeUpDown.set()
                     if start == nil { start = height > 0 ? height : Double(auto) }
                     height = min(max((start ?? height) + g.translation.height, range.lowerBound), range.upperBound)
                 }
@@ -1034,12 +1038,13 @@ struct PreviewBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             Menu {
                 Button(L("全体（画面に合わせる）", "Fit")) { model.setPreviewZoom(nil) }
                 Divider()
                 ForEach(PreviewBar.zooms, id: \.self) { z in
                     Button("\(Int(z * 100)) %") { model.setPreviewZoom(z) }
+                        .disabled(z > (model.previewBox?.maxZoom ?? 4) + 0.001)
                 }
             } label: {
                 Text(zoomText).font(.caption.monospacedDigit())
@@ -1089,7 +1094,7 @@ struct BarIcon: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 12))
-                .frame(width: 22, height: 18)
+                .frame(width: 20, height: 18)
                 .foregroundColor(on ? .accentColor : .primary)
                 .background(RoundedRectangle(cornerRadius: 4).fill(on ? Color.accentColor.opacity(0.18) : .clear))
         }
@@ -1152,6 +1157,7 @@ struct Scrub: ViewModifier {
             .gesture(DragGesture(minimumDistance: Scrub.slack)
                 .onChanged { g in
                     guard enabled else { return }
+                    NSCursor.resizeLeftRight.set()
                     if from == nil {
                         from = start(); lastX = g.translation.width; points = 0; moved = false
                         AppModel.undoHold = true; AppModel.undoHoldUsed = false
@@ -1323,6 +1329,18 @@ struct CursorArea: NSViewRepresentable {
         var cursor: NSCursor = .arrow
         override func resetCursorRects() { addCursorRect(bounds, cursor: cursor) }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        // Also a tracking area that sets the cursor itself: cursor rects alone may be skipped for a
+        // view that takes no clicks (check 48). Tracking areas do not depend on hitTest.
+        private var area: NSTrackingArea?
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let a = area { removeTrackingArea(a) }
+            let a = NSTrackingArea(rect: .zero, options: [.cursorUpdate, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                   owner: self, userInfo: nil)
+            addTrackingArea(a); area = a
+        }
+        override func cursorUpdate(with event: NSEvent) { cursor.set() }
+        override func mouseEntered(with event: NSEvent) { cursor.set() }
     }
     func makeNSView(context: Context) -> Area { let v = Area(); v.cursor = cursor; return v }
     func updateNSView(_ v: Area, context: Context) {
