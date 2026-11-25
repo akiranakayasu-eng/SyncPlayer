@@ -342,8 +342,9 @@ struct TopBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                StatusBadge(status: status)
+                // The seat first, at the far left (Akira 2026-11-26).
                 SeatChip(model: model)
+                StatusBadge(status: status)
                 Spacer(minLength: 8)
                 RoleSwitch(isMaster: model.isMaster) { model.setRoleByHand(master: $0) }
                 .help(isMaster_help(model.isMaster))
