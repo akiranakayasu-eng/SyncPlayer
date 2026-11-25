@@ -165,6 +165,34 @@ struct KeyListView: View {
     }
 }
 
+/// Follower / Master as two joined buttons; the chosen one is filled in its own colour
+/// (master blue, follower grey), so the role can be told across the room (Akira 2026-11-25).
+struct RoleSwitch: View {
+    let isMaster: Bool
+    let set: (Bool) -> Void
+    static let masterColor = Color(red: 0.16, green: 0.45, blue: 0.95)
+    var body: some View {
+        HStack(spacing: 0) {
+            seg(L("フォロワー", "Follower"), on: !isMaster, color: Color(white: 0.45)) { set(false) }
+            seg(L("マスター", "Master"), on: isMaster, color: RoleSwitch.masterColor) { set(true) }
+        }
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.35)))
+        .fixedSize()
+    }
+    private func seg(_ t: String, on: Bool, color: Color, _ act: @escaping () -> Void) -> some View {
+        Button(action: act) {
+            Text(t)
+                .font(.system(size: 12, weight: on ? .bold : .regular))
+                .foregroundColor(on ? .white : .secondary)
+                .padding(.horizontal, 10).padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 5).fill(on ? color : Color.clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: top bar
 
 /// The state of this Mac in words, with a coloured dot.
@@ -238,13 +266,7 @@ struct TopBar: View {
             HStack(spacing: 10) {
                 StatusBadge(status: status)
                 Spacer(minLength: 8)
-                Picker("", selection: Binding(get: { model.isMaster }, set: { model.setRoleByHand(master: $0) })) {
-                    Text(L("フォロワー", "Follower")).tag(false)
-                    Text(L("マスター", "Master")).tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
+                RoleSwitch(isMaster: model.isMaster) { model.setRoleByHand(master: $0) }
                 .help(L("この Mac の役（M キー）。マスターが再生を決め、ほかの Mac（フォロワー）は付いてくる。マスターは全台で 1 台だけ", "This Mac's role (M). The master controls playback; the other Macs (followers) follow. Only one master."))
                 // Sound: a speaker switch and, beside it, which movie's sound (Akira 2026-11-25).
                 Toggle(isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) })) {
