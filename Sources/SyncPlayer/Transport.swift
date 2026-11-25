@@ -65,7 +65,7 @@ final class Transport {
     /// Where the pictures are now (for a new master that has no schedule yet).
     func currentPosition() -> Double {
         guard let p = primary, p.ready else { return 0 }
-        let t = p.player.currentTime().seconds
+        let t = p.position
         return t.isFinite ? t : 0
     }
 

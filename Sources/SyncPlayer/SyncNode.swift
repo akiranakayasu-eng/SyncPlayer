@@ -48,9 +48,15 @@ final class SyncNode {
     private(set) var loopCount = 0
     private(set) var lastError: Double = 0
     private var endObservers: [NSObjectProtocol] = []
+    /// Muted players get their audio tracks disabled, not just isMuted: a muted AVPlayer still runs
+    /// an AudioQueue and starts/stops it at every loop. With many clips ending together, those
+    /// stops and the main thread reading currentTime deadlocked inside MediaToolbox (Pro, 2026-11-25).
+    private(set) var muted: Bool
+    private var audioApplied = false
 
     init(url: URL, muted: Bool) {
         self.url = url
+        self.muted = muted
         var ps: [AVPlayer] = [], its: [AVPlayerItem] = []
         for _ in 0..<2 {
             let it = AVPlayerItem(url: url)
@@ -186,10 +192,37 @@ final class SyncNode {
         endObservers = []
     }
 
-    func setMuted(_ m: Bool) { players.forEach { $0.isMuted = m } }
+    func setMuted(_ m: Bool) {
+        muted = m
+        players.forEach { $0.isMuted = m }
+        applyAudio()
+    }
+
+    /// Enable the audio tracks only on the clip that plays sound. Item tracks exist once the item
+    /// is ready, so tick() calls this once then.
+    private func applyAudio() {
+        guard items.allSatisfy({ $0.status == .readyToPlay }) else { return }
+        audioApplied = true
+        for it in items {
+            for t in it.tracks where t.assetTrack?.mediaType == .audio && t.isEnabled == muted {
+                t.isEnabled = !muted
+            }
+        }
+    }
+
+    /// Media time of the active player (s).
+    var position: Double { mediaTime(active) }
+
+    /// Media time of a player read from its item's timebase. AVPlayer.currentTime() takes the
+    /// player's internal lock, which audio stops at the clip's end also hold; the timebase does not.
+    private func mediaTime(_ i: Int) -> Double {
+        if let tb = items[i].timebase { return CMTimebaseGetTime(tb).seconds }
+        return players[i].currentTime().seconds
+    }
 
     func tick() {
         guard ready, let s = schedule, clockOffset() != nil else { return }
+        if !audioApplied { applyAudio() }
         if s.epoch != activeEpoch { activeEpoch = s.epoch; needsResync = true }
 
         if !s.playing {
@@ -236,7 +269,7 @@ final class SyncNode {
         // Compare with where the media should be at the moment it was read (reading takes time;
         // comparing with the tick's start would bias the error positive).
         let t0 = hostNow()
-        let actual = player.currentTime().seconds
+        let actual = mediaTime(active)
         let t1 = hostNow()
         guard let want = loopPosition(atLocal: (t0 + t1) / 2), !holding(want) else { return }
         var err = actual - want

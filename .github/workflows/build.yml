@@ -1,0 +1,28 @@
+# Builds the app on every pull request (no release) and keeps it as a workflow artifact,
+# so a fix can be compiled and tried before it is released.
+name: build
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build universal app
+        run: UNIVERSAL=1 VERSION="0.0.0-pr" sh tools/make-app.sh dist
+      - name: Check the app
+        run: |
+          lipo -info dist/SyncPlayer.app/Contents/MacOS/SyncPlayer
+          codesign --verify --verbose dist/SyncPlayer.app
+      - name: Zip
+        run: ditto -c -k --keepParent dist/SyncPlayer.app SyncPlayer-pr.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SyncPlayer-pr
+          path: SyncPlayer-pr.zip
+          retention-days: 14

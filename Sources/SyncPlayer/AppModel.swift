@@ -1470,7 +1470,7 @@ final class AppModel: ObservableObject {
 
     func printLog() {
         guard let p = transport.primary else { return }
-        let pos = p.player.currentTime().seconds
+        let pos = p.position
         var line = String(format: "%.3f\t%@\t%@\tpos=%.3f\terr_ms=%+.2f\tavg_ms=%+.2f\trate=%.4f\tjumps=%d\tloops=%d\tclips=%d\tmaxerr_ms=%+.2f",
                           Date().timeIntervalSince1970, opts.name, master != nil ? "M" : "F",
                           pos.isFinite ? pos : 0, p.lastError * 1000, p.errorEMA * 1000, p.player.rate,
