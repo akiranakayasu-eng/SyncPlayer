@@ -41,9 +41,11 @@ final class AppModel: ObservableObject {
     /// The .syncshow opened or saved; changes are written to it as well as to current.syncshow.
     @Published var showFile: String? = nil {
         didSet {
+            let prev = UserDefaults.standard.string(forKey: "showFile")
             updateRepresented(); UserDefaults.standard.set(showFile, forKey: "showFile")
-            // "The last write failed" belongs to the file it was about.
-            if showFile != oldValue { UserDefaults.standard.set(false, forKey: "showFileBehind") }
+            // "The last write failed" belongs to the file it was about: cleared when another file is
+            // opened (not when the start goes back to the same file).
+            if let f = showFile, f != prev { UserDefaults.standard.set(false, forKey: "showFileBehind") }
         }
     }
     /// What showFile holds now (so opening a file does not rewrite it unchanged).
@@ -178,10 +180,12 @@ final class AppModel: ObservableObject {
                     if fs.id != cur.id { fs = same }
                     // This Mac's seat from its own copy only when the last write to the file failed
                     // (e.g. the shared folder was away); else the file's (another Mac may have adjusted it).
+                    let fileAsIs = fs
                     if UserDefaults.standard.bool(forKey: "showFileBehind"), let mine = ShowStore.rememberedSeat(cur) ?? cur.seats.first?.id,
                        let st = cur.seats.first(where: { $0.id == mine }),
                        let i = fs.seats.firstIndex(where: { $0.id == mine }) { fs.seats[i] = st }
-                    showFile = f; fileShow = fs; s = fs
+                    // fileShow is what the file holds, so a seat taken from the copy is written there.
+                    showFile = f; fileShow = fileAsIs; s = fs
                 }
             }
         }
