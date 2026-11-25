@@ -721,6 +721,8 @@ final class AppModel: ObservableObject {
     private func recordUndo(_ old: Show) {
         guard !undoing else { return }
         let now = hostNow()
+        // A hold left on (a drag whose end never came) runs out after 10 s still (check 46 L2).
+        if AppModel.undoHold && AppModel.undoHoldUsed && now - lastUndoAt > 10 { AppModel.undoHold = false }
         let sameStep = AppModel.undoHold ? AppModel.undoHoldUsed : now - lastUndoAt <= 0.7
         if undoStack.isEmpty || !sameStep {
             undoStack.append(old)
@@ -1671,6 +1673,8 @@ final class AppModel: ObservableObject {
 
     func toggleEdit(_ m: EditMode) {
         editMode = editMode == m ? .none : m
+        // Editing shows its controls on the right: bring the right column back if hidden (check 46 L1).
+        if editMode != .none { UserDefaults.standard.set(false, forKey: "ui.hideRight") }
         notify(editMode == .corners ? L("四隅の変形: 点をドラッグ、Tab で次、矢印で 1 px", "Corner pin: drag a point, Tab next, arrows 1 px")
                : editMode == .mesh ? L("曲面メッシュ: 点をドラッグ、Tab で次、矢印で 1 px", "Mesh: drag a point, Tab next, arrows 1 px") : L("変形の編集を終了", "Finished editing the warp"))
     }

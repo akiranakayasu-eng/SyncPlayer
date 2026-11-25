@@ -72,14 +72,18 @@ struct ControlView: View {
                     .frame(minHeight: 70, idealHeight: 170)
                     }
                 }
-                if !hideRight {
-                    Divider()
-                    Inspector(model: model)
-                        .frame(width: 320)
-                }
+                // Hidden by width, not removed, so its tabs and folds stay as they were (check 46 L1).
+                if !hideRight { Divider() }
+                Inspector(model: model)
+                    .frame(width: hideRight ? 0 : 320)
+                    .opacity(hideRight ? 0 : 1)
+                    .allowsHitTesting(!hideRight)
+                    .clipped()
             }
         }
         .frame(minWidth: 900, minHeight: 600)
+        // Hiding the left column also forgets what delete and ↑ ↓ act on (check 46 M2).
+        .onChange(of: hideLeft) { h in if h { model.deleteTarget = nil; model.arrowTarget = nil } }
         .id(model.uiLang)   // redraw every part when the language changes
     }
 }
@@ -375,10 +379,13 @@ struct TopBar: View {
                 Divider().frame(height: 18)
                 // Hide or show the side columns, like the sidebar buttons in Xcode and Finder.
                 Button { AppModel.toggleUI("ui.hideLeft") } label: { Image(systemName: "sidebar.left") }
+                    .buttonStyle(.borderless)
                     .help(hideLeft ? L("左の欄を出す（⌘0）", "Show the left column (⌘0)") : L("左の欄を隠す（⌘0）", "Hide the left column (⌘0)"))
                 Button { AppModel.toggleUI("ui.hideStatus") } label: { Image(systemName: "rectangle.bottomthird.inset.filled") }
+                    .buttonStyle(.borderless)
                     .help(hideStatus ? L("詳しい状態を出す（⇧⌘Y）", "Show the status panel (⇧⌘Y)") : L("詳しい状態を隠す（⇧⌘Y）", "Hide the status panel (⇧⌘Y)"))
                 Button { AppModel.toggleUI("ui.hideRight") } label: { Image(systemName: "sidebar.right") }
+                    .buttonStyle(.borderless)
                     .help(hideRight ? L("右の欄を出す（⌥⌘0）", "Show the right column (⌥⌘0)") : L("右の欄を隠す（⌥⌘0）", "Hide the right column (⌥⌘0)"))
             }
             HStack(spacing: 10) {
@@ -457,7 +464,7 @@ struct TopBar: View {
                             }
                             // Drag left/right to change the loop length (0.1 s a point, shift: every 10 points); set on release.
                             .modifier(Scrub(enabled: status.isMaster, step: 0.1, limit: 1...86_400,
-                                            start: { status.duration },
+                                            start: { max(status.duration, 1) },
                                             change: { x, phase in
                                                 switch phase {
                                                 case .moving: loopScrub = x
@@ -627,7 +634,8 @@ struct Sidebar: View {
                     Text(L("ディスプレイ", "Display") + " \(o.screen + 1)" + (o.fullscreen ? L("・全画面", " · full screen") : "")).foregroundColor(.secondary).font(.caption)
                 }
                 .tag(Optional(o.id))
-                .selectedRow(model.selectedOutput == o.id) { model.selectedOutput = o.id }
+                // An output row is not a layer row: delete and ↑ ↓ stop acting on the layers (check 46 L5).
+                .selectedRow(model.selectedOutput == o.id) { model.selectedOutput = o.id; model.deleteTarget = nil; model.arrowTarget = nil }
                 .contextMenu {
                     Button(L("名前を変える", "Rename")) { renameText = o.name; renamingOutput = o.id }
                     Divider()
@@ -729,13 +737,15 @@ struct Sidebar: View {
             // Two tabs, like the right side (Akira 2026-11-26): outputs and layers are shown by default;
             // footage is added once and then rarely touched, so it has its own tab. Seats are in the top bar.
             Picker("", selection: $leftTab) {
-                Text(L("出力・レイヤー", "Outputs & Layers")).tag(0)
-                Text(L("映像ライブラリ", "Footage") + "（\(model.show.clips.count)）"
+                // Short words so both fit in the narrowest column (check 46 M3); the count is in the tooltip.
+                Text(L("レイヤー", "Layers")).tag(0)
+                Text(L("映像ライブラリ", "Footage")
                      + (model.show.clips.contains(where: { model.clipBroken($0.id) }) ? " ⚠︎" : "")).tag(1)
             }
             .labelsHidden()
             .pickerStyle(.segmented)
             .padding(.bottom, 2)
+            .help(L("映像ライブラリ: \(model.show.clips.count) 本", "Footage: \(model.show.clips.count) clips"))
             if leftTab == 0 {
             outputSection
             ThinLine()
@@ -915,7 +925,7 @@ struct WidthHandle: View {
             .frame(width: 1)
             .padding(.horizontal, 3)
             .contentShape(Rectangle())
-            .overlay(CursorArea(cursor: .resizeLeftRight))
+            .background(CursorArea(cursor: .resizeLeftRight).allowsHitTesting(false))
             .gesture(DragGesture(minimumDistance: 1)
                 .onChanged { g in
                     if start == nil { start = width }
@@ -941,7 +951,7 @@ struct HeightHandle: View {
             .padding(.vertical, 4)
             .contentShape(Rectangle())
             .onHover { inside in hover = inside }
-            .overlay(CursorArea(cursor: .resizeUpDown))
+            .background(CursorArea(cursor: .resizeUpDown).allowsHitTesting(false))
             .gesture(DragGesture(minimumDistance: 1)
                 .onChanged { g in
                     if start == nil { start = height > 0 ? height : Double(auto) }
@@ -1018,7 +1028,10 @@ struct PreviewView: NSViewRepresentable {
 enum ScrubPhase { case moving, done, cancel }
 struct Scrub: ViewModifier {
     let enabled: Bool
+    /// Change per point dragged; with shift a tenth of it.
     let step: Double
+    /// What the value snaps to (one digit of what is shown), so nothing hidden is set.
+    var snap: Double? = nil
     let limit: ClosedRange<Double>
     let start: () -> Double
     let change: (Double, ScrubPhase) -> Void
@@ -1028,9 +1041,10 @@ struct Scrub: ViewModifier {
     @State private var moved = false
     private static let slack: CGFloat = 4
 
+    private var grid: Double { snap ?? step }
     private func value() -> Double {
-        let raw = (from ?? 0) + points.rounded(.towardZero) * step
-        let v = (raw / step).rounded() * step
+        let raw = (from ?? 0) + points * step
+        let v = (raw / grid).rounded() * grid
         return min(max(v, limit.lowerBound), limit.upperBound)
     }
     private func finish(_ phase: ScrubPhase) {
@@ -1047,7 +1061,7 @@ struct Scrub: ViewModifier {
         content
             // The left/right cursor is a cursor rect (push/pop on hover was lost inside scroll views,
             // and leaked when the number turned into a field; Akira 2026-11-26, check 45 M1).
-            .overlay(enabled ? CursorArea(cursor: .resizeLeftRight) : nil)
+            .background(enabled ? CursorArea(cursor: .resizeLeftRight).allowsHitTesting(false) : nil)
             .onDisappear { if from != nil { finish(.cancel) } }
             .onChange(of: enabled) { on in if !on && from != nil { finish(.cancel) } }
             .gesture(DragGesture(minimumDistance: Scrub.slack)
@@ -1062,8 +1076,8 @@ struct Scrub: ViewModifier {
                     points += dx * (NSEvent.modifierFlags.contains(.shift) ? 0.1 : 1)
                     // Past an end, coming back moves at once (check 45 L2).
                     let f = from ?? 0
-                    points = min(max(points, (limit.lowerBound - f) / step - 0.5), (limit.upperBound - f) / step + 0.5)
-                    if points.rounded(.towardZero) != 0 { moved = true }
+                    points = min(max(points, (limit.lowerBound - f - grid) / step), (limit.upperBound - f + grid) / step)
+                    if abs(value() - (f / grid).rounded() * grid) >= grid / 2 { moved = true }
                     if moved { change(value(), .moving) }
                 }
                 .onEnded { _ in finish(.done) },
@@ -1079,6 +1093,8 @@ struct ValueUnit {
     var signed = false
     /// One step of what is shown (1 % is 0.01, 0.1° is 0.1).
     var step: Double { pow(10, Double(-digits)) / scale }
+    /// Change per point when dragged: one whole unit (1 %, 1°, 0.01), shift a tenth (check 46 L6).
+    var dragStep: Double { digits >= 2 ? step : 1 / scale }
     func text(_ v: Double) -> String {
         String(format: signed ? "%+.\(digits)f" : "%.\(digits)f", v * scale) + suffix
     }
@@ -1139,7 +1155,7 @@ struct SliderRow: View {
                     .frame(width: 52, alignment: .trailing)
                     .contentShape(Rectangle())
                     .onTapGesture { text = unit.text(value); editing = true }
-                    .modifier(Scrub(enabled: true, step: unit.step, limit: range,
+                    .modifier(Scrub(enabled: true, step: unit.dragStep, snap: unit.step, limit: range,
                                     start: { value },
                                     change: { v, phase in if phase != .cancel || value != v { value = v } }))
                     .help(L("押すと数字を打てる（Return で決める、esc でやめる）。左右にドラッグでも変わり、shift を押しながらだと細かく変わる", "Click to type a value (Return to set, esc to cancel). Drag left or right to change it; hold shift for fine steps"))
