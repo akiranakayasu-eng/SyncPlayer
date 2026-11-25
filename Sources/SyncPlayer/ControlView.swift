@@ -932,7 +932,8 @@ struct WidthHandle: View {
             .contentShape(Rectangle())
             .onHover { hover = $0 }
             .background(CursorArea(cursor: .resizeLeftRight).allowsHitTesting(false))
-            .gesture(DragGesture(minimumDistance: 1)
+            // Measured on the screen, not on the line itself: the line moves while dragged, which made it jitter (Akira 2026-11-26).
+            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                 .onChanged { g in
                     if start == nil { start = width }
                     width = min(max((start ?? width) + g.translation.width, range.lowerBound), range.upperBound)
@@ -958,7 +959,8 @@ struct HeightHandle: View {
             .contentShape(Rectangle())
             .onHover { inside in hover = inside }
             .background(CursorArea(cursor: .resizeUpDown).allowsHitTesting(false))
-            .gesture(DragGesture(minimumDistance: 1)
+            // Measured on the screen, not on the line itself: the line moves while dragged, which made it jitter (Akira 2026-11-26).
+            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                 .onChanged { g in
                     if start == nil { start = height > 0 ? height : Double(auto) }
                     height = min(max((start ?? height) + g.translation.height, range.lowerBound), range.upperBound)
