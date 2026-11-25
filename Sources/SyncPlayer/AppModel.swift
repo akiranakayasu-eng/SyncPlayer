@@ -121,8 +121,25 @@ final class AppModel: ObservableObject {
             let n = s?.clips.count ?? 0
             let msg = n > 0 ? "映像が見つかりません。\(n) 本の映像を選ぶと、今の配置のまま使えます（同じ名前の映像は同じ場所に）"
                             : "同期再生する映像を選んでください（複数選べます）"
-            let urls = pickMovies(message: msg, multiple: true)
-            guard !urls.isEmpty else {
+            // The very first start: offer the practice movies, so a student can begin without any.
+            var practice: Show?
+            if n == 0 {
+                let a = NSAlert()
+                a.messageText = "SyncPlayer へようこそ"
+                a.informativeText = "はじめてなら「練習用の映像で始める」がおすすめです。番号入りの映像 4 本とマスクの見本をこの Mac で作って開きます（数秒）。自分の映像はあとから足せます。"
+                a.addButton(withTitle: "練習用の映像で始める")
+                a.addButton(withTitle: "自分の映像を選ぶ…")
+                if a.runModal() == .alertFirstButtonReturn {
+                    practice = Practice.makeShow()
+                    if practice == nil { notify("練習用の映像を作れませんでした。自分の映像を選んでください") }
+                }
+            }
+            let urls = practice != nil ? [] : pickMovies(message: msg, multiple: true)
+            if let p = practice {
+                detachShowFile(forget: true)
+                s = p
+            } else
+            { guard !urls.isEmpty else {
                 print("usage: SyncPlayer [--master|--follower] <movie>... [--show FILE] [--preset NAME] [--audio|--mute] ...")
                 exit(1)
             }
@@ -144,6 +161,7 @@ final class AppModel: ObservableObject {
                 try? FileManager.default.copyItem(at: ShowStore.currentURL, to: prev)
                 detachShowFile(forget: true)
                 s = Show.make(paths: urls.map(\.path))
+            }
             }
         }
         guard var show0 = s else { exit(1) }
@@ -170,6 +188,7 @@ final class AppModel: ObservableObject {
         selectedOutput = show.outputs.first?.id
         setRole(master: startMaster)
         installKeys()
+        undoStack.removeAll(); redoStack.removeAll()
         // Exhibition: the master plays by itself a few seconds after opening (followers catch up).
         if !opts.roleGiven && exhibitMaster && opts.autoplay == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
@@ -236,6 +255,7 @@ final class AppModel: ObservableObject {
     // MARK: show changes
 
     private func showDidChange(_ old: Show) {
+        recordUndo(old)
         if show.clips != old.clips { transport.setClips(show.clips) }
         // A show opened or a preset loaded brings this Mac's sound setting with it.
         var soundChanged = show.clips != old.clips || show.audioClip != old.audioClip
@@ -308,6 +328,76 @@ final class AppModel: ObservableObject {
     func updateLook(_ s: DisplaySettings) {
         guard let i = selectedLayerIndex, show.outputs[i.o].layers[i.l].look != s else { return }
         show.outputs[i.o].layers[i.l].look = s
+        learned("adjusted")
+    }
+
+    // MARK: undo (⌘Z / ⇧⌘Z)
+
+    private var undoStack: [Show] = []
+    private var redoStack: [Show] = []
+    private var undoing = false
+    private var lastUndoAt = 0.0
+
+    /// Changes in quick succession (a slider dragged, keys held) are one step.
+    private func recordUndo(_ old: Show) {
+        guard !undoing else { return }
+        let now = hostNow()
+        if undoStack.isEmpty || now - lastUndoAt > 0.7 {
+            undoStack.append(old)
+            if undoStack.count > 100 { undoStack.removeFirst() }
+        }
+        lastUndoAt = now
+        redoStack.removeAll()
+    }
+
+    func undoShow() {
+        guard let prev = undoStack.popLast() else { notify("これより前には戻せません"); return }
+        redoStack.append(show)
+        undoing = true; show = prev; undoing = false
+        fixSelection()
+        lastUndoAt = 0
+        notify("1 つ前に戻しました（⇧⌘Z でやり直す）")
+    }
+
+    func redoShow() {
+        guard let next = redoStack.popLast() else { notify("やり直すものがありません"); return }
+        undoStack.append(show)
+        undoing = true; show = next; undoing = false
+        fixSelection()
+        lastUndoAt = 0
+        notify("やり直しました")
+    }
+
+    // MARK: learning (the steps checklist)
+
+    /// Things a student has done once on this Mac (kept in UserDefaults "learn.<name>").
+    @Published private(set) var learnedSet: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "learned") ?? [])
+    func learned(_ name: String) {
+        guard !learnedSet.contains(name) else { return }
+        learnedSet.insert(name)
+        UserDefaults.standard.set(Array(learnedSet), forKey: "learned")
+    }
+    func forgetLearned() {
+        learnedSet = []
+        UserDefaults.standard.removeObject(forKey: "learned")
+    }
+
+    /// The practice show is open (its movies are the practice movies).
+    var isPractice: Bool { show.clips.contains { $0.path.hasPrefix(Practice.dir.path) } }
+
+    func openPractice() {
+        notify("練習用の映像を用意しています…")
+        guard let s = Practice.makeShow() else { notify("練習用の映像を作れませんでした"); return }
+        saveNow()
+        if showFile != nil { detachShowFile(forget: false) }
+        applyShow(s)
+        notify("練習用のショーを開きました（4 本の映像、4 本目に丸いマスク）")
+    }
+
+    /// The manual's page for a part of the window (the "?" buttons).
+    static let manualBase = "https://lecture.nakayasu.com/sync-player/"
+    static func openManual(_ anchor: String) {
+        if let u = URL(string: AppModel.manualBase + "#" + anchor) { NSWorkspace.shared.open(u) }
     }
 
     func lookBinding<T>(_ kp: WritableKeyPath<DisplaySettings, T>, _ def: T) -> Binding<T> {
@@ -637,7 +727,9 @@ final class AppModel: ObservableObject {
     }
 
     func applyShow(_ s: Show) {
-        show = s
+        // Another show (opened, a preset, the practice show): undo starts again from here.
+        undoing = true; show = s; undoing = false
+        undoStack.removeAll(); redoStack.removeAll()
         fixSelection()
     }
 
@@ -928,6 +1020,7 @@ final class AppModel: ObservableObject {
             switch ch {
             case "o": openShow(); return true
             case "s": saveShowAs(); return true
+            case "z": if shift { redoShow() } else { undoShow() }; return true
             case ",": toggleControl(); return true
             default: return false   // ⌘Q, copy / paste and the rest go to the menu
             }
@@ -1015,6 +1108,11 @@ final class AppModel: ObservableObject {
         status.playing = transport.schedule?.playing ?? false
         let text = statusText()
         if status.text != text { status.text = text }
+        if status.playing { learned("played") }
+        if outputs.values.contains(where: { $0.isFull }) { learned("fullscreen") }
+        if showIdent || (follower?.masterIdent ?? false) { learned("ident") }
+        if let f = follower, f.masterAlive, f.stats.ready, transport.schedule != nil { learned("synced") }
+        if show.outputs.contains(where: { $0.layers.contains { $0.mask != nil } }) && !isPractice { learned("mask") }
         let (headline, tone) = headlineNow()
         if status.headline != headline { status.headline = headline }
         if status.tone != tone { status.tone = tone }
