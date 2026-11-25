@@ -325,21 +325,27 @@ struct TopBar: View {
                 Spacer(minLength: 8)
                 RoleSwitch(isMaster: model.isMaster) { model.setRoleByHand(master: $0) }
                 .help(isMaster_help(model.isMaster))
-                // Sound: a speaker switch and, beside it, which movie's sound (Akira 2026-11-25).
-                Toggle(isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) })) {
-                    Image(systemName: model.audioOn ? "speaker.wave.2.fill" : "speaker.slash")
-                        .frame(width: 18)
+                // Sound: a speaker switch and, beside it, which movie's sound (Akira 2026-11-25), in one
+                // framed group with the word "Audio" so the menu reads as the sound source (Akira 23:39).
+                HStack(spacing: 6) {
+                    Toggle(isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) })) {
+                        Image(systemName: model.audioOn ? "speaker.wave.2.fill" : "speaker.slash")
+                            .frame(width: 18)
+                    }
+                    .toggleStyle(.button)
+                    .help(model.audioOn ? L("この Mac で音を出している（A キーで消す）", "Sound on for this Mac (A to mute)") : L("この Mac では音を出さない（A キーで出す）", "Sound off for this Mac (A to turn on)"))
+                    Text(L("音声", "Audio")).font(.caption.bold()).foregroundColor(.secondary)
+                    Picker("", selection: Binding(get: { model.show.audioClip ?? model.show.seatClips.first?.id ?? "" },
+                                                  set: { model.setAudioClip($0) })) {
+                        ForEach(model.show.clips) { c in Label(c.name, systemImage: "waveform").tag(c.id) }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 160)
+                    .disabled(!model.audioOn)
+                    .help(L("音声のもと: どの映像の音をこの Mac から出すか（音を出しているときだけ選べる）", "Audio source: which clip's sound this Mac plays (when sound is on)"))
                 }
-                .toggleStyle(.button)
-                .help(model.audioOn ? L("この Mac で音を出している（A キーで消す）", "Sound on for this Mac (A to mute)") : L("この Mac では音を出さない（A キーで出す）", "Sound off for this Mac (A to turn on)"))
-                Picker("", selection: Binding(get: { model.show.audioClip ?? model.show.seatClips.first?.id ?? "" },
-                                              set: { model.setAudioClip($0) })) {
-                    ForEach(model.show.clips) { c in Text(c.name).tag(c.id) }
-                }
-                .labelsHidden()
-                .frame(maxWidth: 160)
-                .disabled(!model.audioOn)
-                .help(L("音を出す映像（この Mac で音を出すとき、どの映像の音を出すか）", "Which clip's sound this Mac plays"))
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.35)))
                 Divider().frame(height: 18)
                 Button { model.openShow() } label: { Image(systemName: "folder") }
                     .help(L("ショーを開く（⌘O）", "Open Show (⌘O)"))
