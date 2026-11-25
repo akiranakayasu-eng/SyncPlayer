@@ -922,12 +922,15 @@ struct WidthHandle: View {
     @Binding var width: Double
     let range: ClosedRange<Double>
     @State private var start: Double?
+    @State private var hover = false
     var body: some View {
+        // A wider grab area (9 pt) and a blue line while over it, like the list handles (Akira 2026-11-26).
         Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1)
-            .padding(.horizontal, 3)
+            .fill(hover || start != nil ? Color.accentColor : Color(nsColor: .separatorColor))
+            .frame(width: hover || start != nil ? 2 : 1)
+            .padding(.horizontal, 4)
             .contentShape(Rectangle())
+            .onHover { hover = $0 }
             .background(CursorArea(cursor: .resizeLeftRight).allowsHitTesting(false))
             .gesture(DragGesture(minimumDistance: 1)
                 .onChanged { g in
