@@ -512,9 +512,61 @@ struct Inspector: View {
 
     /// Settings for an exhibition: after a restart the Mac comes back as it was.
     @ViewBuilder private var exhibitSection: some View {
+        SectionTitle("展示の前の点検", help: "check")
+        Button("点検する") { model.runExhibitCheck() }
+            .help("展示に入る前に、この Mac の設定とつながりを一度に確かめる")
+        if let at = model.checkedAt {
+            Text("点検した時刻 \(at.formatted(date: .omitted, time: .shortened))（直したら、もう一度押す）")
+                .font(.caption).foregroundColor(.secondary)
+            ForEach(model.checks) { c in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: c.ok == true ? "checkmark.circle.fill" : c.ok == false ? "exclamationmark.triangle.fill" : "questionmark.circle")
+                        .foregroundColor(c.ok == true ? .green : c.ok == false ? .orange : .secondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(c.text).font(.callout).fixedSize(horizontal: false, vertical: true)
+                        if c.ok != true {
+                            Text(c.ok == nil ? "アプリからは確かめられない。" + c.fix : c.fix)
+                                .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+        }
+
+        if model.isMaster {
+            Divider()
+            SectionTitle("つながっている Mac", help: "macs")
+            if model.peers.isEmpty {
+                Text("フォロワーはまだ見えない。ほかの Mac で SyncPlayer を開くと、ここに並ぶ。")
+                    .font(.caption).foregroundColor(.secondary)
+            } else {
+                Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 3) {
+                    GridRow {
+                        Text("名前").foregroundColor(.secondary)
+                        Text("ずれ").foregroundColor(.secondary)
+                        Text("版・注意").foregroundColor(.secondary)
+                    }
+                    ForEach(Array(model.peers.enumerated()), id: \.offset) { _, p in
+                        GridRow {
+                            Text(p.name).lineLimit(1).truncationMode(.middle)
+                            Text(p.err.map { String(format: "%.1f ms", abs($0)) } ?? "—")
+                                .font(.system(size: 11, design: .monospaced))
+                            let other = p.ver != AppModel.version
+                            Text(other ? "⚠︎ 版 \(p.ver)" : (p.warn.map { "⚠︎ " + $0 } ?? "OK"))
+                                .foregroundColor(other || p.warn != nil ? .orange : .secondary)
+                                .lineLimit(2).help(p.warn ?? p.ver)
+                        }
+                    }
+                }
+                .font(.caption)
+            }
+        }
+
+        Divider()
         SectionTitle("いまのこの Mac", help: "exhibit")
         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
             GridRow { Text("名前").foregroundColor(.secondary); Text(model.opts.name) }
+            GridRow { Text("版").foregroundColor(.secondary); Text(AppModel.version) }
             GridRow { Text("役").foregroundColor(.secondary); Text(model.isMaster ? "マスター" : "フォロワー") }
             GridRow { Text("展示のマスター").foregroundColor(.secondary); Text(model.exhibitMaster ? "はい（開くとマスターで始まる）" : "いいえ") }
             GridRow { Text("ログインで開く").foregroundColor(.secondary); Text(model.openAtLogin ? "はい" : "いいえ") }
@@ -534,6 +586,11 @@ struct Inspector: View {
 
         Divider()
         SectionTitle("確かめる・困ったとき", help: "trouble")
+        if model.netBlocked {
+            Text("⚠︎ この Mac からネットワークに届いていない。ローカルネットワークの許可が切れているか、ネットワークにつながっていない。")
+                .font(.caption).foregroundColor(.orange)
+            Button("ローカルネットワークの設定を開く") { model.openLocalNetworkSettings() }
+        }
         Toggle("名前とディスプレイの番号を大きく出す（N）", isOn: $model.showIdent)
         Text("どの Mac のどのディスプレイかを確かめる。マスターで入れると全台に出る。").font(.caption).foregroundColor(.secondary)
         Toggle("動作確認の文字を出す（I）", isOn: Binding(get: { model.infoShownNow }, set: { model.setInfoShown($0) }))
