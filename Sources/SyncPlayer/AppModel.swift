@@ -374,6 +374,7 @@ final class AppModel: ObservableObject {
             w.center()
             keyWindow = w
         }
+        refreshLevels()
         keyWindow?.makeKeyAndOrderFront(nil)
     }
 
@@ -565,6 +566,7 @@ final class AppModel: ObservableObject {
             w.center()
             collectWindow = w
         }
+        refreshLevels()
         collectWindow?.makeKeyAndOrderFront(nil)
     }
 
@@ -581,6 +583,7 @@ final class AppModel: ObservableObject {
             settingsWindow = w
         }
         settingsWindow?.title = L("設定（この Mac）", "Settings (this Mac)")
+        refreshLevels()
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
     private var settingsWindow: NSWindow?
@@ -1457,14 +1460,18 @@ final class AppModel: ObservableObject {
             let level: NSWindow.Level = raise ? NSWindow.Level(rawValue: OutputWindow.fullLevel.rawValue + 1) : .normal
             if c.level != level { c.level = level }
         }
+        // Settings, the key list and Collect Files above full-screen outputs too (check 40 L2).
+        let full = outputs.values.contains { $0.isFull } && !leftFront && !panelOpen
+        let top: NSWindow.Level = full ? NSWindow.Level(rawValue: OutputWindow.fullLevel.rawValue + 2) : .normal
+        for w in [settingsWindow, keyWindow, collectWindow].compactMap({ $0 }) where w.level != top { w.level = top }
     }
 
     /// Run an open / save panel. Full-screen outputs sit above the menu bar, so they are lowered
     /// while the panel is up (otherwise it could open behind them), also if the app is left and
     /// entered again meanwhile.
     /// Ask before something that cannot be undone (lowers full-screen outputs while the alert is up).
-    /// Asks before a change. With `skippable` (deleting seats, outputs, layers, clips: all undone
-    /// with ⌘Z) the window has "Don't ask again"; it is turned back on in Exhibit › This Mac.
+    /// With `skip` (deleting seats, outputs, layers, clips: all undone with ⌘Z) the window has
+    /// "Don't ask again" for that kind; turned back on in Settings (⌘,).
     func confirm(_ title: String, _ detail: String, ok: String = L("消す", "Delete"), skip: ConfirmKind? = nil) -> Bool {
         if let k = skip, !asks(k) { return true }
         let skippable = skip != nil

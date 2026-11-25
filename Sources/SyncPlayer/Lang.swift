@@ -32,6 +32,10 @@ enum UIColors {
     /// Numbers that can be clicked and typed (After Effects blue).
     static let editable = dynamic(dark: NSColor(srgbRed: 0.33, green: 0.62, blue: 1.0, alpha: 1),
                                   light: NSColor(srgbRed: 0.08, green: 0.40, blue: 0.85, alpha: 1))
+    /// The master's amber: the switch and, in dark, the word. In light the word is a darker amber
+    /// so it reads on white (contrast about 4.6, check 40).
+    static let masterText = dynamic(dark: NSColor(srgbRed: 0.96, green: 0.70, blue: 0.0, alpha: 1),
+                                    light: NSColor(srgbRed: 0.62, green: 0.42, blue: 0.0, alpha: 1))
     static let panel = dynamic(dark: NSColor(srgbRed: 0.150, green: 0.153, blue: 0.168, alpha: 1),
                                light: .controlBackgroundColor)
 }

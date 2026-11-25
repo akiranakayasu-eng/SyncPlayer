@@ -197,7 +197,7 @@ struct RoleSwitch: View {
             // One fixed word: with both names beside a switch it is easy to read it the wrong way (Akira).
             Text(L("マスター", "Master"))
                 .font(.system(size: 12, weight: isMaster ? .bold : .regular))
-                .foregroundColor(isMaster ? RoleSwitch.masterColor : .secondary)
+                .foregroundColor(isMaster ? Color(nsColor: UIColors.masterText) : .secondary)
         }
         .fixedSize()
     }
