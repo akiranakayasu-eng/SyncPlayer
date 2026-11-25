@@ -73,6 +73,12 @@ final class AspectBox: NSView {
         let f = fitSize
         guard f.width > 0 else { return }
         var w = f.width, h = f.height
+        if let z = zoom, z > maxZoom + 0.0001 {
+            // Another output (a larger display) lowered the limit: the % follows (check 49 L2).
+            zoom = maxZoom
+            let nz = zoom
+            DispatchQueue.main.async { [weak self] in self?.onZoom?(nz) }
+        }
         if let z = zoom {
             let px = outputPixels()
             w = px.width * CGFloat(min(z, maxZoom)) / scale
@@ -101,8 +107,8 @@ final class AspectBox: NSView {
         let long = max(target.width, target.height)
         if long > AspectBox.maxDrawable { let k = AspectBox.maxDrawable / long; target.width *= k; target.height *= k }
         target = CGSize(width: max(1, target.width.rounded()), height: max(1, target.height.rounded()))
+        drawableWork?.cancel()   // a size that went back must not leave the other one pending (check 49 L1)
         if mtk.drawableSize == target { return }
-        drawableWork?.cancel()
         let set = DispatchWorkItem { [weak mtk] in mtk?.drawableSize = target }
         drawableWork = set
         // The first time (and from a tiny size) at once; otherwise after the size stops changing.
@@ -185,6 +191,8 @@ final class OutputWindow: NSObject, NSWindowDelegate {
     let hint = PassThroughLabel(labelWithString: "")
     private var hintWork: DispatchWorkItem?
     var onBecomeKey: (() -> Void)?
+    /// A windowed output dragged by hand onto another display: its new display's number.
+    var onMovedToScreen: ((Int) -> Void)?
     private var windowedFrame: NSRect?
     private(set) var isFull = false
     private(set) var screenIndex = -1
@@ -336,4 +344,18 @@ final class OutputWindow: NSObject, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) { onBecomeKey?() }
+
+    /// The window was dragged to another display (Akira 2026-11-26: N showed the new display, the
+    /// control window still said the old one). The setting follows, and the window takes that
+    /// display's shape, without being moved back.
+    func windowDidChangeScreen(_ notification: Notification) {
+        guard !isFull, let sc = window.screen, let i = NSScreen.screens.firstIndex(of: sc), i != screenIndex else { return }
+        screenIndex = i
+        let ratio = sc.frame.width / max(sc.frame.height, 1)
+        window.contentAspectRatio = sc.frame.size
+        let c = window.contentRect(forFrameRect: window.frame)
+        window.setFrame(window.frameRect(forContentRect: NSRect(x: c.minX, y: c.maxY - c.width / ratio,
+                                                                width: c.width, height: c.width / ratio)), display: true)
+        onMovedToScreen?(i)
+    }
 }

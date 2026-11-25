@@ -893,6 +893,10 @@ final class AppModel: ObservableObject {
         w.onBecomeKey = { [weak self] in
             if self?.selectedOutput != id { self?.selectedOutput = id }
         }
+        w.onMovedToScreen = { [weak self] i in
+            guard let self, let k = self.show.outputs.firstIndex(where: { $0.id == id }), self.show.outputs[k].screen != i else { return }
+            self.show.outputs[k].screen = i
+        }
     }
 
     private func setupOverlay(_ ov: EditOverlay, outputID: @escaping () -> String?, viewAspect: @escaping () -> Double) {
@@ -1845,12 +1849,13 @@ final class AppModel: ObservableObject {
         case "i": setInfoShown(!infoShownNow)
         case "h", "?":
             showHelp.toggle()
+            defer { objectWillChange.send() }   // the I switch under the preview follows both ways (check 48 L5, 49 L4)
             if showHelp {
                 helpSaved = (infoHidden, infoOnFull)
                 infoHidden = false; infoOnFull = true
             } else if let h = helpSaved {
                 (infoHidden, infoOnFull) = h   // back to how it was before H
-                objectWillChange.send()        // the I switch under the preview follows (check 48 L5)
+
                 helpSaved = nil
             }
             refreshInfo()

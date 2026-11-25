@@ -940,7 +940,7 @@ struct WidthHandle: View {
                     if start == nil { start = width }
                     width = min(max((start ?? width) + g.translation.width, range.lowerBound), range.upperBound)
                 }
-                .onEnded { _ in start = nil })
+                .onEnded { _ in start = nil; cursorAfterDrag() })
             .help(L("ドラッグして左の欄の幅を変える", "Drag to change the width of the left column"))
     }
 }
@@ -969,7 +969,7 @@ struct HeightHandle: View {
                     if start == nil { start = height > 0 ? height : Double(auto) }
                     height = min(max((start ?? height) + g.translation.height, range.lowerBound), range.upperBound)
                 }
-                .onEnded { _ in start = nil })
+                .onEnded { _ in start = nil; cursorAfterDrag() })
             .onTapGesture(count: 2) { height = 0 }
             .help(L("ドラッグして上の一覧の高さを変える（ダブルクリックで行の数に合わせた高さに戻る）", "Drag to change the height of the list above (double-click: fit to its rows)"))
     }
@@ -1171,7 +1171,7 @@ struct Scrub: ViewModifier {
                     if abs(value() - (f / grid).rounded() * grid) >= grid / 2 { moved = true }
                     if moved { change(value(), .moving) }
                 }
-                .onEnded { _ in finish(.done) },
+                .onEnded { _ in finish(.done); cursorAfterDrag() },
                 including: enabled ? .all : .subviews)
     }
 }
@@ -1341,10 +1341,20 @@ struct CursorArea: NSViewRepresentable {
         }
         override func cursorUpdate(with event: NSEvent) { cursor.set() }
         override func mouseEntered(with event: NSEvent) { cursor.set() }
+        override func mouseExited(with event: NSEvent) { NSCursor.arrow.set() }
     }
     func makeNSView(context: Context) -> Area { let v = Area(); v.cursor = cursor; return v }
     func updateNSView(_ v: Area, context: Context) {
         if v.cursor !== cursor { v.cursor = cursor; v.window?.invalidateCursorRects(for: v) }
+    }
+}
+
+/// After a drag ends: the arrow back, then the window decides again from where the pointer is (a
+/// cursor area under it sets its own cursor again; check 49 M1).
+func cursorAfterDrag() {
+    NSCursor.arrow.set()
+    DispatchQueue.main.async {
+        if let w = NSApp.keyWindow, let v = w.contentView { w.invalidateCursorRects(for: v) }
     }
 }
 
