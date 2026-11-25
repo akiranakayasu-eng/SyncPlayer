@@ -482,6 +482,10 @@ struct Inspector: View {
             .font(.caption).foregroundColor(.secondary)
         Button("練習用のショーを開く") { model.openPractice() }
             .help("番号入りの映像 4 本と丸いマスクの見本。いまのショーはファイルに残ったまま")
+        Button("サンプル（映像と設定）をダウンロード…") {
+            if let u = URL(string: "https://github.com/akiranakayasu-eng/sync-player/releases/latest") { NSWorkspace.shared.open(u) }
+        }
+        .help("音入りの映像と、そのまま開けるショーの一式（アプリとは別の zip、samples と付いたもの）を配っているページを開く。展開したら中の使い方.txt を見る")
 
         StepHeader(title: "1. 1 台で動かす", anchor: "step1")
         StepLine(done: !model.show.clips.isEmpty, text: "映像を開く（練習用でも自分の映像でも）")
