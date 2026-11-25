@@ -144,19 +144,21 @@ struct TopBar: View {
             HStack(spacing: 10) {
                 StatusBadge(status: status)
                 Spacer(minLength: 8)
-                Text("この Mac の役").foregroundColor(.secondary)
                 Picker("", selection: Binding(get: { model.isMaster }, set: { model.setRoleByHand(master: $0) })) {
                     Text("フォロワー").tag(false)
                     Text("マスター").tag(true)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 170)
-                .help("M キー。マスターが再生を決め、ほかの Mac（フォロワー）は付いてくる。マスターは全台で 1 台だけ")
-                Toggle("この Mac で音を出す", isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) }))
-                    .fixedSize()
-                    .help("A キー")
-                // Which movie's sound, right beside the switch (Akira 2026-11-25).
+                .fixedSize()
+                .help("この Mac の役（M キー）。マスターが再生を決め、ほかの Mac（フォロワー）は付いてくる。マスターは全台で 1 台だけ")
+                // Sound: a speaker switch and, beside it, which movie's sound (Akira 2026-11-25).
+                Toggle(isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) })) {
+                    Image(systemName: model.audioOn ? "speaker.wave.2.fill" : "speaker.slash")
+                        .frame(width: 18)
+                }
+                .toggleStyle(.button)
+                .help(model.audioOn ? "この Mac で音を出している（A キーで消す）" : "この Mac では音を出さない（A キーで出す）")
                 Picker("", selection: Binding(get: { model.show.audioClip ?? model.show.clips.first?.id ?? "" },
                                               set: { model.setAudioClip($0) })) {
                     ForEach(model.show.clips) { c in Text(c.name).tag(c.id) }
@@ -165,30 +167,24 @@ struct TopBar: View {
                 .frame(maxWidth: 160)
                 .disabled(!model.audioOn)
                 .help("音を出す映像（この Mac で音を出すとき、どの映像の音を出すか）")
-                Button("ショーを開く…") { model.openShow() }
-                    .help("保存したショー（.syncshow）を開く")
-                Button("保存…") { model.saveShowAs() }
-                    .help("いまの出力・レイヤー・設定をショーとして保存する")
+                Divider().frame(height: 18)
+                Button { model.openShow() } label: { Image(systemName: "folder") }
+                    .help("ショーを開く（⌘O）")
+                Button { model.saveShowAs() } label: { Image(systemName: "square.and.arrow.down") }
+                    .help("ショーとして保存（⌘S）")
             }
             HStack(spacing: 10) {
-                if status.isMaster {
-                    Button { model.master?.jump(to: 0) } label: { Label("頭へ", systemImage: "backward.end.fill") }
-                        .help("R か ↑ キー")
-                    Button { model.master?.jump(by: -5) } label: { Label("5 秒戻る", systemImage: "gobackward.5") }
-                        .help("5 秒戻る（← で 1 コマ、shift+← で 1 秒）")
-                    Button { model.master?.togglePlay() } label: {
-                        Label(status.playing ? "停止" : "再生", systemImage: status.playing ? "pause.fill" : "play.fill")
-                            .frame(minWidth: 56)
-                    }
-                    .help("space キー。全部の Mac がいっしょに再生・停止する")
-                    Button { model.master?.jump(by: 5) } label: { Label("5 秒進む", systemImage: "goforward.5") }
-                        .help("5 秒進む（→ で 1 コマ、shift+→ で 1 秒）")
-                } else {
-                    Text("再生・停止と位置の操作は、マスターの Mac で行う")
-                        .foregroundColor(.secondary)
-                        .help("この Mac をマスターにするときは、上の「この Mac の役」でマスターを選ぶ")
-                        .frame(minHeight: 24)
+                // Transport as symbols only (Akira 2026-11-25: the icons say enough).
+                HStack(spacing: 2) {
+                    TransportButton("backward.end.fill", "頭へ（R か ↑）") { model.master?.jump(to: 0) }
+                    TransportButton("gobackward.5", "5 秒戻る（← で 1 コマ、shift+← で 1 秒）") { model.master?.jump(by: -5) }
+                    TransportButton(status.playing ? "pause.fill" : "play.fill",
+                                    "再生・停止（space）。全部の Mac がいっしょに", big: true) { model.master?.togglePlay() }
+                    TransportButton("goforward.5", "5 秒進む（→ で 1 コマ、shift+→ で 1 秒）") { model.master?.jump(by: 5) }
                 }
+                .disabled(!status.isMaster)
+                .opacity(status.isMaster ? 1 : 0.35)
+                .help(status.isMaster ? "" : "再生と位置はマスターの Mac で操作する")
 
                 HStack(spacing: 0) {
                     if editingTime {
@@ -376,6 +372,27 @@ struct Sidebar: View {
     private var screenChoices: [Int] {
         let n = max(model.screenNames.count, (model.selectedOutputConfig?.screen ?? 0) + 1)
         return Array(0..<n)
+    }
+}
+
+/// A borderless transport symbol (play is larger).
+struct TransportButton: View {
+    let icon: String
+    let help: String
+    var big = false
+    let action: () -> Void
+    init(_ icon: String, _ help: String, big: Bool = false, action: @escaping () -> Void) {
+        self.icon = icon; self.help = help; self.big = big; self.action = action
+    }
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: big ? 20 : 15, weight: .medium))
+                .frame(width: big ? 34 : 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(help)
     }
 }
 
