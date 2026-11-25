@@ -834,7 +834,41 @@ final class AppModel: ObservableObject {
         "SyncPlayer — \(o.name) — " + (isMaster ? L("マスター", "Master") : L("フォロワー", "Follower")) + " — \(opts.name)"
     }
 
+    /// One full-screen output per display (Akira 2026-11-26: people do things they did not mean to).
+    /// When two are full screen on the same display, the one just made full screen or just moved
+    /// there stays, and the other goes back to a window, with a message. ⌘Z undoes it.
+    private func resolveFullClash() -> Bool {
+        let screens = NSScreen.screens
+        func screenOf(_ o: OutputConfig) -> ObjectIdentifier? {
+            let sc = screens.indices.contains(o.screen) ? screens[o.screen] : (NSScreen.main ?? screens.first)
+            return sc.map { ObjectIdentifier($0) }
+        }
+        var groups: [ObjectIdentifier: [Int]] = [:]
+        for (i, o) in show.outputs.enumerated() where o.fullscreen {
+            if let k = screenOf(o) { groups[k, default: []].append(i) }
+        }
+        var s = show
+        var dropped: [String] = []
+        for idx in groups.values where idx.count > 1 {
+            let fresh = idx.last { i in
+                let o = show.outputs[i]
+                guard let w = outputs[o.id] else { return true }
+                return !w.isFull || w.screenIndex != o.screen
+            }
+            let keep = fresh ?? idx[0]
+            for i in idx where i != keep { s.outputs[i].fullscreen = false; dropped.append(s.outputs[i].name) }
+            notify(L("1 つのディスプレイに全画面の出力は 1 つだけ。「\(show.outputs[keep].name)」を全画面にし、「\(dropped.joined(separator: "」「"))」は窓に戻しました（⌘Z で戻せる）",
+                     "One full-screen output per display. \(show.outputs[keep].name) is full screen; \(dropped.joined(separator: ", ")) went back to a window (⌘Z undoes)"))
+        }
+        if dropped.isEmpty { return false }
+        show = s
+        return true
+    }
+
     private func syncOutputs() {
+        // Two full screens on one display: one goes back to a window first, then the windows are placed.
+        // (If the change runs this again, the second run finds nothing to do.)
+        _ = resolveFullClash()
         let ids = Set(show.outputs.map(\.id))
         for (id, w) in outputs where !ids.contains(id) { w.close(); outputs[id] = nil }
         var created = false
