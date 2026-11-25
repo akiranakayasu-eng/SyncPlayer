@@ -1329,6 +1329,7 @@ final class AppModel: ObservableObject {
         // A master older than v0.3.3 does not send its version: say so rather than look all right.
         if let f = follower, f.masterAlive, f.masterVer == nil { return "マスターの版が分からない（古い版かも。全台を同じ版にする）" }
         if master != nil {
+            if let p = peers.first(where: { $0.ver == "?" }) { return "古い版の Mac がある: \(String(p.name.prefix(16)))（全台を同じ版にする）" }
             if let p = peers.first(where: { $0.ver != AppModel.version }) { return "版がちがう Mac がある: \(String(p.name.prefix(16)))（\(p.ver)）" }
             if let p = peers.first(where: { $0.warn != nil }) { return "\(String(p.name.prefix(16))) に注意: \(p.warn!)" }
         }

@@ -555,7 +555,7 @@ struct Inspector: View {
                             Text(p.err.map { String(format: "%.1f ms", abs($0)) } ?? "—")
                                 .font(.system(size: 11, design: .monospaced))
                             let other = p.ver != AppModel.version
-                            Text(other ? "⚠︎ 版 \(p.ver)" : (p.warn.map { "⚠︎ " + $0 } ?? "OK"))
+                            Text(other ? (p.ver == "?" ? "⚠︎ 古い版" : "⚠︎ 版 \(p.ver)") : (p.warn.map { "⚠︎ " + $0 } ?? "OK"))
                                 .foregroundColor(other || p.warn != nil ? .orange : .secondary)
                                 .lineLimit(2).help(p.warn ?? p.ver)
                         }

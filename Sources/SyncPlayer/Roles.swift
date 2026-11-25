@@ -79,7 +79,7 @@ final class Master {
             // A follower older than v0.3.3 sends no name or version: list it by its address with
             // version "?", so the master can tell an old Mac is there.
             do {
-                let n = m.name ?? (UDPSocket.hostString(from) + "（古い版）")
+                let n = m.name ?? UDPSocket.hostString(from)
                 let p = Peer(name: String(n.prefix(40)), ver: String((m.ver ?? "?").prefix(30)),
                              err: m.err.flatMap { $0.isFinite ? $0 : nil }, warn: m.warn.map { String($0.prefix(60)) },
                              file: m.file, at: t2)
