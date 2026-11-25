@@ -380,6 +380,7 @@ struct TopBar: View {
                             .onAppear { timeFocused = true }
                     } else {
                         Text(timeString(dragging ? value : status.position))
+                            .editableNumber(status.isMaster)
                             .font(.system(size: 12, design: .monospaced))
                             .frame(width: 56, alignment: .trailing)
                             .contentShape(Rectangle())
@@ -401,6 +402,7 @@ struct TopBar: View {
                             .onAppear { loopFocused = true }
                     } else {
                         Text(timeString(status.duration))
+                            .editableNumber(status.isMaster)
                             .font(.system(size: 12, design: .monospaced))
                             .contentShape(Rectangle())
                             .onTapGesture {
@@ -903,6 +905,7 @@ struct SliderRow: View {
                     .onAppear { focused = true }
             } else {
                 Text(unit.text(value))
+                    .editableNumber()
                     .font(.system(size: 11, design: .monospaced))
                     .frame(width: 52, alignment: .trailing)
                     .contentShape(Rectangle())
@@ -1273,4 +1276,14 @@ struct Inspector: View {
         model.updateLook(s)
     }
 
+}
+
+extension Text {
+    /// A number that can be clicked and typed: blue with a dotted underline, like After Effects
+    /// (Akira 2026-11-25). Plain when it cannot be changed here (e.g. on a follower).
+    func editableNumber(_ on: Bool = true) -> Text {
+        guard on else { return self }
+        return self.foregroundColor(Color(nsColor: UIColors.editable))
+            .underline(true, pattern: .dot, color: Color(nsColor: UIColors.editable).opacity(0.8))
+    }
 }

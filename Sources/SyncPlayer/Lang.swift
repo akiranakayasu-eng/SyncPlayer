@@ -29,6 +29,9 @@ enum UIColors {
     }
     static let base = dynamic(dark: NSColor(srgbRed: 0.200, green: 0.204, blue: 0.220, alpha: 1),
                               light: .windowBackgroundColor)
+    /// Numbers that can be clicked and typed (After Effects blue).
+    static let editable = dynamic(dark: NSColor(srgbRed: 0.33, green: 0.62, blue: 1.0, alpha: 1),
+                                  light: NSColor(srgbRed: 0.08, green: 0.40, blue: 0.85, alpha: 1))
     static let panel = dynamic(dark: NSColor(srgbRed: 0.150, green: 0.153, blue: 0.168, alpha: 1),
                                light: .controlBackgroundColor)
 }
