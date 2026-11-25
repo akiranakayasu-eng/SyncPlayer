@@ -1,4 +1,5 @@
-# Builds SyncPlayer.app for Apple silicon and Intel and publishes it as a GitHub Release.
+# Builds SyncPlayer.app for Apple silicon and Intel and publishes it as a GitHub Release,
+# with the sample kit (movies with sound + ready shows + 使い方.txt) as a second download.
 # Run it from the Actions tab ("Run workflow") with a version such as 0.2.0.
 name: release
 
@@ -39,3 +40,28 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "SyncPlayer ${{ inputs.version }}" \
             --notes-file tools/release-notes.md
+
+  samples:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - name: Make the sample kit
+        run: |
+          DIR="SyncPlayer-サンプル"
+          bash tools/make-samples.sh "$DIR"
+          cp samples/* "$DIR/"
+          ZIP="SyncPlayer-${{ inputs.version }}-samples.zip"
+          # Python's zipfile marks the names as UTF-8, so the Japanese names open correctly in Finder.
+          python3 -c 'import sys,os,zipfile
+          z=zipfile.ZipFile(sys.argv[1],"w",zipfile.ZIP_DEFLATED)
+          for r,ds,fs in os.walk(sys.argv[2]):
+              for f in sorted(fs): z.write(os.path.join(r,f))
+          z.close()' "$ZIP" "$DIR"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+      - name: Add it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v${{ inputs.version }}" "$ZIP"

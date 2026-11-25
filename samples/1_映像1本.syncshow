@@ -1,0 +1,25 @@
+{
+  "audioClip": "c1",
+  "clips": [
+    {
+      "id": "c1",
+      "path": "sample01_countdown.mp4"
+    }
+  ],
+  "loopLength": 0,
+  "loopTogether": true,
+  "outputs": [
+    {
+      "fullscreen": false,
+      "layers": [
+        {
+          "clipID": "c1",
+          "look": {}
+        }
+      ],
+      "name": "出力 1",
+      "screen": 0
+    }
+  ],
+  "version": 1
+}
