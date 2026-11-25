@@ -232,6 +232,12 @@ struct TopBar: View {
                        })
                     .disabled(!status.isMaster)
                     .help("ドラッグして離すと、全部の Mac がその位置へ")
+                // Next to the loop length it governs (Akira 2026-11-25: up here, not at the bottom of the left column).
+                Toggle("全部いっしょにループ", isOn: Binding(get: { model.show.loopTogether },
+                                                        set: { v in if model.show.loopTogether != v { model.show.loopTogether = v } }))
+                    .toggleStyle(.checkbox)
+                    .fixedSize()
+                    .help("入れると、すべての Mac の映像が同じ長さ（左の / のあとの時刻。押すと打てる）で頭へ戻る。短い映像は最後のコマで待つ。切ると映像ごとに自分の長さでループする（マスターの設定が使われる）")
             }
         }
     }
@@ -350,20 +356,6 @@ struct Sidebar: View {
                     if let id = selectedClipID { model.replaceClip(id) }
                 }
                 .disabled(selectedClipID == nil)
-            }
-            Toggle("全部いっしょにループ", isOn: Binding(get: { model.show.loopTogether },
-                                                    set: { v in if model.show.loopTogether != v { model.show.loopTogether = v } }))
-                .help("すべての Mac の映像が同じ長さで頭へ戻る。短い映像は最後のコマで待つ（マスターの設定が使われる）")
-            if model.show.loopTogether {
-                HStack {
-                    Text("長さ")
-                    TextField("自動", value: Binding(get: { model.show.loopLength },
-                                                   set: { v in let x = v <= 0 ? 0 : max(v, Show.minLoop)
-                                                          if model.show.loopLength != x { model.show.loopLength = x } }),
-                              format: .number)
-                        .frame(width: 70)
-                    Text("秒（0 = いちばん長い映像）").font(.caption).foregroundColor(.secondary)
-                }
             }
             Picker("音を出す映像", selection: Binding(get: { model.show.audioClip ?? model.show.clips.first?.id ?? "" },
                                                  set: { model.setAudioClip($0) })) {
