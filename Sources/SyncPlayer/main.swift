@@ -43,6 +43,11 @@ struct Options {
             case "--broadcast": broadcast = next()
             case "--to": extra.append(next())
             case "--log": log = true
+            case "--help", "-h":
+                // Print the options and stop, before any window opens or the show is saved
+                // (2026-11-25: --help used to start the app and rewrite current.syncshow).
+                print("usage: SyncPlayer [movies…] [--show file] [--master|--follower] [--name n] [--fullscreen] [--screen i] [--audio|--mute] [--broadcast a] [--to host] [--log] [--log-interval s] [--autoplay s] [--quit-after s] [--switch-after s] [--preset name] [--bgra] [--frames 420v|422v|x422|BGRA]")
+                exit(0)
             case "--log-interval": log = true; logInterval = Double(next()) ?? 1
             case "--autoplay": autoplay = Double(next()) ?? 2
             case "--quit-after": quitAfter = Double(next())
