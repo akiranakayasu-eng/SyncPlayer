@@ -32,8 +32,12 @@ final class AppModel: ObservableObject {
     let status = StatusModel()
 
     @Published var show = Show() { didSet { showDidChange(oldValue) } }
-    @Published var selectedOutput: String? = nil { didSet { if selectedOutput != oldValue { fixSelection(); redrawOverlays() } } }
+    @Published var selectedOutput: String? = nil { didSet { if selectedOutput != oldValue { layerPicks = []; fixSelection(); redrawOverlays() } } }
     @Published var selectedLayer: String? = nil { didSet { if selectedLayer != oldValue { selectedHandle = 0; redrawOverlays() } } }
+    /// Several layers picked with ⌘ / ⇧ click (empty = just selectedLayer). Same for clips.
+    @Published var layerPicks: Set<String> = []
+    @Published var selectedClip: String? = nil
+    @Published var clipPicks: Set<String> = []
     @Published var editMode: EditMode = .none { didSet { selectedHandle = 0; redrawOverlays() } }
     @Published var selectedHandle = 0 { didSet { redrawOverlays() } }
     @Published var isMaster = false
@@ -938,15 +942,63 @@ final class AppModel: ObservableObject {
         selectedLayer = l.id
     }
 
+    /// Deletes the picked layers (or the selected one), asking first.
     func removeLayer() {
-        guard let i = selectedLayerIndex else { return }
-        let name = clipName(show.outputs[i.o].layers[i.l].clipID)
-        let oid = show.outputs[i.o].id, lid = show.outputs[i.o].layers[i.l].id
-        guard confirm(L("レイヤー「\(name)」を消しますか？", "Delete layer “\(name)”?"), L("このレイヤーの調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。", "Its adjustments (transform, corners, mesh, mask…) are deleted too. The movie file is kept.")),
-              let o2 = show.outputs.firstIndex(where: { $0.id == oid }),
-              let l2 = show.outputs[o2].layers.firstIndex(where: { $0.id == lid }) else { return }
-        show.outputs[o2].layers.remove(at: l2)
+        guard let o = selectedOutputIndex else { return }
+        let oid = show.outputs[o].id
+        let ids = layerPicks.isEmpty ? Set([selectedLayer].compactMap { $0 }) : layerPicks
+        let gone = show.outputs[o].layers.filter { ids.contains($0.id) }
+        guard !gone.isEmpty else { return }
+        let title = gone.count == 1
+            ? L("レイヤー「\(gone[0].name ?? clipName(gone[0].clipID))」を消しますか？", "Delete layer “\(gone[0].name ?? clipName(gone[0].clipID))”?")
+            : L("レイヤー \(gone.count) つを消しますか？", "Delete \(gone.count) layers?")
+        guard confirm(title, L("調整（位置・四隅・メッシュ・マスクなど）も消えます（⌘Z で戻せます）。映像のファイルは消えません。", "Their adjustments (transform, corners, mesh, mask…) go too (⌘Z brings them back). Movie files are kept.")),
+              let o2 = show.outputs.firstIndex(where: { $0.id == oid }) else { return }
+        show.outputs[o2].layers.removeAll { ids.contains($0.id) }
+        layerPicks = []
     }
+
+    /// A copy of the selected layer just in front of it (like ⌘D in After Effects).
+    func duplicateLayer() {
+        guard let i = selectedLayerIndex else { return }
+        var l = show.outputs[i.o].layers[i.l]
+        l.id = UUID().uuidString
+        show.outputs[i.o].layers.insert(l, at: i.l + 1)
+        selectedLayer = l.id
+        layerPicks = []
+    }
+
+    /// A click on a list row, like Finder: a plain click picks one row, ⌘ adds or takes away a
+    /// row, ⇧ picks the rows between the last clicked and this one. `order` is the list's order.
+    /// One click reaches here from the row and from its name; the second call is ignored.
+    func clickLayerRow(_ id: String, order: [String]) {
+        guard let r = Self.click(id, focus: selectedLayer, picks: layerPicks, order: order, last: &lastRowClick) else { return }
+        selectedLayer = r.focus; layerPicks = r.picks
+    }
+    func clickClipRow(_ id: String) {
+        guard let r = Self.click(id, focus: selectedClip, picks: clipPicks, order: show.clips.map(\.id), last: &lastRowClick) else { return }
+        selectedClip = r.focus; clipPicks = r.picks
+    }
+    private static func click(_ id: String, focus: String?, picks: Set<String>, order: [String],
+                              last: inout TimeInterval) -> (focus: String?, picks: Set<String>)? {
+        let stamp = NSApp.currentEvent?.timestamp ?? -1
+        if stamp >= 0 && stamp == last { return nil }
+        last = stamp
+        let m = NSEvent.modifierFlags
+        if m.contains(.command) {
+            var p = picks.isEmpty ? Set([focus].compactMap { $0 }) : picks
+            if p.contains(id) { p.remove(id) } else { p.insert(id) }
+            var f = focus
+            if p.contains(id) { f = id } else if f == nil || !p.contains(f!) { f = order.first { p.contains($0) } ?? id }
+            return (f, p.count > 1 ? p : [])
+        }
+        if m.contains(.shift), let f = focus, let a = order.firstIndex(of: f), let b = order.firstIndex(of: id) {
+            let r = Set(order[min(a, b)...max(a, b)])
+            return (f, r.count > 1 ? r : [])
+        }
+        return (id, [])
+    }
+    private var lastRowClick: TimeInterval = -2
 
     /// Move the selected layer toward the front (+1) or back (-1).
     func moveLayer(_ d: Int) {
@@ -1039,20 +1091,54 @@ final class AppModel: ObservableObject {
         notify(L("映像: \(u.lastPathComponent)", "Clip: \(u.lastPathComponent)"))
     }
 
-    func removeClip(_ id: String) {
-        guard show.clips.count > 1 else { notify(L("映像は 1 つ以上要ります", "At least one clip is needed")); return }
-        let users = show.seats.flatMap(\.outputs).reduce(0) { $0 + $1.layers.filter { $0.clipID == id }.count }
-        guard confirm(L("映像「\(clipName(id))」をショーから外しますか？", "Remove clip “\(clipName(id))” from the show?"),
-                      users > 0 ? L("この映像を使うレイヤー \(users) つと、その調整（位置・四隅・メッシュ・マスクなど）も消えます。映像のファイルは消えません。", "\(users) layer(s) using it and their adjustments are deleted too. The movie file is kept.")
-                                : L("映像のファイルは消えません。", "The movie file is kept."), ok: L("外す", "Remove")) else { return }
+    func removeClip(_ id: String) { removeClips([id]) }
+
+    /// Removes the picked clips (or the selected one) from the show.
+    func removeSelectedClips() {
+        removeClips(clipPicks.isEmpty ? Set([selectedClip].compactMap { $0 }) : clipPicks)
+    }
+
+    func removeClips(_ given: Set<String>) {
+        let ids = given.filter { id in show.clips.contains { $0.id == id } }
+        guard !ids.isEmpty else { return }
+        guard show.clips.count > ids.count else { notify(L("映像は 1 つ以上要ります", "At least one clip is needed")); return }
+        let users = show.seats.flatMap(\.outputs).reduce(0) { $0 + $1.layers.filter { ids.contains($0.clipID) }.count }
+        // Where they are used: seat, output and layer number (1 = front), so it is clear what goes.
+        var places: [String] = []
+        for st in show.seats {
+            for o in st.outputs {
+                for (k, l) in o.layers.reversed().enumerated() where ids.contains(l.clipID) {
+                    let seat = show.seats.count > 1 ? L("席 \(st.name)・", "Seat \(st.name) · ") : ""
+                    let name = l.name.map { "（\($0)）" } ?? ""
+                    places.append("・" + seat + "\(o.name)・" + L("レイヤー \(k + 1)", "Layer \(k + 1)") + name + (ids.count > 1 ? " — " + clipName(l.clipID) : ""))
+                }
+            }
+        }
+        let shown = places.prefix(12).joined(separator: "\n") + (places.count > 12 ? L("\n…ほか \(places.count - 12) つ", "\n…and \(places.count - 12) more") : "")
+        let title = ids.count == 1
+            ? L("映像「\(clipName(ids.first!))」をショーから外しますか？", "Remove clip “\(clipName(ids.first!))” from the show?")
+            : L("映像 \(ids.count) 本をショーから外しますか？", "Remove \(ids.count) clips from the show?")
+        guard confirm(title,
+                      users > 0 ? L("使っているレイヤー \(users) つも、その調整（位置・四隅・メッシュ・マスクなど）ごと消えます（⌘Z で戻せます）。映像のファイルは消えません。\n\n使っている所:\n\(shown)", "\(users) layer(s) using them go too, with their adjustments (⌘Z brings them back). Movie files are kept.\n\nUsed in:\n\(shown)")
+                                : L("どのレイヤーでも使っていません。映像のファイルは消えません。", "Not used by any layer. Movie files are kept."), ok: L("外す", "Remove")) else { return }
         var s = show
-        s.clips.removeAll { $0.id == id }
-        // Every seat: its layers that show the clip go too.
+        s.clips.removeAll { ids.contains($0.id) }
+        // Every seat: its layers that show the clips go too.
         for k in s.seats.indices {
-            for o in s.seats[k].outputs.indices { s.seats[k].outputs[o].layers.removeAll { $0.clipID == id } }
-            if s.seats[k].audioClip == id { s.seats[k].audioClip = nil }
+            for o in s.seats[k].outputs.indices { s.seats[k].outputs[o].layers.removeAll { ids.contains($0.clipID) } }
+            if let a = s.seats[k].audioClip, ids.contains(a) { s.seats[k].audioClip = nil }
         }
         show = s
+        clipPicks = []
+        if let c = selectedClip, ids.contains(c) { selectedClip = nil }
+    }
+
+    /// Shows the clip's movie file in the Finder.
+    func revealClip(_ id: String) {
+        guard let c = show.clip(id) else { return }
+        let u = URL(fileURLWithPath: c.path)
+        if FileManager.default.fileExists(atPath: u.path) { NSWorkspace.shared.activateFileViewerSelecting([u]) }
+        else { notify(L("映像のファイルが見つかりません: \(c.path)", "Movie file not found: \(c.path)")) }
     }
 
     /// The movie cannot be opened (missing file or failed to load).
@@ -1394,6 +1480,10 @@ final class AppModel: ObservableObject {
 
     // MARK: keys
 
+    /// What the delete key removes: set when a row of a left list is clicked (seat, output, layer,
+    /// clip). Each removal asks first. Cleared after use.
+    var deleteTarget: (() -> Void)?
+
     private func installKeys() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             guard let self else { return e }
@@ -1463,6 +1553,12 @@ final class AppModel: ObservableObject {
         }
 
         switch e.keyCode {
+        case 51, 117:                                                   // delete, forward delete
+            // Deletes the row last clicked in the left lists (seat, output, layer, clip), asking first.
+            guard let del = deleteTarget, !shift else { return false }
+            deleteTarget = nil
+            del()
+            return true
         case 49: master?.togglePlay(); return true                      // space
         case 48: nudgeOverlay?.selectNext(shift ? -1 : 1); return true   // tab
         case 53: if editing { toggleEdit(editMode) }; return true       // esc
@@ -1661,7 +1757,7 @@ final class AppModel: ObservableObject {
         var c: [CheckItem] = []
         func add(_ ok: Bool?, _ text: String, _ fix: String) { c.append(CheckItem(ok: ok, text: text, fix: fix)) }
         add(showFile != nil, L("ショーを保存してある", "The show is saved"), L("上の「保存…」で保存する（再起動のあと、このショーが開く）", "Save with the save button at the top (it opens after a restart)"))
-        add(!show.clips.contains { clipBroken($0.id) }, L("映像が全部開ける", "All clips open"), L("左の映像で「⚠︎ 開けない」の行を選んで ⟳（差し替え）", "Under Clips, replace (⟳) the rows marked ⚠︎"))
+        add(!show.clips.contains { clipBroken($0.id) }, L("映像が全部開ける", "All clips open"), L("左の映像ライブラリで「⚠︎ 開けない」の行を右クリックして「差し替え」", "In Footage, right-click the rows marked ⚠︎ › Replace Footage"))
         let masks = show.outputs.flatMap { $0.layers.compactMap(\.mask) }
         add(!masks.contains { !FileManager.default.fileExists(atPath: $0) || GPU.shared?.maskReady($0) == false },
             L("マスクが全部読める", "All masks are readable"), L("「画面の調整」のマスクで画像を選び直す", "Choose the image again under Mask in the Layer tab"))
@@ -1865,7 +1961,7 @@ final class AppModel: ObservableObject {
         for (id, n) in transport.orderedNodes {
             let name = clipName(id)
             if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
-                add(L("\(name): 開けません", "\(name): can't open"), 3, L("ファイルの場所が変わったか確かめ、映像素材の ⟳ で選び直す。開けない形式なら H.264/HEVC の mov・mp4 に書き出す", "Check whether the file moved and choose it again with ⟳ under Clips. If the format won't open, export H.264/HEVC mov or mp4"))
+                add(L("\(name): 開けません", "\(name): can't open"), 3, L("ファイルの場所が変わったか確かめ、映像ライブラリの行を右クリックして「差し替え」で選び直す。開けない形式なら H.264/HEVC の mov・mp4 に書き出す", "Check whether the file moved and choose it again with right-click › Replace Footage in Footage. If the format won't open, export H.264/HEVC mov or mp4"))
             } else if !n.ready {
                 add(L("\(name): 読み込み中", "\(name): loading"))
             } else {

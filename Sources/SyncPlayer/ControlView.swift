@@ -438,9 +438,13 @@ struct TopBar: View {
 
 struct Sidebar: View {
     @ObservedObject var model: AppModel
-    @State private var selectedClip: String?
     @State private var selectedSeat: String?
     @State private var renamingSeat: String?
+    // List heights set by dragging the line under each list (0 = as tall as its rows; kept per Mac).
+    @AppStorage("ui.h.seats") private var hSeats: Double = 0
+    @AppStorage("ui.h.outputs") private var hOutputs: Double = 0
+    @AppStorage("ui.h.layers") private var hLayers: Double = 0
+    @AppStorage("ui.h.clips") private var hClips: Double = 0
 
     private func finishSeatRename(_ id: String) {
         renamingSeat = nil
@@ -450,7 +454,7 @@ struct Sidebar: View {
 
     /// Seats: the places of the exhibition (a Mac and its projectors). The one marked is this Mac.
     @ViewBuilder private var seatSection: some View {
-        SectionTitle(L("席（Mac とプロジェクターの組）", "Seats"), help: "seats")
+        SectionTitle(L("席", "Seats"), help: "seats")
         List {
             ForEach(Array(model.show.seats.enumerated()), id: \.element.id) { k, st in
                 HStack(spacing: 6) {
@@ -479,10 +483,19 @@ struct Sidebar: View {
                             .font(.caption).foregroundColor(who.count > 1 ? .orange : .secondary).lineLimit(1)
                     }
                 }
-                .selectedRow((selectedSeat ?? model.show.seatID) == st.id) { selectedSeat = st.id }
+                .selectedRow((selectedSeat ?? model.show.seatID) == st.id) { selectedSeat = st.id; model.deleteTarget = { [weak m = model] in m?.deleteSeat(st.id) } }
+                .contextMenu {
+                    Button(L("名前を変える", "Rename")) { renameText = st.name; renamingSeat = st.id }
+                    Button(L("複製", "Duplicate")) { model.duplicateSeat(st.id) }
+                    Button(L("この Mac をこの席にする", "Make This Mac This Seat")) { model.switchSeat(st.id) }
+                        .disabled(st.id == model.show.seatID)
+                    Divider()
+                    Button(L("席を消す…", "Delete Seat…"), role: .destructive) { model.deleteSeat(st.id) }
+                        .disabled(model.show.seats.count < 2)
+                }
             }
         }
-        .frame(height: listHeight(model.show.seats.count, max: 6))
+        .frame(height: listH(hSeats, model.show.seats.count, max: 6))
         .scrollContentBackground(.hidden)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
         let sel = selectedSeat.flatMap { id in model.show.seats.first { $0.id == id } } ?? model.show.seat
@@ -495,7 +508,7 @@ struct Sidebar: View {
             IconButton("desktopcomputer", L("この Mac を選んだ席にする（出力・レイヤー・音がその席のものになる）", "Make this Mac the selected seat (its outputs, layers and sound)")) { model.switchSeat(sel.id) }
                 .disabled(sel.id == model.show.seatID)
         }
-        Divider().padding(.vertical, 2)
+        HeightHandle(height: $hSeats, auto: listHeight(model.show.seats.count, max: 6))
     }
     @State private var renamingOutput: String?
     @State private var renamingLayer: String?
@@ -524,13 +537,75 @@ struct Sidebar: View {
     }
 
 
+    // MARK: picking rows and the right-click menus
+
+    private func clickLayer(_ id: String) {
+        let order = (model.selectedOutputConfig?.layers ?? []).reversed().map(\.id)
+        model.clickLayerRow(id, order: order)
+        model.deleteTarget = { [weak m = model] in m?.removeLayer() }
+    }
+
+    private func clickClip(_ id: String) {
+        model.clickClipRow(id)
+        model.deleteTarget = { [weak m = model] in m?.removeSelectedClips() }
+    }
+
+    /// A right-click on a row that is not among the picked ones acts on that row only (like Finder).
+    private func layerTarget(_ id: String) {
+        if !model.layerPicks.contains(id) { model.layerPicks = []; model.selectedLayer = id }
+    }
+    private func clipTarget(_ id: String) {
+        if !model.clipPicks.contains(id) { model.clipPicks = []; model.selectedClip = id }
+    }
+
+    @ViewBuilder private func layerMenu(_ l: Layer) -> some View {
+        let many = model.layerPicks.contains(l.id) && model.layerPicks.count > 1
+        if !many {
+            Button(L("名前を変える", "Rename")) { layerTarget(l.id); renameText = l.name ?? ""; renamingLayer = l.id }
+            Menu(L("映像を替える", "Replace Clip")) {
+                ForEach(model.show.clips) { c in
+                    Button { model.setLayerClip(l.id, c.id) } label: {
+                        if c.id == l.clipID { Label(c.name, systemImage: "checkmark") } else { Text(c.name) }
+                    }
+                }
+                Divider()
+                Button(L("ファイルから選ぶ…", "Choose a File…")) { model.addClipsForLayer(l.id) }
+            }
+            Button(l.visible ? L("隠す", "Hide") : L("見せる", "Show")) { model.visibleBinding(l.id).wrappedValue.toggle() }
+            Button(L("複製", "Duplicate")) { layerTarget(l.id); model.duplicateLayer() }
+            Divider()
+            Button(L("手前へ", "Bring Forward")) { layerTarget(l.id); model.moveLayer(1) }
+            Button(L("奥へ", "Send Backward")) { layerTarget(l.id); model.moveLayer(-1) }
+            Divider()
+        }
+        Button(many ? L("レイヤー \(model.layerPicks.count) つを消す…", "Delete \(model.layerPicks.count) Layers…") : L("レイヤーを消す…", "Delete Layer…"), role: .destructive) {
+            layerTarget(l.id); model.removeLayer()
+        }
+    }
+
+    @ViewBuilder private func clipMenu(_ c: Clip) -> some View {
+        let many = model.clipPicks.contains(c.id) && model.clipPicks.count > 1
+        if !many {
+            Button(L("差し替え…（レイヤーの設定はそのまま）", "Replace Footage… (layer settings kept)")) { clipTarget(c.id); model.replaceClip(c.id) }
+            if let lid = model.selectedLayer {
+                Button(L("選んだレイヤーに出す", "Use in Selected Layer")) { model.setLayerClip(lid, c.id) }
+            }
+            Button(L("この映像の音を出す", "Play This Clip's Sound")) { model.setAudioClip(c.id) }
+            Button(L("Finder で表示", "Reveal in Finder")) { model.revealClip(c.id) }
+            Divider()
+        }
+        Button(many ? L("映像 \(model.clipPicks.count) 本をショーから外す…", "Remove \(model.clipPicks.count) Clips from Show…") : L("ショーから外す…", "Remove from Show…"), role: .destructive) {
+            clipTarget(c.id); model.removeSelectedClips()
+        }
+    }
+
     var body: some View {
         // Scrolls when the window is low, so the top bar is never pushed out. The lists are as tall
         // as their rows (they do not scroll themselves), so the wheel moves this column.
         ScrollView {
         VStack(alignment: .leading, spacing: 6) {
             seatSection
-            SectionTitle(L("出力（ディスプレイに出す絵）", "Outputs") + (model.show.seats.count > 1 ? " — " + model.show.seat.name : ""), help: "outputs")
+            SectionTitle(L("出力", "Outputs") + (model.show.seats.count > 1 ? " — " + model.show.seat.name : ""), help: "outputs")
             List {
                 ForEach(model.show.outputs) { o in
                     HStack {
@@ -552,16 +627,23 @@ struct Sidebar: View {
                         Text(L("ディスプレイ", "Display") + " \(o.screen + 1)" + (o.fullscreen ? L("・全画面", " · full screen") : "")).foregroundColor(.secondary).font(.caption)
                     }
                     .tag(Optional(o.id))
-                    .selectedRow(model.selectedOutput == o.id) { model.selectedOutput = o.id }
+                    .selectedRow(model.selectedOutput == o.id) { model.selectedOutput = o.id; model.deleteTarget = { [weak m = model] in m?.removeOutput() } }
+                    .contextMenu {
+                        Button(L("名前を変える", "Rename")) { renameText = o.name; renamingOutput = o.id }
+                        Divider()
+                        Button(L("出力を消す…", "Delete Output…"), role: .destructive) { model.selectedOutput = o.id; model.removeOutput() }
+                            .disabled(model.show.outputs.count < 2)
+                    }
                 }
             }
-            .frame(height: listHeight(model.show.outputs.count, max: 8))
+            .frame(height: listH(hOutputs, model.show.outputs.count, max: 8))
             .scrollContentBackground(.hidden)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
             ListBar {
                 IconButton("plus", L("出力を足す（別のディスプレイに出すとき）", "Add an output (for another display)")) { model.addOutput() }
                 IconButton("minus", L("選んだ出力を消す", "Delete the selected output")) { model.removeOutput() }
             }
+            HeightHandle(height: $hOutputs, auto: listHeight(model.show.outputs.count, max: 8))
             if model.selectedOutputConfig != nil {
                 Picker("", selection: model.outputBinding(\.screen, 0)) {
                     ForEach(screenChoices, id: \.self) { i in
@@ -575,7 +657,7 @@ struct Sidebar: View {
             }
 
             Divider().padding(.vertical, 2)
-            SectionTitle(L("レイヤー（上が手前、ドラッグで入れ替え）", "Layers"), help: "layers")
+            SectionTitle(L("レイヤー", "Layers"), help: "layers")
             List {
                 // Numbered from the front (1 = frontmost, like After Effects). Drag a row to change
                 // the order, like the tracks in Premiere.
@@ -604,14 +686,19 @@ struct Sidebar: View {
                             Text(l.name ?? model.clipName(l.clipID))
                                 .lineLimit(1).truncationMode(.middle)
                                 .onTapGesture(count: 2) { renameText = l.name ?? ""; renamingLayer = l.id }
-                                .simultaneousGesture(TapGesture().onEnded { model.selectedLayer = l.id })
+                                .simultaneousGesture(TapGesture().onEnded { clickLayer(l.id) })
                                 .help(L("ダブルクリックで名前を付ける（空にすると映像の名前に戻る）", "Double-click to name (empty = the clip's name)"))
                         }
                         Spacer(minLength: 2)
-                        LayerClipButton(model: model, layerID: l.id, clipID: l.clipID, compact: l.name == nil)
+                        // A named layer also shows its movie (the movie is changed from the right-click menu).
+                        if l.name != nil {
+                            Text(model.clipName(l.clipID)).font(.caption).foregroundColor(.secondary)
+                                .lineLimit(1).truncationMode(.middle)
+                        }
                     }
                     .tag(Optional(l.id))
-                    .selectedRow(model.selectedLayer == l.id) { model.selectedLayer = l.id }
+                    .selectedRow(model.layerPicks.isEmpty ? model.selectedLayer == l.id : model.layerPicks.contains(l.id)) { clickLayer(l.id) }
+                    .contextMenu { layerMenu(l) }
                     // Drop a movie from the movie list below onto a layer to show it there.
                     .dropDestination(for: String.self) { ids, _ in
                         guard let id = ids.first, id.hasPrefix(ClipDrag.prefix) else { return false }
@@ -622,7 +709,7 @@ struct Sidebar: View {
                 }
                 .onMove { model.moveLayers(fromDisplayed: $0, toDisplayed: $1) }
             }
-            .frame(height: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 12))
+            .frame(height: listH(hLayers, model.selectedOutputConfig?.layers.count ?? 0, max: 12))
             .scrollContentBackground(.hidden)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
             // One row of small icon buttons under the list, like the + − bar under macOS lists.
@@ -636,8 +723,8 @@ struct Sidebar: View {
                 IconButton("square.grid.2x2", L("4 分割などに並べる: この出力のレイヤーを、数に合わせて 2×2 などの格子に並べる", "Tile: arrange this output's layers in a grid such as 2×2")) { model.arrangeGrid() }
             }
 
-            Divider().padding(.vertical, 2)
-            SectionTitle(L("映像", "Clips"), help: "clips")
+            HeightHandle(height: $hLayers, auto: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 12))
+            SectionTitle(L("映像ライブラリ", "Footage"), help: "clips")
             // One line per movie (the list was 2 lines a movie and made the column long). Replace and
             // remove act on the selected movie, like the layer buttons.
             List {
@@ -648,30 +735,31 @@ struct Sidebar: View {
                         }
                         Text(c.name).lineLimit(1).truncationMode(.middle)
                         Spacer(minLength: 4)
-                        // Replace and remove as small icons on the same line (Akira 2026-11-25).
-                        Button { model.replaceClip(c.id) } label: { Image(systemName: "arrow.triangle.2.circlepath") }
-                            .buttonStyle(.borderless)
-                            .help(L("差し替え: 別の映像と入れ替える（レイヤーの設定はそのまま）", "Replace with another movie (layer settings kept)"))
-                        Button { model.removeClip(c.id) } label: { Image(systemName: "xmark.circle") }
-                            .buttonStyle(.borderless)
-                            .help(L("外す: この映像と、それを使うレイヤーをショーから外す（確かめてから。ファイルは消えない）", "Remove this clip and its layers from the show (asks first; the file is not deleted)"))
+                        // Replace and remove are in the right-click menu (Akira 2026-11-25, instead of icons).
                     }
                     .tag(Optional(c.id))
-                    .selectedRow(selectedClip == c.id) { selectedClip = c.id }
-                    .help(L("\(c.name)\nレイヤーの行へドラッグすると、そのレイヤーの映像になる", "\(c.name)\nDrag onto a layer row to show it on that layer"))
+                    .selectedRow(model.clipPicks.isEmpty ? model.selectedClip == c.id : model.clipPicks.contains(c.id)) { clickClip(c.id) }
+                    .contextMenu { clipMenu(c) }
+                    .help(L("\(c.name)\nレイヤーの行へドラッグすると、そのレイヤーの映像になる。右クリックで差し替え・外すなど。⌘・⇧ クリックで複数選べる", "\(c.name)\nDrag onto a layer row to show it on that layer. Right-click to replace, remove and more. ⌘ / ⇧ click to pick several"))
                     .draggable(ClipDrag.prefix + c.id)
                 }
             }
-            .frame(height: listHeight(model.show.clips.count, max: 6))
+            .frame(height: listH(hClips, model.show.clips.count, max: 6))
             .scrollContentBackground(.hidden)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
             ListBar {
                 IconButton("plus", L("映像を足す…（ファイルを選ぶ）", "Add clips… (choose files)")) { model.addClips() }
             }
+            HeightHandle(height: $hClips, auto: listHeight(model.show.clips.count, max: 6))
         }
         .padding(8)
         }
         .scrollIndicators(.visible)
+    }
+
+    /// The height dragged for a list, or (0) just tall enough for its rows.
+    private func listH(_ dragged: Double, _ rows: Int, max m: Int) -> CGFloat {
+        dragged > 0 ? CGFloat(dragged) : listHeight(rows, max: m)
     }
 
     /// A list just tall enough for its rows (up to max rows; more scroll inside the list).
@@ -728,66 +816,37 @@ struct WidthHandle: View {
     }
 }
 
-/// A movie dragged from the movie list (a plain string, so other text drops are told apart).
-enum ClipDrag { static let prefix = "syncplayer-clip:" }
-
-/// The movie name in a layer row. Clicking it opens a small chooser beside the row: the show's
-/// movies (the current one ticked) and "add from a file". Nothing else on screen moves.
-struct LayerClipButton: View {
-    @ObservedObject var model: AppModel
-    let layerID: String
-    let clipID: String
-    /// Only the film symbol (the row already shows the movie's name).
-    var compact = false
-    @State private var open = false
-
+/// The line under a list: drag it up or down to make the list shorter or taller (like the panel
+/// edges in After Effects). Double-click goes back to "as tall as its rows". Kept per Mac.
+struct HeightHandle: View {
+    @Binding var height: Double
+    let auto: CGFloat
+    var range: ClosedRange<Double> = 40...900
+    @State private var start: Double?
+    @State private var hover = false
     var body: some View {
-        Button { open = true } label: {
-            HStack(spacing: 2) {
-                Image(systemName: "film").font(.system(size: 10))
-                if !compact {
-                    Text(model.clipName(clipID)).lineLimit(1).truncationMode(.middle).font(.caption)
-                }
-                Image(systemName: "chevron.up.chevron.down").font(.system(size: 8))
+        Rectangle()
+            .fill(hover || start != nil ? Color.accentColor : Color(nsColor: .separatorColor))
+            .frame(height: hover || start != nil ? 2 : 1)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                hover = inside
+                if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
             }
-            .foregroundColor(.secondary)
-        }
-        .buttonStyle(.plain)
-        .help(L("映像: \(model.clipName(clipID))。押すと、このレイヤーに出す映像を選べる（下の映像の行をドラッグしてきても替わる）", "Clip: \(model.clipName(clipID)). Click to choose the clip for this layer (or drag a clip row onto it)"))
-        .popover(isPresented: $open, arrowEdge: .trailing) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(L("このレイヤーに出す映像", "Clip for this layer")).font(.caption).foregroundColor(.secondary)
-                    .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 4)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(model.show.clips) { c in
-                            Button {
-                                model.setLayerClip(layerID, c.id); open = false
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "checkmark").opacity(c.id == clipID ? 1 : 0)
-                                    Text(c.name).lineLimit(1).truncationMode(.middle)
-                                    if model.clipBroken(c.id) { Text("⚠︎").foregroundColor(.red) }
-                                    Spacer()
-                                }
-                                .contentShape(Rectangle())
-                                .padding(.horizontal, 10).padding(.vertical, 4)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+            .gesture(DragGesture(minimumDistance: 1)
+                .onChanged { g in
+                    if start == nil { start = height > 0 ? height : Double(auto) }
+                    height = min(max((start ?? height) + g.translation.height, range.lowerBound), range.upperBound)
                 }
-                .frame(maxHeight: 320)
-                Divider()
-                Button { open = false; model.addClipsForLayer(layerID) } label: {
-                    Label(L("ファイルから選ぶ…", "Choose a file…"), systemImage: "plus").padding(.horizontal, 10).padding(.vertical, 6)
-                }
-                .buttonStyle(.plain)
-            }
-            .frame(width: 260)
-        }
+                .onEnded { _ in start = nil })
+            .onTapGesture(count: 2) { height = 0 }
+            .help(L("ドラッグして上の一覧の高さを変える（ダブルクリックで行の数に合わせた高さに戻る）", "Drag to change the height of the list above (double-click: fit to its rows)"))
     }
 }
+
+/// A movie dragged from the movie list (a plain string, so other text drops are told apart).
+enum ClipDrag { static let prefix = "syncplayer-clip:" }
 
 /// The row of small buttons under a list.
 struct ListBar<Content: View>: View {
@@ -1052,7 +1111,7 @@ struct Inspector: View {
         StepLine(done: model.learnedSet.contains("fullscreen"), text: L("左の「全画面にする（F）」を入れ、S で操作の窓を出し入れする", "Turn on Full Screen (F) at the left; S shows and hides the control window"))
 
         StepHeader(title: L("2. 画面を作る", "2. Build the picture"), anchor: "step2")
-        StepLine(done: model.learnedSet.contains("added"), text: L("左の「映像」の ＋ か ⟳（差し替え）で自分の映像を入れる", "Add your clips with + or ⟳ (replace) under Clips"))
+        StepLine(done: model.learnedSet.contains("added"), text: L("左の「映像ライブラリ」の ＋ か、右クリックの「差し替え」で自分の映像を入れる", "Add your clips with + or right-click › Replace Footage in Footage"))
         StepLine(done: model.learnedSet.contains("adjusted"), text: L("「画面の調整」で位置・大きさ・四隅などを変える（⌘Z で戻せる）", "Change position, scale, corners in the Layer tab (⌘Z undoes)"))
         StepLine(done: model.learnedSet.contains("mask"), text: L("自分のマスク画像を使う（なくてもよい）", "Use your own mask image (optional)"))
         StepLine(done: model.showFile != nil, text: L("上の「保存…」でショーを保存する", "Save the show with the save button at the top"))
