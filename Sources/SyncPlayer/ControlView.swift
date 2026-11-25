@@ -1204,6 +1204,10 @@ struct Inspector: View {
                       }
                       .labelsHidden().pickerStyle(.segmented).fixedSize()
                       .help("English / 日本語 (this Mac only・この Mac だけ)") }
+            GridRow { Text(L("消す前に確かめる", "Confirm deletes")).foregroundColor(.secondary)
+                      Toggle("", isOn: Binding(get: { !model.skipDeleteConfirm }, set: { model.skipDeleteConfirm = !$0 }))
+                          .labelsHidden()
+                          .help(L("席・出力・レイヤーを消す、映像を外すときに確かめの窓を出す（切っても ⌘Z で戻せる）。この Mac だけ", "Ask before deleting seats, outputs, layers or removing clips (⌘Z undoes either way). This Mac only")) }
             GridRow { Text(L("名前", "Name")).foregroundColor(.secondary); Text(model.opts.name) }
             GridRow { Text(L("版", "Version")).foregroundColor(.secondary); Text(AppModel.version) }
             GridRow { Text(L("役", "Role")).foregroundColor(.secondary); Text(model.isMaster ? L("マスター", "Master") : L("フォロワー", "Follower")) }

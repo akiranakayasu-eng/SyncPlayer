@@ -528,7 +528,7 @@ final class AppModel: ObservableObject {
         guard show.seats.count > 1, let st = show.seats.first(where: { $0.id == id }) else { return }
         guard confirm(L("席「\(st.name)」を消しますか？", "Delete seat “\(st.name)”?"),
                       L("その席の出力とレイヤーがファイルから消えます（⌘Z で戻せます）。映像は消えません。",
-                        "Its outputs and layers are removed from the file (⌘Z brings them back). Clips are kept.")) else { return }
+                        "Its outputs and layers are removed from the file (⌘Z brings them back). Clips are kept."), skippable: true) else { return }
         var s = show
         s.seats.removeAll { $0.id == id }
         if id == show.seatID { s.seatID = s.seats[0].id; ShowStore.rememberSeat(s.seatID, for: s) }
@@ -907,7 +907,7 @@ final class AppModel: ObservableObject {
     func removeOutput() {
         guard show.outputs.count > 1, let o = selectedOutputIndex else { notify(L("出力は 1 つ以上要ります", "At least one output is needed")); return }
         let name = show.outputs[o].name, oid = show.outputs[o].id
-        guard confirm(L("出力「\(name)」を消しますか？", "Delete output “\(name)”?"), L("この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます。", "Its layers and their adjustments (corners, mesh…) are deleted too.")),
+        guard confirm(L("出力「\(name)」を消しますか？", "Delete output “\(name)”?"), L("この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます（⌘Z で戻せます）。", "Its layers and their adjustments (corners, mesh…) are deleted too (⌘Z brings them back)."), skippable: true),
               show.outputs.count > 1, let o2 = show.outputs.firstIndex(where: { $0.id == oid }) else { return }
         show.outputs.remove(at: o2)
         notify(L("出力「\(name)」を消しました", "Deleted output “\(name)”"))
@@ -952,7 +952,7 @@ final class AppModel: ObservableObject {
         let title = gone.count == 1
             ? L("レイヤー「\(gone[0].name ?? clipName(gone[0].clipID))」を消しますか？", "Delete layer “\(gone[0].name ?? clipName(gone[0].clipID))”?")
             : L("レイヤー \(gone.count) つを消しますか？", "Delete \(gone.count) layers?")
-        guard confirm(title, L("調整（位置・四隅・メッシュ・マスクなど）も消えます（⌘Z で戻せます）。映像のファイルは消えません。", "Their adjustments (transform, corners, mesh, mask…) go too (⌘Z brings them back). Movie files are kept.")),
+        guard confirm(title, L("調整（位置・四隅・メッシュ・マスクなど）も消えます（⌘Z で戻せます）。映像のファイルは消えません。", "Their adjustments (transform, corners, mesh, mask…) go too (⌘Z brings them back). Movie files are kept."), skippable: true),
               let o2 = show.outputs.firstIndex(where: { $0.id == oid }) else { return }
         show.outputs[o2].layers.removeAll { ids.contains($0.id) }
         layerPicks = []
@@ -1120,7 +1120,7 @@ final class AppModel: ObservableObject {
             : L("映像 \(ids.count) 本をショーから外しますか？", "Remove \(ids.count) clips from the show?")
         guard confirm(title,
                       users > 0 ? L("使っているレイヤー \(users) つも、その調整（位置・四隅・メッシュ・マスクなど）ごと消えます（⌘Z で戻せます）。映像のファイルは消えません。\n\n使っている所:\n\(shown)", "\(users) layer(s) using them go too, with their adjustments (⌘Z brings them back). Movie files are kept.\n\nUsed in:\n\(shown)")
-                                : L("どのレイヤーでも使っていません。映像のファイルは消えません。", "Not used by any layer. Movie files are kept."), ok: L("外す", "Remove")) else { return }
+                                : L("どのレイヤーでも使っていません。映像のファイルは消えません。", "Not used by any layer. Movie files are kept."), ok: L("外す", "Remove"), skippable: true) else { return }
         var s = show
         s.clips.removeAll { ids.contains($0.id) }
         // Every seat: its layers that show the clips go too.
@@ -1435,17 +1435,31 @@ final class AppModel: ObservableObject {
     /// while the panel is up (otherwise it could open behind them), also if the app is left and
     /// entered again meanwhile.
     /// Ask before something that cannot be undone (lowers full-screen outputs while the alert is up).
-    func confirm(_ title: String, _ detail: String, ok: String = L("消す", "Delete")) -> Bool {
+    /// Asks before a change. With `skippable` (deleting seats, outputs, layers, clips: all undone
+    /// with ⌘Z) the window has "Don't ask again"; it is turned back on in Exhibit › This Mac.
+    func confirm(_ title: String, _ detail: String, ok: String = L("消す", "Delete"), skippable: Bool = false) -> Bool {
+        if skippable && skipDeleteConfirm { return true }
         let a = NSAlert()
         a.messageText = title
         a.informativeText = detail
         a.addButton(withTitle: ok)
         a.addButton(withTitle: L("やめる", "Cancel"))
+        if skippable {
+            a.showsSuppressionButton = true
+            a.suppressionButton?.title = L("次から確かめない（⌘Z で戻せます）", "Don't ask again (⌘Z undoes)")
+        }
         panelOpen = true
         refreshLevels()
         defer { panelOpen = false; refreshLevels() }
         NSApp.activate(ignoringOtherApps: true)
-        return a.runModal() == .alertFirstButtonReturn
+        let yes = a.runModal() == .alertFirstButtonReturn
+        if skippable && yes && a.suppressionButton?.state == .on { skipDeleteConfirm = true }
+        return yes
+    }
+
+    /// Delete without asking (set from the confirm window; this Mac only).
+    @Published var skipDeleteConfirm = UserDefaults.standard.bool(forKey: "ui.skipDeleteConfirm") {
+        didSet { UserDefaults.standard.set(skipDeleteConfirm, forKey: "ui.skipDeleteConfirm") }
     }
 
     func runPanel(_ p: NSSavePanel) -> NSApplication.ModalResponse {
