@@ -167,9 +167,11 @@ final class AppModel: ObservableObject {
             // A file from 0.3.3 or older has no id (a new one each read): the same content counts.
             if !overridden, let cur = s, let f = UserDefaults.standard.string(forKey: "showFile"),
                var fs = ShowStore.read(URL(fileURLWithPath: f)) {
-                var same = fs; same.id = cur.id
+                // (Its one seat also gets a new id each read, and its version is older.)
+                var same = fs; same.id = cur.id; same.version = cur.version
+                if same.seats.count == 1 && cur.seats.count == 1 { same.seats[0].id = cur.seats[0].id }
                 if fs.id == cur.id || same.fileContent == cur.fileContent {
-                    fs.id = cur.id
+                    if fs.id != cur.id { fs = same }
                     // This Mac's seat from its own copy: it holds changes the file may have missed
                     // (e.g. the shared folder was away). The other seats come from the file.
                     if let mine = ShowStore.rememberedSeat(cur) ?? cur.seats.first?.id,
