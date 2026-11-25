@@ -50,7 +50,7 @@ struct ControlView: View {
                     .padding(8)
                     .frame(minHeight: 200)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("詳しい状態（映像ごと）・すぐ上の境の線を上へ動かすと広がる")
+                        Text("詳しい状態（映像ごと）・緑はよい、橙は見ておく、赤は直す。→ のあとが対処。境の線を上へ動かすと広がる")
                             .font(.caption).foregroundColor(.secondary)
                         StatusText(status: status)
                     }
@@ -69,12 +69,98 @@ struct ControlView: View {
 struct StatusText: View {
     @ObservedObject var status: StatusModel
     var body: some View {
-        ScrollView {
-            Text(status.text)
-                .font(.system(size: 11, design: .monospaced))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+        ScrollView([.vertical, .horizontal]) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(status.lines) { l in
+                    StatusRow(line: l)
+                        .background(l.id % 2 == 0 ? Color.secondary.opacity(0.08) : Color.clear)
+                }
+            }
+            .frame(minWidth: 400, alignment: .leading)
         }
+    }
+}
+
+/// One row: a coloured mark, the line (never wrapped), and below it what to do when something is wrong.
+struct StatusRow: View {
+    let line: StatusLine
+    var color: Color {
+        switch line.level {
+        case 1: return .green
+        case 2: return .orange
+        case 3: return .red
+        default: return .secondary
+        }
+    }
+    var mark: String {
+        switch line.level {
+        case 1: return "checkmark.circle.fill"
+        case 2: return "exclamationmark.triangle.fill"
+        case 3: return "xmark.octagon.fill"
+        default: return "circle"
+        }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                Image(systemName: mark).foregroundColor(color)
+                    .font(.system(size: 10)).frame(width: 14)
+                    .opacity(line.level == 0 ? 0.35 : 1)
+                Text(line.text)
+                    .font(.system(size: 11, weight: line.level >= 2 ? .semibold : .regular, design: .monospaced))
+                    .foregroundColor(line.level == 3 ? .red : .primary)
+                    .lineLimit(1).fixedSize()
+                    .textSelection(.enabled)
+            }
+            if let fix = line.fix {
+                Text("→ " + fix)
+                    .font(.system(size: 11))
+                    .foregroundColor(color)
+                    .lineLimit(1).fixedSize()
+                    .padding(.leading, 20)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.horizontal, 4).padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The key list window: groups with a heading, keys drawn as key caps, rows striped.
+struct KeyListView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(AppModel.keyGroups, id: \.title) { g in
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(g.title).font(.system(size: 13, weight: .bold))
+                            .padding(.bottom, 4)
+                        ForEach(Array(g.keys.enumerated()), id: \.offset) { i, k in
+                            HStack(spacing: 12) {
+                                HStack(spacing: 4) {
+                                    ForEach(k.key.components(separatedBy: "  "), id: \.self) { cap in
+                                        Text(cap)
+                                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                            .padding(.horizontal, 6).padding(.vertical, 2)
+                                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.18)))
+                                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.4)))
+                                    }
+                                }
+                                .frame(width: 150, alignment: .leading)
+                                Text(k.what).font(.system(size: 13))
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 6).padding(.vertical, 4)
+                            .background(i % 2 == 0 ? Color.secondary.opacity(0.07) : Color.clear)
+                        }
+                    }
+                }
+                Text("キーは、操作の窓で文字を入れていないときと、出力の画面で効きます。H を押すと出力の画面にもこの一覧が出ます。")
+                    .font(.caption).foregroundColor(.secondary)
+            }
+            .padding(16)
+        }
+        .frame(minWidth: 460, minHeight: 360)
     }
 }
 

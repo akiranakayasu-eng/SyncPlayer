@@ -9,11 +9,20 @@ final class StatusModel: ObservableObject {
     @Published var duration = 0.0
     @Published var playing = false
     @Published var isMaster = false
-    @Published var text = ""
+    /// The "詳しい状態" box: one row each, coloured by level, with what to do when something is wrong.
+    @Published var lines: [StatusLine] = []
     /// One line at the top of the control window: what this Mac is doing now, in words.
     @Published var headline = ""
     /// 0 stopped / idle, 1 playing in step, 2 needs a look (waiting, master gone, clock still learning).
     @Published var tone = 0
+}
+
+/// One row of the detailed status. level: 0 plain, 1 good, 2 look at it, 3 problem.
+struct StatusLine: Equatable, Identifiable {
+    var id = 0
+    var text: String
+    var level = 0
+    var fix: String? = nil
 }
 
 /// The app: the show, the playback (transport + master/follower), the output windows and the control window.
@@ -90,17 +99,28 @@ final class AppModel: ObservableObject {
     private var logTimer: Timer?
     private var keyMonitor: Any?
 
-    static let keyHelp = """
-    space 再生／停止（マスター）  R・↑ 頭へ  ↓ 終わりの 3 秒前  ← → 1 コマ（shift 1 秒）
-    N 名前とディスプレイの番号  M マスター⇔フォロワー  A 音
-    S 操作の窓を出す／隠す  I 情報  H キー一覧  Q 終了
-    O 次の出力  L 次のレイヤー  F 全画面  D 次のディスプレイ  G 格子
-    E 四隅の変形  W 曲面メッシュ  Tab 次の点  矢印 1 px（shift 10 px）
-    + − 大きさ  [ ] 回転
-    0 戻す（編集中はその変形、ほかは位置・大きさ・回転）
-    1〜9 プリセット呼び出し  ⌘1〜⌘9 プリセット保存
-    ⌘O ショーを開く  ⌘S ショーを保存  ⌘Z 戻す  ⇧⌘Z やり直す
-    """
+    /// Every key, in groups: shown in the key list window (Help menu) and, as text, on the outputs with H.
+    static let keyGroups: [KeyGroup] = keyTable.map { g in
+        KeyGroup(title: g.0, keys: g.1.map { KeyItem(key: $0.0, what: $0.1) })
+    }
+    private static let keyTable: [(String, [(String, String)])] = [
+        ("再生", [("space", "再生／停止（マスター）"), ("R  ↑", "頭へ"), ("↓", "終わりの 3 秒前へ"),
+                ("←  →", "1 コマ戻る／進む"), ("⇧←  ⇧→", "1 秒戻る／進む"), ("A", "音を出す／消す")]),
+        ("窓と表示", [("S", "操作の窓を出す／隠す"), ("I", "動作確認の文字"), ("N", "Mac 名とディスプレイの番号"),
+                  ("H  ?", "キー一覧（出力の画面に）"), ("F", "全画面"), ("D", "次のディスプレイへ"), ("G", "格子"),
+                  ("M", "マスター⇔フォロワー"), ("Q", "終了")]),
+        ("出力とレイヤー", [("O", "次の出力"), ("L", "次のレイヤー"), ("+  −", "大きさ"), ("[  ]", "回転"),
+                     ("0", "戻す（編集中はその変形、ほかは位置・大きさ・回転）")]),
+        ("変形の編集", [("E", "四隅の変形"), ("W", "曲面メッシュ"), ("Tab", "次の点"),
+                   ("矢印", "点を 1 px 動かす"), ("⇧矢印", "点を 10 px 動かす")]),
+        ("ショーとプリセット", [("1〜9", "プリセット呼び出し"), ("⌘1〜⌘9", "プリセット保存"), ("⌘O", "ショーを開く"),
+                       ("⌘S", "ショーを保存"), ("⌘Z", "戻す"), ("⇧⌘Z", "やり直す")]),
+        ("文字を入れているとき", [("esc", "入力を終える（space がまた再生に効く）"), ("return", "決める")]),
+    ]
+
+    static let keyHelp: String = keyGroups.map { g in
+        "【\(g.title)】 " + g.keys.map { "\($0.key) \($0.what)" }.joined(separator: "   ")
+    }.joined(separator: "\n")
 
     init(opts: Options) { self.opts = opts }
 
@@ -267,7 +287,29 @@ final class AppModel: ObservableObject {
         edit.addItem(withTitle: "ペースト", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "すべてを選択", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
+        let helpItem = NSMenuItem()
+        main.addItem(helpItem)
+        let help = NSMenu(title: "ヘルプ")
+        let keys = MenuAction.item("キー一覧", key: "/") { [weak self] in self?.showKeyWindow() }
+        help.addItem(keys)
+        helpItem.submenu = help
+        NSApp.helpMenu = help
         NSApp.mainMenu = main
+    }
+
+    private var keyWindow: NSWindow?
+    /// The key list in its own window (Help menu > キー一覧, ⌘/).
+    func showKeyWindow() {
+        if keyWindow == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 640),
+                             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            w.title = "キー一覧"
+            w.isReleasedWhenClosed = false
+            w.contentView = NSHostingView(rootView: KeyListView())
+            w.center()
+            keyWindow = w
+        }
+        keyWindow?.makeKeyAndOrderFront(nil)
     }
 
     // MARK: show changes
@@ -1252,8 +1294,8 @@ final class AppModel: ObservableObject {
         status.position = transport.displayTime()
         status.duration = transport.duration
         status.playing = transport.schedule?.playing ?? false
-        let text = statusText()
-        if status.text != text { status.text = text }
+        let lines = statusLines()
+        if status.lines != lines { status.lines = lines }
         // The whole control window redraws when peers changes: offsets (rounded to 0.1 ms)
         // update at most once a second, a Mac coming, going or changing its version at once.
         let ps = (master?.peers ?? []).map { p -> Master.Peer in
@@ -1517,45 +1559,96 @@ final class AppModel: ObservableObject {
         return missingCache.paths
     }
 
-    /// Text in the control window: each clip's state as well.
-    private func statusText() -> String {
-        var s = roleLine()
-        // Warnings first: the status box shows about 8 lines.
+    /// Rows of the detailed status: each clip's state as well, problems coloured and with what to do.
+    private func statusLines() -> [StatusLine] {
+        var out: [StatusLine] = []
+        func add(_ t: String, _ level: Int = 0, _ fix: String? = nil) {
+            out.append(StatusLine(id: out.count, text: t, level: level, fix: fix))
+        }
+        let maxErr = transport.maxError * 1000
+        add(String(format: "%@ %@  %@", isMaster ? "MASTER" : "follower", opts.name, show.fileLabel))
+        add(String(format: "pos %.3f s  error %+.1f ms  jumps %d", transport.displayTime(), maxErr, transport.resyncCount),
+            abs(maxErr) > 40 ? 3 : abs(maxErr) > 8 ? 2 : 0,
+            abs(maxErr) > 8 ? "ずれが大きい。数秒で戻らないときは、映像の本数か大きさを減らす（目安 1080p 以下、H.264/HEVC）" : nil)
         if exhibitTakenOver && exhibitMaster && master == nil {
-            s += "\n⚠︎ この Mac は「展示のマスター」ですが、ほかの Mac がマスターです。ほかの Mac にも「展示のマスター」が入っていませんか（入れるのは 1 台だけ）"
+            add("この Mac は「展示のマスター」ですが、ほかの Mac がマスターです", 3,
+                "「展示のマスター」を入れるのは 1 台だけ。ほかの Mac の設定から外す")
         }
         for o in show.outputs {
             for l in o.layers {
                 guard let m = l.mask else { continue }
                 let name = (m as NSString).lastPathComponent
                 if missingFiles().contains(m) {
-                    s += "\n⚠︎ マスク \(name) が見つかりません（\(o.name)）— マスクなしで映っています"
+                    add("マスク \(name) が見つかりません（\(o.name)）— マスクなしで映っています", 3,
+                        "マスク画像の場所が変わっていないか確かめ、レイヤーのマスクを選び直す")
                 } else if GPU.shared?.maskReady(m) == false {
-                    s += "\n⚠︎ マスク \(name) を読めません（\(o.name)）— マスクなしで映っています"
+                    add("マスク \(name) を読めません（\(o.name)）— マスクなしで映っています", 3,
+                        "PNG か JPEG の白黒画像にして選び直す")
                 }
             }
         }
-        s += clockLines()
+        if let c = transport.schedule?.cycle, c > 0 {
+            add(String(format: "ループ %.3f s（全員いっしょ、短い映像は最後のコマで待つ）", c))
+        } else if transport.schedule != nil {
+            add("ループ: 映像ごとの尺")
+        }
+        if let f = follower {
+            let st = f.stats
+            add(String(format: "master %@  clock %@  offset %+.3f ms  rtt %.3f ms",
+                       f.masterName.map { "\($0) (\(f.masterHost))" } ?? f.masterHost, st.ready ? "ok" : "learning",
+                       st.offset * 1000, st.rtt * 1000),
+                st.ready ? (st.rtt > 0.020 ? 2 : 1) : 2,
+                !st.ready ? "時計を合わせています。数秒で ok になります"
+                    : st.rtt > 0.020 ? "ネットワークが遅い（rtt 20 ms 超）。有線 LAN か、同じルーターにつなぐ" : nil)
+            if transport.schedule == nil {
+                add("マスター待ち", 2, "マスターの Mac で SyncPlayer が開いているか、同じネットワークか、ローカルネットワークの許可を確かめる")
+            }
+            if let mf = f.masterFile, mf != show.fileLabel {
+                add("マスターの映像は \(mf)", 2, "マスターと同じショーファイルを開く")
+            }
+        } else if let m = master {
+            add(m.schedule.playing ? "再生中 — space で停止" : "停止中 — space で再生", m.schedule.playing ? 1 : 0)
+        }
         for (id, n) in transport.orderedNodes {
             let name = clipName(id)
             if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
-                s += "\n\(name): 開けません"
+                add("\(name): 開けません", 3, "ファイルの場所が変わったか確かめ、映像素材の ⟳ で選び直す。開けない形式なら H.264/HEVC の mov・mp4 に書き出す")
             } else if !n.ready {
-                s += "\n\(name): 読み込み中"
+                add("\(name): 読み込み中")
             } else {
-                s += String(format: "\n%@: %.1f s  error %+.2f ms  avg %+.2f ms  jumps %d  loops %d",
-                            name, n.duration, n.lastError * 1000, n.errorEMA * 1000, n.resyncCount, n.loopCount)
+                var t = String(format: "%@: %.1f s  error %+.2f ms  avg %+.2f ms  jumps %d  loops %d",
+                               name, n.duration, n.lastError * 1000, n.errorEMA * 1000, n.resyncCount, n.loopCount)
+                var level = 1
+                var fix: String? = nil
+                let avg = abs(n.errorEMA * 1000)
+                if abs(n.lastError) > n.hardLimit { level = 3; fix = "大きくずれた。続くときは映像を軽くする（解像度を下げる・本数を減らす）" }
+                else if avg > n.softLimit * 1000 { level = 2; fix = "少しずれている。jumps が増え続けるなら映像を軽くする" }
                 if let f = transport.frames[id] {
-                    s += String(format: "  %dx%d %@%@  dropped %d",
-                                Int(n.videoSize.width), Int(n.videoSize.height), f.format,
-                                f.gaveUp ? "（コマが届かない）" : f.fellBack ? "（形を下げた）" : "", f.framesDropped)
+                    t += String(format: "  %dx%d %@  dropped %d",
+                                Int(n.videoSize.width), Int(n.videoSize.height), f.format, f.framesDropped)
+                    let total = f.framesShown + f.framesDropped
+                    if f.gaveUp {
+                        t += "  コマが届かない"; level = 3
+                        fix = "この Mac では表示しきれない。解像度を下げるか本数を減らす"
+                    } else if f.fellBack {
+                        t += "  形を下げた"; level = max(level, 2)
+                        fix = fix ?? "コマの形を下げて表示中。気になるなら解像度を下げる"
+                    } else if total > 300 && Double(f.framesDropped) / Double(total) > 0.05 {
+                        level = max(level, 2)
+                        fix = fix ?? "コマが落ちている（5% 超）。ほかのアプリや画面共有を閉じる、映像を軽くする"
+                    }
                 }
+                add(t, level, fix)
             }
         }
-        let draws = show.outputs.compactMap { o in outputs[o.id].map { String(format: "%@ %.0f fps", o.name, $0.picture.renderer.drawRate) } }
-        if !draws.isEmpty { s += "\n描画: " + draws.joined(separator: "  ") }
-        if hostNow() < messageUntil { s += "\n" + message }
-        return s
+        for o in show.outputs {
+            guard let w = outputs[o.id] else { continue }
+            let r = w.picture.renderer.drawRate
+            add(String(format: "描画 %@ %.0f fps", o.name, r), r > 0 && r < 50 ? 2 : 0,
+                r > 0 && r < 50 ? "描画が遅い。出力・レイヤーの数か映像の大きさを減らす" : nil)
+        }
+        if hostNow() < messageUntil { add(message) }
+        return out
     }
 
     func printLog() {
@@ -1582,3 +1675,21 @@ final class AppModel: ObservableObject {
         transport.stopAll()
     }
 }
+
+/// A menu item that runs a closure (AppModel is not an NSObject).
+final class MenuAction: NSObject {
+    private static var all: [MenuAction] = []
+    let run: () -> Void
+    init(_ run: @escaping () -> Void) { self.run = run }
+    @objc func fire(_ sender: Any?) { run() }
+    static func item(_ title: String, key: String, _ run: @escaping () -> Void) -> NSMenuItem {
+        let a = MenuAction(run)
+        all.append(a)
+        let i = NSMenuItem(title: title, action: #selector(fire(_:)), keyEquivalent: key)
+        i.target = a
+        return i
+    }
+}
+
+struct KeyItem { let key: String; let what: String }
+struct KeyGroup { let title: String; let keys: [KeyItem] }
