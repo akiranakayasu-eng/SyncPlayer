@@ -4,6 +4,12 @@ import AppKit
 /// "1:23.5", "0:01:23" or "83.5" → seconds.
 func parseTime(_ text: String) -> Double? {
     let half = text.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? text   // １：２３．５ too
+    // Digits only read like an After Effects timecode, from the right: the last two are 1/100 s,
+    // the two before them seconds, the rest minutes. "200" = 2 s, "1550" = 15.5 s, "10000" = 1:00.
+    let digits = half.trimmingCharacters(in: .whitespaces)
+    if !digits.isEmpty, digits.count <= 8, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber), let n = Int(digits) {
+        return Double(n / 10000) * 60 + Double((n / 100) % 100) + Double(n % 100) / 100
+    }
     let parts = half.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "：", with: ":")
         .split(separator: ":", omittingEmptySubsequences: false).map { Double($0.trimmingCharacters(in: .whitespaces)) }
     guard !parts.isEmpty, parts.count <= 3, parts.allSatisfy({ $0 != nil && $0! >= 0 && $0!.isFinite }) else { return nil }
@@ -95,7 +101,6 @@ struct TopBar: View {
     @ObservedObject var status: StatusModel
     @State private var dragging = false
     @State private var value = 0.0
-    @State private var jumpText = ""
     @State private var editingTime = false
     @State private var timeText = ""
     @FocusState private var timeFocused: Bool
@@ -112,7 +117,7 @@ struct TopBar: View {
                 model.notify("尺（\(timeString(status.duration))）を超えたので、ループの中の位置へ折り返しました")
             }
         } else {
-            model.notify("位置は 1:23.5 か 83.5 の形で")
+            model.notify("位置は 200（2 秒）や 1:23.5 の形で")
         }
         leaveField()
     }
@@ -179,7 +184,7 @@ struct TopBar: View {
                                 guard status.isMaster else { return }
                                 timeText = timeString(status.position); editingTime = true
                             }
-                            .help(status.isMaster ? "押すと位置を打てる（分:秒 か 秒、Return で全部の Mac がその位置へ）" : "いまの位置")
+                            .help(status.isMaster ? "押すと位置を打てる。After Effects のように数字だけなら右から 1/100 秒・秒・分（200 で 2 秒、10000 で 1 分）。1:23.5 の形でもよい。Return で全部の Mac がその位置へ" : "いまの位置")
                     }
                     Text(" / \(timeString(status.duration))")
                         .font(.system(size: 12, design: .monospaced))
@@ -195,13 +200,6 @@ struct TopBar: View {
                        })
                     .disabled(!status.isMaster)
                     .help("ドラッグして離すと、全部の Mac がその位置へ")
-                if status.isMaster {
-                    Text("ここへ飛ぶ").foregroundColor(.secondary)
-                    TextField("0:00.0", text: $jumpText)
-                        .frame(width: 64)
-                        .onSubmit { jumpTyped(jumpText) }
-                        .help("分:秒 か 秒を打って Return。全部の Mac がその位置へ")
-                }
             }
         }
     }
