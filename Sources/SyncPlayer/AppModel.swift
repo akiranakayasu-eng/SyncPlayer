@@ -374,7 +374,7 @@ final class AppModel: ObservableObject {
             w.center()
             keyWindow = w
         }
-        refreshLevels()
+        raisePanel(keyWindow)
         keyWindow?.makeKeyAndOrderFront(nil)
     }
 
@@ -566,7 +566,7 @@ final class AppModel: ObservableObject {
             w.center()
             collectWindow = w
         }
-        refreshLevels()
+        raisePanel(collectWindow)
         collectWindow?.makeKeyAndOrderFront(nil)
     }
 
@@ -583,7 +583,7 @@ final class AppModel: ObservableObject {
             settingsWindow = w
         }
         settingsWindow?.title = L("設定（この Mac）", "Settings (this Mac)")
-        refreshLevels()
+        raisePanel(settingsWindow)
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
     private var settingsWindow: NSWindow?
@@ -1460,10 +1460,30 @@ final class AppModel: ObservableObject {
             let level: NSWindow.Level = raise ? NSWindow.Level(rawValue: OutputWindow.fullLevel.rawValue + 1) : .normal
             if c.level != level { c.level = level }
         }
-        // Settings, the key list and Collect Files above full-screen outputs too (check 40 L2).
-        let full = outputs.values.contains { $0.isFull } && !leftFront && !panelOpen
-        let top: NSWindow.Level = full ? NSWindow.Level(rawValue: OutputWindow.fullLevel.rawValue + 2) : .normal
-        for w in [settingsWindow, keyWindow, collectWindow].compactMap({ $0 }) where w.level != top { w.level = top }
+        // Settings, the key list and Collect Files: opened while an output is full screen, they come
+        // above it (check 40 L2). Left open when an output becomes full screen, they are closed, so
+        // the full screen shows only the picture (regression 28, check 41 M1).
+        let anyFull = outputs.values.contains { $0.isFull }
+        let panels = [settingsWindow, keyWindow, collectWindow].compactMap { $0 }
+        if anyFull && !wasFull {
+            for w in panels where w.isVisible && !raisedPanels.contains(ObjectIdentifier(w)) { w.orderOut(nil) }
+        }
+        if !anyFull { raisedPanels.removeAll() }
+        wasFull = anyFull
+        let up = anyFull && !leftFront && !panelOpen
+        for w in panels {
+            let level: NSWindow.Level = up && raisedPanels.contains(ObjectIdentifier(w))
+                ? NSWindow.Level(rawValue: OutputWindow.fullLevel.rawValue + 2) : .normal
+            if w.level != level { w.level = level }
+        }
+    }
+    private var wasFull = false
+    private var raisedPanels = Set<ObjectIdentifier>()
+    /// Before showing one of those windows: above the full screen if one is up now.
+    private func raisePanel(_ w: NSWindow?) {
+        guard let w else { return }
+        if outputs.values.contains(where: { $0.isFull }) { raisedPanels.insert(ObjectIdentifier(w)) }
+        refreshLevels()
     }
 
     /// Run an open / save panel. Full-screen outputs sit above the menu bar, so they are lowered

@@ -173,8 +173,6 @@ struct KeyListView: View {
     }
 }
 
-/// Follower / Master as two joined buttons; the chosen one is filled in its own colour
-/// (master blue, follower grey), so the role can be told across the room (Akira 2026-11-25).
 /// The role switch's tooltip: what on and off mean.
 func isMaster_help(_ on: Bool) -> String {
     (on ? L("いま: マスター（この Mac が再生を決める）。", "Now: master (this Mac controls playback). ")
