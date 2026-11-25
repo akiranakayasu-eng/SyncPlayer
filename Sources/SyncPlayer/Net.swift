@@ -70,16 +70,21 @@ final class UDPSocket {
 
     /// Never blocks (MSG_DONTWAIT): a datagram that cannot go out at once is dropped. macOS can
     /// hold a send while it asks about Local Network access; a blocking send then froze the app.
+    /// errno of the last send (0 = it went out). EHOSTUNREACH / EPERM when macOS has no
+    /// Local Network permission for the app, or there is no network at all.
+    private(set) var lastError: Int32 = 0
+
     func send(_ data: Data, to addr: sockaddr_in) {
         guard !closed else { return }
         var a = addr
-        _ = data.withUnsafeBytes { raw in
+        let r = data.withUnsafeBytes { raw in
             withUnsafePointer(to: &a) {
                 $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                     sendto(fd, raw.baseAddress, data.count, MSG_DONTWAIT, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
                 }
             }
         }
+        lastError = r < 0 ? errno : 0
     }
 
     static func address(_ host: String, _ port: UInt16) -> sockaddr_in {

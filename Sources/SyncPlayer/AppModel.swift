@@ -55,6 +55,23 @@ final class AppModel: ObservableObject {
     private var cursorHidden = false
     /// Keeps the display and the Mac awake while playing or while an output is full screen.
     private var awake: NSObjectProtocol?
+
+    /// "0.3.3 (abc1234)": the release and the commit it was built from.
+    static let version: String = {
+        let i = Bundle.main.infoDictionary
+        let short = i?["CFBundleShortVersionString"] as? String ?? "dev"
+        let build = i?["CFBundleVersion"] as? String
+        return build.map { "\(short) (\($0))" } ?? short
+    }()
+
+    /// The followers the master hears (for the list of all Macs on the master).
+    @Published private(set) var peers: [Master.Peer] = []
+    private var peersAt = 0.0
+    /// Sends from this Mac do not reach the network (no Local Network permission, or no network).
+    @Published private(set) var netBlocked = false
+    private var probe: UDPSocket?
+    private let started = hostNow()
+    private var fullBefore: Set<String> = []
     /// Large Mac name and screen number on every output (N key). On the master it also shows them on every Mac.
     @Published var showIdent = false
     /// An open / save panel is up (full-screen outputs stay down meanwhile).
@@ -82,7 +99,7 @@ final class AppModel: ObservableObject {
     + − 大きさ  [ ] 回転
     0 戻す（編集中はその変形、ほかは位置・大きさ・回転）
     1〜9 プリセット呼び出し  ⌘1〜⌘9 プリセット保存
-    ⌘O ショーを開く  ⌘S ショーを保存
+    ⌘O ショーを開く  ⌘S ショーを保存  ⌘Z 戻す  ⇧⌘Z やり直す
     """
 
     init(opts: Options) { self.opts = opts }
@@ -121,8 +138,25 @@ final class AppModel: ObservableObject {
             let n = s?.clips.count ?? 0
             let msg = n > 0 ? "映像が見つかりません。\(n) 本の映像を選ぶと、今の配置のまま使えます（同じ名前の映像は同じ場所に）"
                             : "同期再生する映像を選んでください（複数選べます）"
-            let urls = pickMovies(message: msg, multiple: true)
-            guard !urls.isEmpty else {
+            // The very first start: offer the practice movies, so a student can begin without any.
+            var practice: Show?
+            if n == 0 {
+                let a = NSAlert()
+                a.messageText = "SyncPlayer へようこそ"
+                a.informativeText = "はじめてなら「練習用の映像で始める」がおすすめです。番号入りの映像 4 本とマスクの見本をこの Mac で作って開きます（数秒）。自分の映像はあとから足せます。"
+                a.addButton(withTitle: "練習用の映像で始める")
+                a.addButton(withTitle: "自分の映像を選ぶ…")
+                if a.runModal() == .alertFirstButtonReturn {
+                    practice = Practice.makeShow()
+                    if practice == nil { notify("練習用の映像を作れませんでした。自分の映像を選んでください") }
+                }
+            }
+            let urls = practice != nil ? [] : pickMovies(message: msg, multiple: true)
+            if let p = practice {
+                detachShowFile(forget: true)
+                s = p
+            } else
+            { guard !urls.isEmpty else {
                 print("usage: SyncPlayer [--master|--follower] <movie>... [--show FILE] [--preset NAME] [--audio|--mute] ...")
                 exit(1)
             }
@@ -145,6 +179,7 @@ final class AppModel: ObservableObject {
                 detachShowFile(forget: true)
                 s = Show.make(paths: urls.map(\.path))
             }
+            }
         }
         guard var show0 = s else { exit(1) }
         if let p = opts.preset {
@@ -166,10 +201,12 @@ final class AppModel: ObservableObject {
         presetNames = ShowStore.presetNames()
 
         buildControlWindow()
+        applyTheme()
         show = show0
         selectedOutput = show.outputs.first?.id
         setRole(master: startMaster)
         installKeys()
+        undoStack.removeAll(); redoStack.removeAll()
         // Exhibition: the master plays by itself a few seconds after opening (followers catch up).
         if !opts.roleGiven && exhibitMaster && opts.autoplay == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
@@ -236,6 +273,7 @@ final class AppModel: ObservableObject {
     // MARK: show changes
 
     private func showDidChange(_ old: Show) {
+        recordUndo(old)
         if show.clips != old.clips { transport.setClips(show.clips) }
         // A show opened or a preset loaded brings this Mac's sound setting with it.
         var soundChanged = show.clips != old.clips || show.audioClip != old.audioClip
@@ -308,6 +346,81 @@ final class AppModel: ObservableObject {
     func updateLook(_ s: DisplaySettings) {
         guard let i = selectedLayerIndex, show.outputs[i.o].layers[i.l].look != s else { return }
         show.outputs[i.o].layers[i.l].look = s
+        learned("adjusted")
+    }
+
+    // MARK: undo (⌘Z / ⇧⌘Z)
+
+    private var undoStack: [Show] = []
+    private var redoStack: [Show] = []
+    private var undoing = false
+    private var lastUndoAt = 0.0
+
+    /// Changes in quick succession (a slider dragged, keys held) are one step.
+    private func recordUndo(_ old: Show) {
+        guard !undoing else { return }
+        let now = hostNow()
+        if undoStack.isEmpty || now - lastUndoAt > 0.7 {
+            undoStack.append(old)
+            if undoStack.count > 100 { undoStack.removeFirst() }
+        }
+        lastUndoAt = now
+        redoStack.removeAll()
+    }
+
+    func undoShow() {
+        guard let prev = undoStack.popLast() else { notify("これより前には戻せません"); return }
+        redoStack.append(show)
+        undoing = true; show = prev; undoing = false
+        fixSelection()
+        lastUndoAt = 0
+        notify("1 つ前に戻しました（⇧⌘Z でやり直す）")
+    }
+
+    func redoShow() {
+        guard let next = redoStack.popLast() else { notify("やり直すものがありません"); return }
+        undoStack.append(show)
+        undoing = true; show = next; undoing = false
+        fixSelection()
+        lastUndoAt = 0
+        notify("やり直しました")
+    }
+
+    // MARK: learning (the steps checklist)
+
+    /// Things a student has done once on this Mac (kept in UserDefaults "learned", a list of names).
+    @Published private(set) var learnedSet: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "learned") ?? [])
+    func learned(_ name: String) {
+        guard !learnedSet.contains(name) else { return }
+        learnedSet.insert(name)
+        UserDefaults.standard.set(Array(learnedSet), forKey: "learned")
+    }
+    func forgetLearned() {
+        learnedSet = []
+        UserDefaults.standard.removeObject(forKey: "learned")
+    }
+
+    /// The practice show is open (its movies are the practice movies).
+    var isPractice: Bool { show.clips.contains { $0.path.hasPrefix(Practice.dir.path) } }
+
+    func openPractice() {
+        // A show not saved to a file would be lost (and ⌘Z cannot bring it back).
+        if showFile == nil && !show.clips.isEmpty && !isPractice,
+           !confirm("いまのショーはまだ保存していません。練習用のショーに替えますか？",
+                    "替えると、いまのショー（映像の並びや調整）は戻せません。残すときは「やめる」を押し、上の「保存…」で保存してから開く。",
+                    ok: "替える") { return }
+        notify("練習用の映像を用意しています…")
+        guard let s = Practice.makeShow() else { notify("練習用の映像を作れませんでした"); return }
+        saveNow()
+        if showFile != nil { detachShowFile(forget: false) }
+        applyShow(s)
+        notify("練習用のショーを開きました（4 本の映像、4 本目に丸いマスク）")
+    }
+
+    /// The manual's page for a part of the window (the "?" buttons).
+    static let manualBase = "https://lecture.nakayasu.com/sync-player/"
+    static func openManual(_ anchor: String) {
+        if let u = URL(string: AppModel.manualBase + "#" + anchor) { NSWorkspace.shared.open(u) }
     }
 
     func lookBinding<T>(_ kp: WritableKeyPath<DisplaySettings, T>, _ def: T) -> Binding<T> {
@@ -576,6 +689,7 @@ final class AppModel: ObservableObject {
             if let o = selectedOutputIndex { s.outputs[o].layers.append(Layer(clipID: c.id)) }
         }
         show = s
+        learned("added")
         notify("映像を \(urls.count) つ足しました")
     }
 
@@ -583,6 +697,7 @@ final class AppModel: ObservableObject {
         guard let i = show.clips.firstIndex(where: { $0.id == id }),
               let u = pickMovies(message: "「\(show.clips[i].name)」と入れ替える映像", multiple: false).first else { return }
         show.clips[i].path = u.path
+        learned("added")
         notify("映像: \(u.lastPathComponent)")
     }
 
@@ -637,7 +752,9 @@ final class AppModel: ObservableObject {
     }
 
     func applyShow(_ s: Show) {
-        show = s
+        // Another show (opened, a preset, the practice show): undo starts again from here.
+        undoing = true; show = s; undoing = false
+        undoStack.removeAll(); redoStack.removeAll()
         fixSelection()
     }
 
@@ -692,6 +809,7 @@ final class AppModel: ObservableObject {
                                        loopPolicy: { [weak self] in (self?.show.loopTogether ?? true, self?.show.loopLength ?? 0) })
                     m.ident = { [weak self] in self?.showIdent ?? false }
                     m.name = opts.name
+                    m.ver = AppModel.version
                     m.onDemote = { [weak self] in
                         // The exhibition-master mark stays: this Mac is still the one to start as master
                         // after a restart (another Mac took over by hand for now).
@@ -714,7 +832,15 @@ final class AppModel: ObservableObject {
             master?.stop(); master = nil
             if follower == nil {
                 // A former master keeps playing its own schedule (offset 0) until it has the new clock.
-                do { follower = try Follower(transport: transport, provisionalOffset: wasMaster ? 0 : nil) }
+                do {
+                    let f = try Follower(transport: transport, provisionalOffset: wasMaster ? 0 : nil)
+                    f.report = { [weak self] in
+                        guard let self else { return ("", "", nil, nil, "") }
+                        let err = self.transport.schedule != nil ? self.transport.maxError * 1000 : nil
+                        return (self.opts.name, AppModel.version, err, self.problemNow(), String(self.show.fileLabel.prefix(200)))
+                    }
+                    follower = f
+                }
                 catch { notify("ネットワークのエラー: \(error)") }
             }
         }
@@ -783,6 +909,28 @@ final class AppModel: ObservableObject {
     func notify(_ m: String) { message = m; messageUntil = hostNow() + 3 }
 
     // MARK: control window
+
+    /// The colour of the control window (and its dialogs): white, grey or black, or as the Mac is set.
+    enum UITheme: String, CaseIterable, Identifiable {
+        case auto, light, gray, dark
+        var id: String { rawValue }
+        var label: String {
+            switch self { case .auto: return "自動"; case .light: return "白"; case .gray: return "グレー"; case .dark: return "黒" }
+        }
+    }
+    @Published var uiTheme: UITheme = UITheme(rawValue: UserDefaults.standard.string(forKey: "ui.theme") ?? "") ?? .auto {
+        didSet { UserDefaults.standard.set(uiTheme.rawValue, forKey: "ui.theme"); applyTheme() }
+    }
+
+    func applyTheme() {
+        switch uiTheme {
+        case .auto: NSApp.appearance = nil
+        case .light: NSApp.appearance = NSAppearance(named: .aqua)
+        case .gray, .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+        control?.backgroundColor = uiTheme == .gray ? NSColor(white: 0.30, alpha: 1)
+            : uiTheme == .dark ? NSColor(white: 0.04, alpha: 1) : .windowBackgroundColor
+    }
 
     private func buildControlWindow() {
         let pv = PictureView(fps: 30)
@@ -928,6 +1076,7 @@ final class AppModel: ObservableObject {
             switch ch {
             case "o": openShow(); return true
             case "s": saveShowAs(); return true
+            case "z": if shift { redoShow() } else { undoShow() }; return true
             case ",": toggleControl(); return true
             default: return false   // ⌘Q, copy / paste and the rest go to the menu
             }
@@ -1015,6 +1164,31 @@ final class AppModel: ObservableObject {
         status.playing = transport.schedule?.playing ?? false
         let text = statusText()
         if status.text != text { status.text = text }
+        // The whole control window redraws when peers changes: offsets (rounded to 0.1 ms)
+        // update at most once a second, a Mac coming, going or changing its version at once.
+        let ps = (master?.peers ?? []).map { p -> Master.Peer in
+            var q = p; q.at = 0; q.err = q.err.map { ($0 * 10).rounded() / 10 }; return q
+        }
+        if ps != peers {
+            let shape = { (a: [Master.Peer]) in a.map { [$0.name, $0.ver, $0.warn ?? "", $0.file ?? ""] } }
+            let now = hostNow()
+            if shape(ps) != shape(peers) || now - peersAt >= 1 { peers = ps; peersAt = now }
+        }
+        if master != nil && !ps.isEmpty { learned("synced") }
+        if tickCount % 100 == 4 { probeNetwork() }
+        // Just made full screen by hand (not the exhibition starting): how to get back, for a few seconds.
+        let fullNow = Set(outputs.filter { $0.value.isFull }.map(\.key))
+        if hostNow() - started > 10 {
+            for id in fullNow.subtracting(fullBefore) {
+                outputs[id]?.showHint("S で操作の窓  ・  I で動作確認の文字  ・  H でキー一覧", seconds: 4)
+            }
+        }
+        fullBefore = fullNow
+        if status.playing && isMaster { learned("played") }   // a follower plays because the master did
+        if outputs.values.contains(where: { $0.isFull }) { learned("fullscreen") }
+        if showIdent { learned("ident") }
+        if let f = follower, f.masterAlive, f.stats.ready, transport.schedule != nil { learned("synced") }
+        if show.outputs.contains(where: { $0.layers.contains { $0.mask != nil } }) && !isPractice { learned("mask") }
         let (headline, tone) = headlineNow()
         if status.headline != headline { status.headline = headline }
         if status.tone != tone { status.tone = tone }
@@ -1056,7 +1230,8 @@ final class AppModel: ObservableObject {
     private func roleHeadline() -> (String, Int) {
         let playing = transport.schedule?.playing ?? false
         if isMaster {
-            return playing ? ("再生中 ・ この Mac がマスター", 1) : ("停止中 ・ この Mac がマスター（space で再生）", 0)
+            let n = peers.isEmpty ? "フォロワーはまだ見えない" : "フォロワー \(peers.count) 台"
+            return playing ? ("再生中 ・ この Mac がマスター ・ \(n)", 1) : ("停止中 ・ この Mac がマスター（space で再生） ・ \(n)", 0)
         }
         guard let f = follower else { return ("準備中", 2) }
         let who = String((f.masterName ?? f.masterHost).prefix(16))
@@ -1074,8 +1249,105 @@ final class AppModel: ObservableObject {
                        : ("停止中 ・ マスター（\(who)）が止めている", 0)
     }
 
+    /// A small datagram to the broadcast address every 5 s: if it cannot go out, this Mac cannot
+    /// reach the others (no Local Network permission, or no network).
+    private func probeNetwork() {
+        if probe == nil { probe = try? UDPSocket(port: 0, broadcast: true) }
+        guard let p = probe else { return }
+        p.send(Message(k: "x").encoded(), to: UDPSocket.address(opts.broadcast, Ports.beacon))
+        let blocked = [EHOSTUNREACH, ENETUNREACH, EPERM, EACCES].contains(p.lastError)
+        if blocked != netBlocked { netBlocked = blocked }
+    }
+
+    // MARK: the check before an exhibition (展示の前の点検)
+
+    struct CheckItem: Identifiable {
+        let id = UUID()
+        /// true = fine, false = needs doing, nil = could not be checked from the app.
+        let ok: Bool?
+        let text: String
+        let fix: String
+    }
+    @Published private(set) var checks: [CheckItem] = []
+    @Published private(set) var checkedAt: Date?
+
+    func runExhibitCheck() {
+        var c: [CheckItem] = []
+        func add(_ ok: Bool?, _ text: String, _ fix: String) { c.append(CheckItem(ok: ok, text: text, fix: fix)) }
+        add(showFile != nil, "ショーを保存してある", "上の「保存…」で保存する（再起動のあと、このショーが開く）")
+        add(!show.clips.contains { clipBroken($0.id) }, "映像が全部開ける", "左の映像の「⚠︎ 開けない」の行で「差し替え」")
+        let masks = show.outputs.flatMap { $0.layers.compactMap(\.mask) }
+        add(!masks.contains { !FileManager.default.fileExists(atPath: $0) || GPU.shared?.maskReady($0) == false },
+            "マスクが全部読める", "「画面の調整」のマスクで画像を選び直す")
+        add(show.outputs.contains { $0.fullscreen }, "全画面の出力がある", "左の出力で「全画面にする（F）」を入れる")
+        add(openAtLogin, "ログインしたら SyncPlayer を開く", "下の「ログインしたら SyncPlayer を開く」を入れる（全台）")
+        if isMaster {
+            add(exhibitMaster, "この Mac は展示のマスター", "マスターの Mac なら「この Mac を展示のマスターにする」を入れる（1 台だけ）")
+            let other = peers.filter { $0.ver != AppModel.version }.count
+            add(peers.isEmpty ? nil : other == 0,
+                peers.isEmpty ? "フォロワーが見えない（ほかの Mac を開いてから点検すると、版もそろっているか見られる）"
+                    : other == 0 ? "フォロワー \(peers.count) 台が同じ版（\(AppModel.version)）"
+                    : "フォロワー \(peers.count) 台のうち \(other) 台が別の版か古い版（この Mac は \(AppModel.version)）",
+                "版のちがう Mac に、同じ版の SyncPlayer を入れ直す")
+        } else {
+            add(follower?.masterAlive ?? false, "マスターが見えている", "マスターの Mac を開く。開いているなら同じネットワークか確かめる")
+            add(follower.flatMap { f in f.masterAlive ? (f.masterVer.map { $0 == AppModel.version } ?? false) : nil },
+                "マスターと同じ版", "同じ版の SyncPlayer を全台に入れる（版が分からないときはマスターが古い版）")
+        }
+        add(!(exhibitTakenOver && exhibitMaster && master == nil), "展示のマスターは 1 台だけ", "ほかの Mac の「展示のマスター」を切る")
+        add(!netBlocked, "ネットワークに届く", "システム設定 → プライバシーとセキュリティ → ローカルネットワークで SyncPlayer を入れる")
+        add(!infoShownNow && !showIdent, "動作確認の文字と名前の表示（I・N）を消してある", "I と N を切る")
+        add(AppModel.pmsetValue("autorestart").map { $0 == "1" }, "停電のあと電源が戻ると Mac が起動する",
+            "ターミナルで sudo pmset -a autorestart 1、またはシステム設定の「停電後に自動的に起動」")
+        add(AppModel.plist("/Library/Preferences/com.apple.loginwindow.plist").map { $0["autoLoginUser"] != nil },
+            "電源を入れると自動でログインする", "システム設定 → ユーザとグループ → 自動ログイン")
+        let su = AppModel.plist("/Library/Preferences/com.apple.SoftwareUpdate.plist")
+        add(su.flatMap { ($0["AutomaticallyInstallMacOSUpdates"] as? Bool).map { !$0 } }, "macOS が勝手にアップデートしない",
+            "システム設定 → 一般 → ソフトウェアアップデート → 自動アップデートで「macOS アップデートをインストール」を切る")
+        checks = c
+        checkedAt = Date()
+    }
+
+    private static func plist(_ path: String) -> [String: Any]? {
+        NSDictionary(contentsOfFile: path) as? [String: Any]
+    }
+
+    /// A value from `pmset -g` (nil when it cannot be read).
+    private static func pmsetValue(_ key: String) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        p.arguments = ["-g"]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        let text = String(decoding: data, as: UTF8.self)
+        for line in text.split(separator: "\n") {
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            if parts.first.map(String.init) == key, parts.count >= 2 { return String(parts[1]) }
+        }
+        return nil
+    }
+
+    /// System Settings at Privacy & Security > Local Network.
+    func openLocalNetworkSettings() {
+        if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork") {
+            NSWorkspace.shared.open(u)
+        }
+    }
+
     /// The first thing the detailed status warns about, in a few words (nil when all is well).
-    private func problemNow() -> String? {
+    func problemNow() -> String? {
+        if let mv = follower?.masterVer, mv != AppModel.version { return "版がちがう（マスター \(mv)、この Mac \(AppModel.version)）" }
+        // A master older than v0.3.3 does not send its version: say so rather than look all right.
+        if let f = follower, f.masterAlive, f.masterVer == nil { return "マスターの版が分からない（古い版かも。全台を同じ版にする）" }
+        if master != nil {
+            if let p = peers.first(where: { $0.ver == "?" }) { return "古い版の Mac がある: \(String(p.name.prefix(16)))（全台を同じ版にする）" }
+            if let p = peers.first(where: { $0.ver != AppModel.version }) { return "版がちがう Mac がある: \(String(p.name.prefix(16)))（\(p.ver)）" }
+            if let p = peers.first(where: { $0.warn != nil }) { return "\(String(p.name.prefix(16))) に注意: \(p.warn!)" }
+        }
         if exhibitTakenOver && exhibitMaster && master == nil { return "ほかの Mac がマスター（展示のマスターは 1 台だけ）" }
         for (id, n) in transport.orderedNodes {
             if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
@@ -1097,6 +1369,11 @@ final class AppModel: ObservableObject {
         if (transport.schedule?.playing ?? false), follower?.stats.ready ?? isMaster,
            abs(transport.maxError) > 0.02 {
             return String(format: "ずれが大きい %.0f ms", abs(transport.maxError) * 1000)
+        }
+        // Last, so it does not hide the problems above; and not for a master on its own (one Mac
+        // practising without a network is fine — the exhibition tab still shows the warning).
+        if netBlocked && !(master != nil && peers.isEmpty) {
+            return "ネットワークに届かない（ローカルネットワークの許可か、つなぎ方を確かめる）"
         }
         return nil
     }

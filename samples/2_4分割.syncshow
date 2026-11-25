@@ -1,0 +1,93 @@
+{
+  "audioClip": "c1",
+  "clips": [
+    {
+      "id": "c1",
+      "path": "sample02_ball.mp4"
+    },
+    {
+      "id": "c2",
+      "path": "sample03_sweep.mp4"
+    },
+    {
+      "id": "c3",
+      "path": "sample08_scale.mp4"
+    },
+    {
+      "id": "c4",
+      "path": "sample04_clap.mp4"
+    }
+  ],
+  "loopLength": 0,
+  "loopTogether": true,
+  "outputs": [
+    {
+      "fullscreen": false,
+      "layers": [
+        {
+          "clipID": "c1",
+          "look": {
+            "corners": [
+              0.5,
+              0.0,
+              1.0,
+              0.0,
+              1.0,
+              0.5,
+              0.5,
+              0.5
+            ]
+          }
+        },
+        {
+          "clipID": "c2",
+          "look": {
+            "corners": [
+              0.0,
+              0.0,
+              0.5,
+              0.0,
+              0.5,
+              0.5,
+              0.0,
+              0.5
+            ]
+          }
+        },
+        {
+          "clipID": "c3",
+          "look": {
+            "corners": [
+              0.5,
+              0.5,
+              1.0,
+              0.5,
+              1.0,
+              1.0,
+              0.5,
+              1.0
+            ]
+          }
+        },
+        {
+          "clipID": "c4",
+          "look": {
+            "corners": [
+              0.0,
+              0.5,
+              0.5,
+              0.5,
+              0.5,
+              1.0,
+              0.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "name": "出力 1",
+      "screen": 0
+    }
+  ],
+  "version": 1
+}

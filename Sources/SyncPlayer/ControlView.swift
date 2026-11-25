@@ -34,7 +34,6 @@ struct ControlView: View {
                 Divider()
                 VSplitView {
                     VStack(alignment: .leading, spacing: 4) {
-                        if model.showFile == nil { FirstSteps() }
                         Text("プレビュー: \(model.selectedOutputConfig?.name ?? "出力がありません")")
                             .font(.caption).foregroundColor(.secondary)
                         PreviewView(model: model)
@@ -56,30 +55,6 @@ struct ControlView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 600)
-    }
-}
-
-/// Shown until the show is saved to a file: the steps from the first movie to an exhibition.
-struct FirstSteps: View {
-    @AppStorage("firstStepsClosed") private var closed = false
-    var body: some View {
-        if !closed {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("はじめての手順").font(.headline)
-                    Text("1. 左の「出力」で、出すディスプレイを選ぶ（2 枚目のディスプレイは「足す」）")
-                    Text("2. 「全画面にする（F）」を入れる")
-                    Text("3. 映像を増やすときは「映像を足す…」、並べるときは「4 分割などに並べる」")
-                    Text("4. 上の「保存…」でショーを保存する（次から開くと、このまま戻る）")
-                }
-                Spacer()
-                Button("閉じる") { closed = true }.controlSize(.small)
-            }
-            .font(.callout)
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.12)))
-        }
     }
 }
 
@@ -210,7 +185,7 @@ struct Sidebar: View {
         // as their rows (they do not scroll themselves), so the wheel moves this column.
         ScrollView {
         VStack(alignment: .leading, spacing: 6) {
-            SectionTitle("出力（ディスプレイに出す絵）")
+            SectionTitle("出力（ディスプレイに出す絵）", help: "outputs")
             List(selection: $model.selectedOutput) {
                 ForEach(model.show.outputs) { o in
                     HStack {
@@ -245,7 +220,7 @@ struct Sidebar: View {
             }
 
             Divider().padding(.vertical, 2)
-            SectionTitle("レイヤー（上が手前）")
+            SectionTitle("レイヤー（上が手前）", help: "layers")
             List(selection: $model.selectedLayer) {
                 ForEach(Array((model.selectedOutputConfig?.layers ?? []).reversed())) { l in
                     HStack {
@@ -274,7 +249,7 @@ struct Sidebar: View {
                 .help("この出力のレイヤーを、数に合わせて 2×2 などの格子に並べる")
 
             Divider().padding(.vertical, 2)
-            SectionTitle("映像")
+            SectionTitle("映像", help: "clips")
             List {
                 ForEach(model.show.clips) { c in
                     VStack(alignment: .leading, spacing: 2) {
@@ -338,8 +313,24 @@ struct Sidebar: View {
 
 struct SectionTitle: View {
     let text: String
-    init(_ t: String) { text = t }
-    var body: some View { Text(text).font(.headline) }
+    let help: String?
+    init(_ t: String, help: String? = nil) { text = t; self.help = help }
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(text).font(.headline)
+            if let h = help { HelpButton(anchor: h) }
+        }
+    }
+}
+
+/// "?" next to a title: opens that part of the manual in the browser.
+struct HelpButton: View {
+    let anchor: String
+    var body: some View {
+        Button { AppModel.openManual(anchor) } label: { Image(systemName: "questionmark.circle") }
+            .buttonStyle(.borderless)
+            .help("使い方のページのこの部分を開く")
+    }
 }
 
 // MARK: preview
@@ -384,22 +375,50 @@ struct FoldLabel: View {
     let title: String
     @Binding var isOpen: Bool
     var warn = false
+    var help: String? = nil
     var body: some View {
         HStack(spacing: 4) {
             Text(title).font(.subheadline).bold()
             if warn { Text("⚠︎ 読めない").font(.caption).foregroundColor(.red) }
             Spacer()
+            if let h = help { HelpButton(anchor: h) }
         }
         .contentShape(Rectangle())
         .onTapGesture { withAnimation { isOpen.toggle() } }
     }
 }
 
+struct StepHeader: View {
+    let title: String
+    let anchor: String
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title).font(.headline)
+            HelpButton(anchor: anchor)
+        }
+        .padding(.top, 6)
+    }
+}
+
+struct StepLine: View {
+    let done: Bool
+    let text: String
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                .foregroundColor(done ? .green : .secondary)
+            Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 struct Inspector: View {
     @ObservedObject var model: AppModel
     @State private var presetName = ""
-    /// Opens on 画面の調整 every time (the exhibition settings are touched once, while setting up).
+    /// Opens on 画面の調整 (or on 手順 until the show is saved), never on 展示の設定, which is
+    /// touched once while setting up.
     @State private var tab = 0
+    @AppStorage("learn.reboot") private var rebootChecked = false
     @State private var openPlace = true
     @State private var openCrop = false
     @State private var openMask = false
@@ -409,6 +428,7 @@ struct Inspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Picker("", selection: $tab) {
+                Text("手順").tag(3)
                 Text("画面の調整").tag(0)
                 Text("展示の設定").tag(1)
                 Text("プリセット").tag(2)
@@ -416,11 +436,13 @@ struct Inspector: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .padding(10)
+            .onAppear { if model.showFile == nil { tab = 3 } }
             Divider()
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     switch tab {
+                    case 3: stepsSection
                     case 1: exhibitSection
                     case 2: presetSection
                     default:
@@ -453,11 +475,107 @@ struct Inspector: View {
         return !FileManager.default.fileExists(atPath: p) || GPU.shared?.maskReady(p) == false
     }
 
+    /// The steps for learning alone: each line is ticked by the app when it sees it done on this Mac.
+    @ViewBuilder private var stepsSection: some View {
+        Text("上から順に進めると、1 台で試すところから展示の形まで覚えられる。できたら ✓ が付く（この Mac で見えたことだけ）。")
+            .font(.caption).foregroundColor(.secondary)
+        Button("練習用のショーを開く") { model.openPractice() }
+            .help("番号入りの映像 4 本と丸いマスクの見本。保存したショーはファイルに残る（保存前のショーは、替える前に確かめる）")
+        Button("サンプル（映像と設定）をダウンロード…") {
+            if let u = URL(string: "https://github.com/akiranakayasu-eng/sync-player/releases/latest") { NSWorkspace.shared.open(u) }
+        }
+        .help("音入りの映像と、そのまま開けるショーの一式（アプリとは別の zip、samples と付いたもの）を配っているページを開く。展開したら中の使い方.txt を見る")
+
+        StepHeader(title: "1. 1 台で動かす", anchor: "step1")
+        StepLine(done: !model.show.clips.isEmpty, text: "映像を開く（練習用でも自分の映像でも）")
+        StepLine(done: model.learnedSet.contains("played"), text: "再生・停止する（space か上の「再生」）")
+        StepLine(done: model.learnedSet.contains("fullscreen"), text: "左の「全画面にする（F）」を入れ、S で操作の窓を出し入れする")
+
+        StepHeader(title: "2. 画面を作る", anchor: "step2")
+        StepLine(done: model.learnedSet.contains("added"), text: "「映像を足す…」か「差し替え」で自分の映像を入れる")
+        StepLine(done: model.learnedSet.contains("adjusted"), text: "「画面の調整」で位置・大きさ・四隅などを変える（⌘Z で戻せる）")
+        StepLine(done: model.learnedSet.contains("mask"), text: "自分のマスク画像を使う（なくてもよい）")
+        StepLine(done: model.showFile != nil, text: "上の「保存…」でショーを保存する")
+
+        StepHeader(title: "3. 何台かでそろえる", anchor: "step3")
+        StepLine(done: model.learnedSet.contains("ident"), text: "N で Mac の名前とディスプレイの番号を出す")
+        StepLine(done: model.learnedSet.contains("synced"), text: "同じネットワークの別の Mac をフォロワーにして、札が緑になる（フォロワーの Mac で ✓）")
+
+        StepHeader(title: "4. 展示の形にする", anchor: "step4")
+        StepLine(done: model.openAtLogin, text: "「展示の設定」で「ログインしたら開く」を入れる（全台）")
+        StepLine(done: model.exhibitMaster, text: "「展示のマスター」を 1 台だけに入れる（マスターの Mac で ✓）")
+        Toggle("電源を切って入れ直し、同じ状態に戻るのを見た", isOn: $rebootChecked)
+            .font(.callout)
+
+        Divider()
+        Button("✓ の記録を消す") { model.forgetLearned(); rebootChecked = false }
+            .controlSize(.small)
+            .help("次の人が最初から練習するとき")
+    }
+
     /// Settings for an exhibition: after a restart the Mac comes back as it was.
     @ViewBuilder private var exhibitSection: some View {
-        SectionTitle("いまのこの Mac")
+        SectionTitle("展示の前の点検", help: "check")
+        Button("点検する") { model.runExhibitCheck() }
+            .help("展示に入る前に、この Mac の設定とつながりを一度に確かめる")
+        if let at = model.checkedAt {
+            Text("点検した時刻 \(at.formatted(date: .omitted, time: .shortened))（直したら、もう一度押す）")
+                .font(.caption).foregroundColor(.secondary)
+            ForEach(model.checks) { c in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: c.ok == true ? "checkmark.circle.fill" : c.ok == false ? "exclamationmark.triangle.fill" : "questionmark.circle")
+                        .foregroundColor(c.ok == true ? .green : c.ok == false ? .orange : .secondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(c.text).font(.callout).fixedSize(horizontal: false, vertical: true)
+                        if c.ok != true {
+                            Text(c.ok == nil ? "アプリからは確かめられない。" + c.fix : c.fix)
+                                .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+        }
+
+        if model.isMaster {
+            Divider()
+            SectionTitle("つながっている Mac", help: "macs")
+            if model.peers.isEmpty {
+                Text("フォロワーはまだ見えない。ほかの Mac で SyncPlayer を開くと、ここに並ぶ。")
+                    .font(.caption).foregroundColor(.secondary)
+            } else {
+                Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 3) {
+                    GridRow {
+                        Text("名前").foregroundColor(.secondary)
+                        Text("ずれ").foregroundColor(.secondary)
+                        Text("版・注意").foregroundColor(.secondary)
+                    }
+                    ForEach(Array(model.peers.enumerated()), id: \.offset) { _, p in
+                        GridRow {
+                            Text(p.name).lineLimit(1).truncationMode(.middle)
+                            Text(p.err.map { String(format: "%.1f ms", abs($0)) } ?? "—")
+                                .font(.system(size: 11, design: .monospaced))
+                            let other = p.ver != AppModel.version
+                            Text(other ? (p.ver == "?" ? "⚠︎ 古い版" : "⚠︎ 版 \(p.ver)") : (p.warn.map { "⚠︎ " + $0 } ?? "OK"))
+                                .foregroundColor(other || p.warn != nil ? .orange : .secondary)
+                                .lineLimit(2).help(p.warn ?? p.ver)
+                        }
+                    }
+                }
+                .font(.caption)
+            }
+        }
+
+        Divider()
+        SectionTitle("いまのこの Mac", help: "exhibit")
         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
+            GridRow { Text("操作の窓の色").foregroundColor(.secondary)
+                      Picker("", selection: Binding(get: { model.uiTheme }, set: { model.uiTheme = $0 })) {
+                          ForEach(AppModel.UITheme.allCases) { Text($0.label).tag($0) }
+                      }
+                      .labelsHidden().pickerStyle(.segmented).fixedSize()
+                      .help("自動は Mac の「外観」（ライト・ダーク）に合わせる。この Mac だけの設定") }
             GridRow { Text("名前").foregroundColor(.secondary); Text(model.opts.name) }
+            GridRow { Text("版").foregroundColor(.secondary); Text(AppModel.version) }
             GridRow { Text("役").foregroundColor(.secondary); Text(model.isMaster ? "マスター" : "フォロワー") }
             GridRow { Text("展示のマスター").foregroundColor(.secondary); Text(model.exhibitMaster ? "はい（開くとマスターで始まる）" : "いいえ") }
             GridRow { Text("ログインで開く").foregroundColor(.secondary); Text(model.openAtLogin ? "はい" : "いいえ") }
@@ -476,7 +594,12 @@ struct Inspector: View {
             .font(.caption).foregroundColor(.secondary)
 
         Divider()
-        SectionTitle("確かめる・困ったとき")
+        SectionTitle("確かめる・困ったとき", help: "trouble")
+        if model.netBlocked {
+            Text("⚠︎ この Mac からネットワークに届いていない。ローカルネットワークの許可が切れているか、ネットワークにつながっていない。")
+                .font(.caption).foregroundColor(.orange)
+            Button("ローカルネットワークの設定を開く") { model.openLocalNetworkSettings() }
+        }
         Toggle("名前とディスプレイの番号を大きく出す（N）", isOn: $model.showIdent)
         Text("どの Mac のどのディスプレイかを確かめる。マスターで入れると全台に出る。").font(.caption).foregroundColor(.secondary)
         Toggle("動作確認の文字を出す（I）", isOn: Binding(get: { model.infoShownNow }, set: { model.setInfoShown($0) }))
@@ -510,7 +633,7 @@ struct Inspector: View {
                 }
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: "位置・大きさ・回転", isOpen: $openPlace) }
+        } label: { FoldLabel(title: "位置・大きさ・回転", isOpen: $openPlace, help: "place") }
 
         DisclosureGroup(isExpanded: $openCrop) {
             VStack(alignment: .leading, spacing: 6) {
@@ -520,7 +643,7 @@ struct Inspector: View {
                 SliderRow(label: "下", value: model.lookBinding(\.cropB, 0), range: 0...0.5, unit: ValueText.percent)
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: "切り取り（映像の端を削る）", isOpen: $openCrop) }
+        } label: { FoldLabel(title: "切り取り（映像の端を削る）", isOpen: $openCrop, help: "crop") }
 
         DisclosureGroup(isExpanded: $openMask) {
             VStack(alignment: .leading, spacing: 6) {
@@ -538,7 +661,7 @@ struct Inspector: View {
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: "マスク（白黒の画像で形を抜く）", isOpen: $openMask, warn: maskBroken) }
+        } label: { FoldLabel(title: "マスク（白黒の画像で形を抜く）", isOpen: $openMask, warn: maskBroken, help: "mask") }
 
         DisclosureGroup(isExpanded: $openBlend) {
             VStack(alignment: .leading, spacing: 6) {
@@ -551,7 +674,7 @@ struct Inspector: View {
                 Text("重なる幅を、画面の幅（高さ）に対する割合で。").font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: "エッジブレンド（プロジェクターの重なり）", isOpen: $openBlend) }
+        } label: { FoldLabel(title: "エッジブレンド（プロジェクターの重なり）", isOpen: $openBlend, help: "blend") }
 
         DisclosureGroup(isExpanded: $openWarp) {
             VStack(alignment: .leading, spacing: 6) {
@@ -570,7 +693,7 @@ struct Inspector: View {
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: "四隅・曲面（台形や曲がりを直す）", isOpen: $openWarp) }
+        } label: { FoldLabel(title: "四隅・曲面（台形や曲がりを直す）", isOpen: $openWarp, help: "warp") }
         .id("warp")
     }
 
@@ -583,7 +706,7 @@ struct Inspector: View {
     }
 
     @ViewBuilder private var presetSection: some View {
-        SectionTitle("プリセット（ショー全体の配置を名前で残す）")
+        SectionTitle("プリセット（ショー全体の配置を名前で残す）", help: "presets")
         HStack {
             TextField("名前", text: $presetName)
             Button("この名前で保存") { model.savePreset(presetName) }

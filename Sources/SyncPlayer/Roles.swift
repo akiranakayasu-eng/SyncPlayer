@@ -29,8 +29,19 @@ final class Master {
     private let lock = NSLock()
     /// Ask every Mac to show its name and screen numbers (read when announcing).
     var ident: () -> Bool = { false }
-    /// This Mac's name, sent in the beacon.
+    /// This Mac's name and app version, sent in the beacon.
     var name = ""
+    var ver = ""
+    /// What each follower last told in its pings (by address and port), for the list of all Macs.
+    struct Peer: Equatable { var name: String; var ver: String; var err: Double?; var warn: String?; var file: String?; var at: Double }
+    private var peerTable: [String: Peer] = [:]   // guarded by lock
+    /// Followers heard in the last 3 s, by name.
+    var peers: [Peer] {
+        let now = hostNow()
+        lock.lock(); defer { lock.unlock() }
+        peerTable = peerTable.filter { now - $0.value.at < 3 }
+        return peerTable.values.sorted { $0.name < $1.name }
+    }
 
     /// initial: the schedule to continue (already in this Mac's clock), so taking over is seamless.
     init(transport: Transport, broadcast: String, extraTargets: [String], initial: Schedule?, since: Double,
@@ -61,9 +72,18 @@ final class Master {
         sock.onReceive = { [weak self] data, from in
             let t2 = hostNow()
             guard let self, let m = Message.decode(data), m.k == "p" else { return }
+            let key = UDPSocket.hostString(from) + ":" + String(from.sin_port)
             if let d = m.dur, d.isFinite, d > 0, d < 86_400 {
-                let key = UDPSocket.hostString(from) + ":" + String(from.sin_port)
                 self.lock.lock(); self.reported[key] = (d, t2); self.lock.unlock()
+            }
+            // A follower older than v0.3.3 sends no name or version: list it by its address with
+            // version "?", so the master can tell an old Mac is there.
+            do {
+                let n = m.name ?? UDPSocket.hostString(from)
+                let p = Peer(name: String(n.prefix(40)), ver: String((m.ver ?? "?").prefix(30)),
+                             err: m.err.flatMap { $0.isFinite ? $0 : nil }, warn: m.warn.map { String($0.prefix(60)) },
+                             file: m.file, at: t2)
+                self.lock.lock(); self.peerTable[key] = p; self.lock.unlock()
             }
             var reply = Message(k: "q")
             reply.id = m.id; reply.t1 = m.t1; reply.t2 = t2
@@ -105,6 +125,7 @@ final class Master {
         m.mid = id; m.since = since; m.file = fileLabel()
         if ident() { m.ident = true }
         if !name.isEmpty { m.name = name }
+        if !ver.isEmpty { m.ver = ver }
         let data = m.encoded()
         let targets = self.targets, sock = self.sock
         sendQueue.async { for t in targets { sock.send(data, to: t) } }
@@ -207,6 +228,10 @@ final class Follower {
     private(set) var masterIdent = false
     /// The master's name from its beacon (nil from a master older than v0.3.2).
     private(set) var masterName: String?
+    /// The master's app version (nil from a master older than v0.3.3).
+    private(set) var masterVer: String?
+    /// What this Mac tells the master in each ping (main thread): name, version, offset, problem, movies.
+    var report: () -> (name: String, ver: String, err: Double?, warn: String?, file: String) = { ("", "", nil, nil, "") }
     private var lastBeacon: Double = 0
     private var pingID = 0              // guarded by lock
     /// Pongs with an id at or below this belong to an earlier master (guarded by lock).
@@ -262,6 +287,7 @@ final class Follower {
                 self.masterFile = m.file
                 self.masterIdent = m.ident ?? false
                 self.masterName = m.name
+                self.masterVer = m.ver
                 self.masterAddr = UDPSocket.withPort(from, Ports.clock)
                 if !self.adopted {
                     self.lock.lock(); let ready = self.clock.ready; self.lock.unlock()
@@ -315,12 +341,14 @@ final class Follower {
         let id = pingID
         lock.unlock()
         let dur = transport.longest
+        let rep = report()
         let sock = clockSock
         // Stamp and send on the network queue (off the main thread, no wait between them).
         queue.async {
             var m = Message(k: "p")
             m.id = id
             m.dur = dur > 0 ? dur : nil
+            if !rep.name.isEmpty { m.name = rep.name; m.ver = rep.ver; m.err = rep.err; m.warn = rep.warn; m.file = rep.file }
             m.t1 = hostNow()
             sock.send(m.encoded(), to: addr)
         }

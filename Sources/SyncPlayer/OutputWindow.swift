@@ -67,6 +67,9 @@ final class OutputWindow: NSObject, NSWindowDelegate {
     let info = PassThroughLabel(labelWithString: "")
     /// Large Mac name and screen number in the middle (N key), to tell screens apart when setting up.
     let ident = PassThroughLabel(labelWithString: "")
+    /// A short line at the bottom for a few seconds (how to get back from full screen).
+    let hint = PassThroughLabel(labelWithString: "")
+    private var hintWork: DispatchWorkItem?
     var onBecomeKey: (() -> Void)?
     private var windowedFrame: NSRect?
     private(set) var isFull = false
@@ -103,6 +106,13 @@ final class OutputWindow: NSObject, NSWindowDelegate {
         ident.maximumNumberOfLines = 3
         ident.isHidden = true
         p.addSubview(ident)
+        hint.alignment = .center
+        hint.textColor = .white
+        hint.font = .boldSystemFont(ofSize: 18)
+        hint.backgroundColor = NSColor.black.withAlphaComponent(0.7)
+        hint.drawsBackground = true
+        hint.isHidden = true
+        p.addSubview(hint)
         window.contentView = p
     }
 
@@ -176,6 +186,19 @@ final class OutputWindow: NSObject, NSWindowDelegate {
         let w = min(fit.width + size, b.width - 20), h = fit.height + size * 0.4
         ident.frame = NSRect(x: (b.width - w) / 2, y: (b.height - h) / 2, width: w, height: h)
         ident.isHidden = false
+    }
+
+    func showHint(_ text: String, seconds: Double) {
+        hint.stringValue = text
+        let b = picture.bounds
+        let fit = hint.sizeThatFits(NSSize(width: b.width - 40, height: 60))
+        let w = min(fit.width + 30, b.width - 20), h = fit.height + 12
+        hint.frame = NSRect(x: (b.width - w) / 2, y: 40, width: w, height: h)
+        hint.isHidden = false
+        hintWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.hint.isHidden = true }
+        hintWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
     func close() {
