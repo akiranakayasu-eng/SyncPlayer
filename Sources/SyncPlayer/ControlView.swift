@@ -477,7 +477,6 @@ struct Inspector: View {
 
     /// The steps for learning alone: each line is ticked by the app when it sees it done on this Mac.
     @ViewBuilder private var stepsSection: some View {
-        let own = model.show.clips.contains { !$0.path.hasPrefix(Practice.dir.path) }
         Text("上から順に進めると、1 台で試すところから展示の形まで覚えられる。できたら ✓ が付く（この Mac で見えたことだけ）。")
             .font(.caption).foregroundColor(.secondary)
         Button("練習用のショーを開く") { model.openPractice() }
@@ -493,7 +492,7 @@ struct Inspector: View {
         StepLine(done: model.learnedSet.contains("fullscreen"), text: "左の「全画面にする（F）」を入れ、S で操作の窓を出し入れする")
 
         StepHeader(title: "2. 画面を作る", anchor: "step2")
-        StepLine(done: own, text: "「映像を足す…」で自分の映像を足す")
+        StepLine(done: model.learnedSet.contains("added"), text: "「映像を足す…」か「差し替え」で自分の映像を入れる")
         StepLine(done: model.learnedSet.contains("adjusted"), text: "「画面の調整」で位置・大きさ・四隅などを変える（⌘Z で戻せる）")
         StepLine(done: model.learnedSet.contains("mask"), text: "自分のマスク画像を使う（なくてもよい）")
         StepLine(done: model.showFile != nil, text: "上の「保存…」でショーを保存する")

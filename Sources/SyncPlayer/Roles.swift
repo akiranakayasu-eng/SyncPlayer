@@ -76,7 +76,10 @@ final class Master {
             if let d = m.dur, d.isFinite, d > 0, d < 86_400 {
                 self.lock.lock(); self.reported[key] = (d, t2); self.lock.unlock()
             }
-            if let n = m.name {
+            // A follower older than v0.3.3 sends no name or version: list it by its address with
+            // version "?", so the master can tell an old Mac is there.
+            do {
+                let n = m.name ?? (UDPSocket.hostString(from) + "（古い版）")
                 let p = Peer(name: String(n.prefix(40)), ver: String((m.ver ?? "?").prefix(30)),
                              err: m.err.flatMap { $0.isFinite ? $0 : nil }, warn: m.warn.map { String($0.prefix(60)) },
                              file: m.file, at: t2)

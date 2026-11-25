@@ -683,6 +683,7 @@ final class AppModel: ObservableObject {
             if let o = selectedOutputIndex { s.outputs[o].layers.append(Layer(clipID: c.id)) }
         }
         show = s
+        learned("added")
         notify("映像を \(urls.count) つ足しました")
     }
 
@@ -690,6 +691,7 @@ final class AppModel: ObservableObject {
         guard let i = show.clips.firstIndex(where: { $0.id == id }),
               let u = pickMovies(message: "「\(show.clips[i].name)」と入れ替える映像", multiple: false).first else { return }
         show.clips[i].path = u.path
+        learned("added")
         notify("映像: \(u.lastPathComponent)")
     }
 
@@ -1273,7 +1275,8 @@ final class AppModel: ObservableObject {
                 "版のちがう Mac に、同じ版の SyncPlayer を入れ直す")
         } else {
             add(follower?.masterAlive ?? false, "マスターが見えている", "マスターの Mac を開く。開いているなら同じネットワークか確かめる")
-            add(follower?.masterVer.map { $0 == AppModel.version }, "マスターと同じ版", "同じ版の SyncPlayer を入れ直す")
+            add(follower.flatMap { f in f.masterAlive ? (f.masterVer.map { $0 == AppModel.version } ?? false) : nil },
+                "マスターと同じ版", "同じ版の SyncPlayer を全台に入れる（版が分からないときはマスターが古い版）")
         }
         add(!(exhibitTakenOver && exhibitMaster && master == nil), "展示のマスターは 1 台だけ", "ほかの Mac の「展示のマスター」を切る")
         add(!netBlocked, "ネットワークに届く", "システム設定 → プライバシーとセキュリティ → ローカルネットワークで SyncPlayer を入れる")
@@ -1323,6 +1326,8 @@ final class AppModel: ObservableObject {
     func problemNow() -> String? {
         if netBlocked { return "ネットワークに届かない（ローカルネットワークの許可か、つなぎ方を確かめる）" }
         if let mv = follower?.masterVer, mv != AppModel.version { return "版がちがう（マスター \(mv)、この Mac \(AppModel.version)）" }
+        // A master older than v0.3.3 does not send its version: say so rather than look all right.
+        if let f = follower, f.masterAlive, f.masterVer == nil { return "マスターの版が分からない（古い版かも。全台を同じ版にする）" }
         if master != nil {
             if let p = peers.first(where: { $0.ver != AppModel.version }) { return "版がちがう Mac がある: \(String(p.name.prefix(16)))（\(p.ver)）" }
             if let p = peers.first(where: { $0.warn != nil }) { return "\(String(p.name.prefix(16))) に注意: \(p.warn!)" }
