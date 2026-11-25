@@ -303,7 +303,15 @@ struct Sidebar: View {
                     HStack {
                         Text("\(k + 1)").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
                             .frame(minWidth: 16, alignment: .trailing)
-                        Toggle("", isOn: model.visibleBinding(l.id)).labelsHidden().help("入れると見える")
+                        // An eye, like Adobe's layer panels (Akira 2026-11-25).
+                        let vis = model.visibleBinding(l.id)
+                        Button { vis.wrappedValue.toggle() } label: {
+                            Image(systemName: vis.wrappedValue ? "eye" : "eye.slash")
+                                .foregroundColor(vis.wrappedValue ? .primary : .secondary)
+                                .frame(width: 18)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(vis.wrappedValue ? "見えている（押すと隠す）" : "隠している（押すと見せる）")
                         LayerClipButton(model: model, layerID: l.id, clipID: l.clipID)
                     }
                     .tag(Optional(l.id))
