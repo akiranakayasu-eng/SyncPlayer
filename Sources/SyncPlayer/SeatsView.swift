@@ -22,27 +22,22 @@ struct SeatBadge: View {
 /// Top bar: which seat this Mac is, as a menu to change it (only when the show has several seats).
 struct SeatChip: View {
     @ObservedObject var model: AppModel
+    @State private var open = false
+    /// This Mac's seat in the top bar. Click to open the seats (add, duplicate, delete, rename, make
+    /// this Mac another seat): set up once, so not always on screen (left column plan 1).
     var body: some View {
-        if model.show.seats.count > 1 {
-            Menu {
-                ForEach(Array(model.show.seats.enumerated()), id: \.element.id) { k, st in
-                    Button {
-                        model.switchSeat(st.id)
-                    } label: {
-                        if st.id == model.show.seatID { Label("\(SeatBadge.letter(k))  \(st.name)", systemImage: "checkmark") }
-                        else { Text("\(SeatBadge.letter(k))  \(st.name)") }
-                    }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    SeatBadge(index: model.show.seatIndex, on: true, size: 18)
-                    Text(model.show.seat.name).font(.callout.bold()).lineLimit(1)
-                }
+        Button { open = true } label: {
+            HStack(spacing: 6) {
+                SeatBadge(index: model.show.seatIndex, on: true, size: 18)
+                Text(model.show.seats.count > 1 ? model.show.seat.name : L("席", "Seat")).font(.callout.bold()).lineLimit(1)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundColor(.secondary)
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help(L("この Mac の席（押して変える）。出力・レイヤー・音はこの席のもの", "This Mac's seat (click to change). Outputs, layers and sound are this seat's"))
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help(L("この Mac の席（Mac とプロジェクターの組）。押すと、席を足す・複製・消す・名前・この Mac を別の席にする。出力・レイヤー・音はこの席のもの", "This Mac's seat (a Mac and its projectors). Click to add, duplicate, delete, rename or switch seats. Outputs, layers and sound are this seat's"))
+        .popover(isPresented: $open, arrowEdge: .bottom) { SeatsPanel(model: model) }
     }
 }
 

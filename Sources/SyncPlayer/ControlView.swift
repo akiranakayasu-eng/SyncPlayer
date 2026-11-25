@@ -442,24 +442,22 @@ struct TopBar: View {
 
 // MARK: left side
 
-struct Sidebar: View {
+/// Seats (a Mac and its projectors), opened from the seat chip in the top bar: set up once, so not
+/// always on screen (Akira 2026-11-25, left column plan 1). The one marked is this Mac.
+struct SeatsPanel: View {
     @ObservedObject var model: AppModel
     @State private var selectedSeat: String?
     @State private var renamingSeat: String?
-    // List heights set by dragging the line under each list (0 = as tall as its rows; kept per Mac).
-    @AppStorage("ui.h.seats") private var hSeats: Double = 0
-    @AppStorage("ui.h.outputs") private var hOutputs: Double = 0
-    @AppStorage("ui.h.layers") private var hLayers: Double = 0
-    @AppStorage("ui.h.clips") private var hClips: Double = 0
+    @State private var renameText = ""
+    @FocusState private var renameFocused: Bool
 
     private func finishSeatRename(_ id: String) {
         renamingSeat = nil
         model.renameSeat(id, renameText)
-        DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
     }
 
-    /// Seats: the places of the exhibition (a Mac and its projectors). The one marked is this Mac.
-    @ViewBuilder private var seatSection: some View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
         SectionTitle(L("席", "Seats"), help: "seats")
         List {
             ForEach(Array(model.show.seats.enumerated()), id: \.element.id) { k, st in
@@ -489,7 +487,7 @@ struct Sidebar: View {
                             .font(.caption).foregroundColor(who.count > 1 ? .orange : .secondary).lineLimit(1)
                     }
                 }
-                .selectedRow((selectedSeat ?? model.show.seatID) == st.id) { selectedSeat = st.id; model.deleteTarget = { [weak m = model] in m?.deleteSeat(st.id) } }
+                .selectedRow((selectedSeat ?? model.show.seatID) == st.id) { selectedSeat = st.id }
                 .contextMenu {
                     Button(L("名前を変える", "Rename")) { renameText = st.name; renamingSeat = st.id }
                     Button(L("複製", "Duplicate")) { model.duplicateSeat(st.id) }
@@ -501,10 +499,10 @@ struct Sidebar: View {
                 }
             }
         }
-        .frame(height: listH(hSeats, model.show.seats.count, max: 6))
+        .frame(height: CGFloat(min(max(model.show.seats.count, 2), 8)) * 28 + 12)
         .scrollContentBackground(.hidden)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
-        let sel = selectedSeat.flatMap { id in model.show.seats.first { $0.id == id } } ?? model.show.seat
+        let sel: Seat = selectedSeat.flatMap { id in model.show.seats.first { $0.id == id } } ?? model.show.seat
         ListBar {
             IconButton("plus", L("席を足す（Mac をもう 1 台使うとき）", "Add a seat (for another Mac)")) { model.addSeat() }
             IconButton("plus.square.on.square", L("選んだ席を複製（出力とレイヤーごと）", "Duplicate the selected seat (with its outputs and layers)")) { model.duplicateSeat(sel.id) }
@@ -514,8 +512,21 @@ struct Sidebar: View {
             IconButton("desktopcomputer", L("この Mac を選んだ席にする（出力・レイヤー・音がその席のものになる）", "Make this Mac the selected seat (its outputs, layers and sound)")) { model.switchSeat(sel.id) }
                 .disabled(sel.id == model.show.seatID)
         }
-        HeightHandle(height: $hSeats, auto: listHeight(model.show.seats.count, max: 6))
+        }
+        .padding(10)
+        .frame(width: 320)
     }
+}
+
+struct Sidebar: View {
+    @ObservedObject var model: AppModel
+    // List heights set by dragging the line under each list (0 = as tall as its rows; kept per Mac).
+    @AppStorage("ui.footageOpen") private var footageOpen = false
+    @State private var outputsOpen = false
+    @AppStorage("ui.h.layers") private var hLayers: Double = 0
+    @AppStorage("ui.h.clips") private var hClips: Double = 0
+
+
     @State private var renamingOutput: String?
     @State private var renamingLayer: String?
 
@@ -542,6 +553,85 @@ struct Sidebar: View {
         DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
     }
 
+
+    /// The output whose layers are listed: its name and display, click to choose, add, rename,
+    /// set the display and full screen (set up once, so in a popover).
+    private var outputChip: some View {
+        Button { outputsOpen = true } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "rectangle.on.rectangle").font(.system(size: 10))
+                Text((model.selectedOutputConfig?.name ?? L("出力なし", "No output"))
+                     + (model.selectedOutputConfig.map { " · " + L("ディスプレイ", "Display") + " \($0.screen + 1)" + ($0.fullscreen ? L("・全画面", " · full") : "") } ?? ""))
+                    .lineLimit(1).truncationMode(.middle)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+            }
+            .font(.caption)
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(Capsule().fill(Color.secondary.opacity(0.15)))
+        }
+        .buttonStyle(.plain)
+        .help(L("このレイヤーの一覧を出している出力。押すと、出力を選ぶ・足す・消す・名前・ディスプレイ・全画面", "The output whose layers are listed. Click to choose, add, delete, rename, set its display and full screen"))
+        .popover(isPresented: $outputsOpen, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                outputSection
+            }
+            .padding(10)
+            .frame(width: 320)
+        }
+    }
+
+    @ViewBuilder private var outputSection: some View {
+        SectionTitle(L("出力", "Outputs") + (model.show.seats.count > 1 ? " — " + model.show.seat.name : ""), help: "outputs")
+        List {
+            ForEach(model.show.outputs) { o in
+                HStack {
+                    // Rename in place: double-click the name (Return sets, esc cancels), like Adobe.
+                    if renamingOutput == o.id {
+                        TextField("", text: $renameText)
+                            .focused($renameFocused)
+                            .onSubmit { finishRename(o.id) }
+                            .onExitCommand { renamingOutput = nil }
+                            .onChange(of: renameFocused) { f in if !f && renamingOutput == o.id { if FieldEsc.recent { renamingOutput = nil } else { finishRename(o.id) } } }
+                            .onAppear { renameFocused = true }
+                    } else {
+                        Text(o.name)
+                            .onTapGesture(count: 2) { renameText = o.name; renamingOutput = o.id }
+                            .simultaneousGesture(TapGesture().onEnded { model.selectedOutput = o.id })
+                            .help(L("ダブルクリックで名前を変える", "Double-click to rename"))
+                    }
+                    Spacer()
+                    Text(L("ディスプレイ", "Display") + " \(o.screen + 1)" + (o.fullscreen ? L("・全画面", " · full screen") : "")).foregroundColor(.secondary).font(.caption)
+                }
+                .tag(Optional(o.id))
+                .selectedRow(model.selectedOutput == o.id) { model.selectedOutput = o.id }
+                .contextMenu {
+                    Button(L("名前を変える", "Rename")) { renameText = o.name; renamingOutput = o.id }
+                    Divider()
+                    Button(L("出力を消す…", "Delete Output…"), role: .destructive) { model.selectedOutput = o.id; model.removeOutput() }
+                        .disabled(model.show.outputs.count < 2)
+                }
+            }
+        }
+        .frame(height: listHeight(model.show.outputs.count, max: 8))
+        .scrollContentBackground(.hidden)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
+        ListBar {
+            IconButton("plus", L("出力を足す（別のディスプレイに出すとき）", "Add an output (for another display)")) { model.addOutput() }
+            IconButton("minus", L("選んだ出力を消す", "Delete the selected output")) { model.removeOutput() }
+        }
+        if model.selectedOutputConfig != nil {
+            Picker("", selection: model.outputBinding(\.screen, 0)) {
+                ForEach(screenChoices, id: \.self) { i in
+                    Text(i < model.screenShort.count ? model.screenShort[i] : L("ディスプレイ \(i + 1)（つながっていない）", "Display \(i + 1) (not connected)")).tag(i)
+                }
+            }
+            .labelsHidden()
+            .help(model.screenNames.joined(separator: "\n"))
+            Toggle(L("全画面にする（F）", "Full Screen (F)"), isOn: model.outputBinding(\.fullscreen, false))
+                .help(L("このディスプレイいっぱいに出す。操作の窓とカーソルはそのディスプレイから消える", "Fill this display. The control window and pointer leave that display"))
+        }
+
+    }
 
     // MARK: picking rows and the right-click menus
 
@@ -610,60 +700,13 @@ struct Sidebar: View {
         // as their rows (they do not scroll themselves), so the wheel moves this column.
         ScrollView {
         VStack(alignment: .leading, spacing: 6) {
-            seatSection
-            SectionTitle(L("出力", "Outputs") + (model.show.seats.count > 1 ? " — " + model.show.seat.name : ""), help: "outputs")
-            List {
-                ForEach(model.show.outputs) { o in
-                    HStack {
-                        // Rename in place: double-click the name (Return sets, esc cancels), like Adobe.
-                        if renamingOutput == o.id {
-                            TextField("", text: $renameText)
-                                .focused($renameFocused)
-                                .onSubmit { finishRename(o.id) }
-                                .onExitCommand { renamingOutput = nil }
-                                .onChange(of: renameFocused) { f in if !f && renamingOutput == o.id { if FieldEsc.recent { renamingOutput = nil } else { finishRename(o.id) } } }
-                                .onAppear { renameFocused = true }
-                        } else {
-                            Text(o.name)
-                                .onTapGesture(count: 2) { renameText = o.name; renamingOutput = o.id }
-                                .simultaneousGesture(TapGesture().onEnded { model.selectedOutput = o.id })
-                                .help(L("ダブルクリックで名前を変える", "Double-click to rename"))
-                        }
-                        Spacer()
-                        Text(L("ディスプレイ", "Display") + " \(o.screen + 1)" + (o.fullscreen ? L("・全画面", " · full screen") : "")).foregroundColor(.secondary).font(.caption)
-                    }
-                    .tag(Optional(o.id))
-                    .selectedRow(model.selectedOutput == o.id) { model.selectedOutput = o.id; model.deleteTarget = { [weak m = model] in m?.removeOutput() } }
-                    .contextMenu {
-                        Button(L("名前を変える", "Rename")) { renameText = o.name; renamingOutput = o.id }
-                        Divider()
-                        Button(L("出力を消す…", "Delete Output…"), role: .destructive) { model.selectedOutput = o.id; model.removeOutput() }
-                            .disabled(model.show.outputs.count < 2)
-                    }
-                }
+            // Layers are what is touched while working, so they get the column; the output is a chip
+            // above them (plan 1, Akira 2026-11-25), seats are in the top bar, footage folds below.
+            HStack(spacing: 6) {
+                SectionTitle(L("レイヤー", "Layers"), help: "layers")
+                Spacer(minLength: 4)
+                outputChip
             }
-            .frame(height: listH(hOutputs, model.show.outputs.count, max: 8))
-            .scrollContentBackground(.hidden)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
-            ListBar {
-                IconButton("plus", L("出力を足す（別のディスプレイに出すとき）", "Add an output (for another display)")) { model.addOutput() }
-                IconButton("minus", L("選んだ出力を消す", "Delete the selected output")) { model.removeOutput() }
-            }
-            HeightHandle(height: $hOutputs, auto: listHeight(model.show.outputs.count, max: 8))
-            if model.selectedOutputConfig != nil {
-                Picker("", selection: model.outputBinding(\.screen, 0)) {
-                    ForEach(screenChoices, id: \.self) { i in
-                        Text(i < model.screenShort.count ? model.screenShort[i] : L("ディスプレイ \(i + 1)（つながっていない）", "Display \(i + 1) (not connected)")).tag(i)
-                    }
-                }
-                .labelsHidden()
-                .help(model.screenNames.joined(separator: "\n"))
-                Toggle(L("全画面にする（F）", "Full Screen (F)"), isOn: model.outputBinding(\.fullscreen, false))
-                    .help(L("このディスプレイいっぱいに出す。操作の窓とカーソルはそのディスプレイから消える", "Fill this display. The control window and pointer leave that display"))
-            }
-
-            Divider().padding(.vertical, 2)
-            SectionTitle(L("レイヤー", "Layers"), help: "layers")
             List {
                 // Numbered from the front (1 = frontmost, like After Effects). Drag a row to change
                 // the order, like the tracks in Premiere.
@@ -730,33 +773,62 @@ struct Sidebar: View {
             }
 
             HeightHandle(height: $hLayers, auto: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 12))
-            SectionTitle(L("映像ライブラリ", "Footage"), help: "clips")
-            // One line per movie (the list was 2 lines a movie and made the column long). Replace and
-            // remove act on the selected movie, like the layer buttons.
-            List {
-                ForEach(model.show.clips) { c in
-                    HStack(spacing: 4) {
-                        if model.clipBroken(c.id) {
-                            Text(L("⚠︎ 開けない", "⚠︎ can't open")).font(.caption).foregroundColor(.red)
+            // Footage: added once, then rarely touched, so folded by default (kept per Mac).
+            DisclosureGroup(isExpanded: $footageOpen) {
+                VStack(alignment: .leading, spacing: 6) {
+                // One line per movie (the list was 2 lines a movie and made the column long). Replace and
+                // remove act on the selected movie, like the layer buttons.
+                List {
+                    ForEach(model.show.clips) { c in
+                        HStack(spacing: 4) {
+                            if model.clipBroken(c.id) {
+                                Text(L("⚠︎ 開けない", "⚠︎ can't open")).font(.caption).foregroundColor(.red)
+                            }
+                            Text(c.name).lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength: 4)
+                            // Replace and remove are in the right-click menu (Akira 2026-11-25, instead of icons).
                         }
-                        Text(c.name).lineLimit(1).truncationMode(.middle)
-                        Spacer(minLength: 4)
-                        // Replace and remove are in the right-click menu (Akira 2026-11-25, instead of icons).
+                        .tag(Optional(c.id))
+                        .selectedRow(model.clipPicks.isEmpty ? model.selectedClip == c.id : model.clipPicks.contains(c.id)) { clickClip(c.id) }
+                        .contextMenu { clipMenu(c) }
+                        .help(L("\(c.name)\nレイヤーの行へドラッグすると、そのレイヤーの映像になる。右クリックで差し替え・外すなど。⌘・⇧ クリックで複数選べる", "\(c.name)\nDrag onto a layer row to show it on that layer. Right-click to replace, remove and more. ⌘ / ⇧ click to pick several"))
+                        .draggable(ClipDrag.prefix + c.id)
                     }
-                    .tag(Optional(c.id))
-                    .selectedRow(model.clipPicks.isEmpty ? model.selectedClip == c.id : model.clipPicks.contains(c.id)) { clickClip(c.id) }
-                    .contextMenu { clipMenu(c) }
-                    .help(L("\(c.name)\nレイヤーの行へドラッグすると、そのレイヤーの映像になる。右クリックで差し替え・外すなど。⌘・⇧ クリックで複数選べる", "\(c.name)\nDrag onto a layer row to show it on that layer. Right-click to replace, remove and more. ⌘ / ⇧ click to pick several"))
-                    .draggable(ClipDrag.prefix + c.id)
+                }
+                .frame(height: listH(hClips, model.show.clips.count, max: 6))
+                .scrollContentBackground(.hidden)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
+                ListBar {
+                    IconButton("plus", L("映像を足す…（ファイルを選ぶ）", "Add clips… (choose files)")) { model.addClips() }
+                }
+                HeightHandle(height: $hClips, auto: listHeight(model.show.clips.count, max: 6))
+                // The selected footage's details, like the top of After Effects' Project panel.
+                if let id = model.selectedClip, let c = model.show.clip(id) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(c.name).font(.caption.bold()).lineLimit(1).truncationMode(.middle)
+                        Text(model.clipInfo(id)?.line ?? L("読み込み中…", "Reading…"))
+                            .font(.caption.monospacedDigit()).foregroundColor(.secondary)
+                        Text(c.path).font(.caption2).foregroundColor(.secondary)
+                            .lineLimit(1).truncationMode(.head)
+                            .help(c.path)
+                    }
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
+                    .contextMenu { Button(L("Finder で表示", "Reveal in Finder")) { model.revealClip(id) } }
+                }
+                }
+                .padding(.top, 4)
+            } label: {
+                HStack(spacing: 4) {
+                    Text(L("映像ライブラリ", "Footage") + "（\(model.show.clips.count)）").font(.headline)
+                        .onTapGesture { withAnimation { footageOpen.toggle() } }
+                    if model.show.clips.contains(where: { model.clipBroken($0.id) }) {
+                        Text("⚠︎").foregroundColor(.red).help(L("開けない映像があります", "Some footage can't be opened"))
+                    }
+                    HelpButton(anchor: "clips")
                 }
             }
-            .frame(height: listH(hClips, model.show.clips.count, max: 6))
-            .scrollContentBackground(.hidden)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
-            ListBar {
-                IconButton("plus", L("映像を足す…（ファイルを選ぶ）", "Add clips… (choose files)")) { model.addClips() }
-            }
-            HeightHandle(height: $hClips, auto: listHeight(model.show.clips.count, max: 6))
         }
         .padding(8)
         }

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import ServiceManagement
+import AVFoundation
 
 /// Fast-changing numbers for the control window (kept apart so the whole window is not redrawn 5 times a second).
 final class StatusModel: ObservableObject {
@@ -1162,6 +1163,64 @@ final class AppModel: ObservableObject {
         show = s
         clipPicks = []
         if let c = selectedClip, ids.contains(c) { selectedClip = nil }
+    }
+
+    /// What the footage library shows for the selected clip (like the top of After Effects' Project
+    /// panel): size, frame rate, length, codec, sound, file size. Read once per file, in the background.
+    struct ClipInfo: Equatable {
+        var width = 0, height = 0
+        var fps = 0.0, seconds = 0.0
+        var codec = "", audio = false, bytes: Int64 = 0
+        var line: String {
+            var p: [String] = []
+            if width > 0 { p.append("\(width)×\(height)") }
+            if fps > 0 { p.append(String(format: "%.3g fps", fps)) }
+            if seconds > 0 { p.append(timeString(seconds)) }
+            if !codec.isEmpty { p.append(codec) }
+            p.append(audio ? L("音あり", "audio") : L("音なし", "no audio"))
+            if bytes > 0 { p.append(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) }
+            return p.joined(separator: " · ")
+        }
+    }
+    @Published private(set) var clipInfos: [String: ClipInfo] = [:]
+    private var clipInfoLoading = Set<String>()
+
+    func clipInfo(_ id: String) -> ClipInfo? {
+        guard let c = show.clip(id) else { return nil }
+        if let i = clipInfos[c.path] { return i }
+        let path = c.path
+        if clipInfoLoading.insert(path).inserted {
+            Task { @MainActor in
+                var i = ClipInfo()
+                let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+                if let v = try? await asset.loadTracks(withMediaType: .video).first {
+                    if let sz = try? await v.load(.naturalSize) { i.width = Int(sz.width); i.height = Int(sz.height) }
+                    i.fps = Double((try? await v.load(.nominalFrameRate)) ?? 0)
+                    if let f = (try? await v.load(.formatDescriptions))?.first {
+                        i.codec = Self.codecName(CMFormatDescriptionGetMediaSubType(f))
+                    }
+                }
+                i.audio = !((try? await asset.loadTracks(withMediaType: .audio)) ?? []).isEmpty
+                i.seconds = (try? await asset.load(.duration))?.seconds ?? 0
+                i.bytes = ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.int64Value ?? 0
+                self.clipInfos[path] = i
+                self.clipInfoLoading.remove(path)
+            }
+        }
+        return nil
+    }
+
+    private static func codecName(_ t: FourCharCode) -> String {
+        switch t {
+        case kCMVideoCodecType_H264: return "H.264"
+        case kCMVideoCodecType_HEVC: return "HEVC"
+        case kCMVideoCodecType_AppleProRes422, kCMVideoCodecType_AppleProRes422HQ, kCMVideoCodecType_AppleProRes422LT,
+             kCMVideoCodecType_AppleProRes422Proxy: return "ProRes 422"
+        case kCMVideoCodecType_AppleProRes4444, kCMVideoCodecType_AppleProRes4444XQ: return "ProRes 4444"
+        default:
+            let c = [24, 16, 8, 0].map { Character(UnicodeScalar(UInt8((t >> $0) & 0xFF))) }
+            return String(c).trimmingCharacters(in: .whitespaces)
+        }
     }
 
     /// Shows the clip's movie file in the Finder.
