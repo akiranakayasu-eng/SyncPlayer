@@ -180,25 +180,19 @@ struct RoleSwitch: View {
     let set: (Bool) -> Void
     /// Amber for the master (Akira 2026-11-25: not blue; blue is for numbers to type, green/red for state).
     static let masterColor = Color(red: 0.96, green: 0.70, blue: 0.0)
+    /// An on/off switch labelled only "Master" (Akira 2026-11-25): on = this Mac is the master (amber),
+    /// off = follower (grey).
     var body: some View {
-        HStack(spacing: 0) {
-            seg(L("フォロワー", "Follower"), on: !isMaster, color: Color(white: 0.45), text: .white) { set(false) }
-            seg(L("マスター", "Master"), on: isMaster, color: RoleSwitch.masterColor, text: .black) { set(true) }
+        HStack(spacing: 6) {
+            Toggle("", isOn: Binding(get: { isMaster }, set: { set($0) }))
+                .toggleStyle(.switch).labelsHidden().controlSize(.small)
+                .tint(RoleSwitch.masterColor)
+            // One fixed word: with both names beside a switch it is easy to read it the wrong way (Akira).
+            Text(L("マスター", "Master"))
+                .font(.system(size: 12, weight: isMaster ? .bold : .regular))
+                .foregroundColor(isMaster ? RoleSwitch.masterColor : .secondary)
         }
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.12)))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.35)))
         .fixedSize()
-    }
-    private func seg(_ t: String, on: Bool, color: Color, text: Color, _ act: @escaping () -> Void) -> some View {
-        Button(action: act) {
-            Text(t)
-                .font(.system(size: 12, weight: on ? .bold : .regular))
-                .foregroundColor(on ? text : .secondary)
-                .padding(.horizontal, 10).padding(.vertical, 3)
-                .background(RoundedRectangle(cornerRadius: 5).fill(on ? color : Color.clear))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }
 
