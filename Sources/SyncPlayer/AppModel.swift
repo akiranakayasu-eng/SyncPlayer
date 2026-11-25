@@ -1051,7 +1051,7 @@ final class AppModel: ObservableObject {
 
     func applyTheme() {
         NSApp.appearance = NSAppearance(named: uiTheme == .light ? .aqua : .darkAqua)
-        control?.backgroundColor = .windowBackgroundColor
+        control?.backgroundColor = UIColors.base
     }
 
     private func buildControlWindow() {

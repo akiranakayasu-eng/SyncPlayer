@@ -86,6 +86,7 @@ struct StatusText: View {
             }
             .frame(minWidth: 400, alignment: .leading)
         }
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
     }
 }
 
@@ -491,6 +492,8 @@ struct Sidebar: View {
                 }
             }
             .frame(height: listHeight(model.show.outputs.count, max: 8))
+            .scrollContentBackground(.hidden)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
             ListBar {
                 IconButton("plus", L("出力を足す（別のディスプレイに出すとき）", "Add an output (for another display)")) { model.addOutput() }
                 IconButton("minus", L("選んだ出力を消す", "Delete the selected output")) { model.removeOutput() }
@@ -556,6 +559,8 @@ struct Sidebar: View {
                 .onMove { model.moveLayers(fromDisplayed: $0, toDisplayed: $1) }
             }
             .frame(height: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 12))
+            .scrollContentBackground(.hidden)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
             // One row of small icon buttons under the list, like the + − bar under macOS lists.
             ListBar {
                 IconButton("plus", L("レイヤーを足す", "Add a layer")) { model.addLayer() }
@@ -594,6 +599,8 @@ struct Sidebar: View {
                 }
             }
             .frame(height: listHeight(model.show.clips.count, max: 6))
+            .scrollContentBackground(.hidden)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
             ListBar {
                 IconButton("plus", L("映像を足す…（ファイルを選ぶ）", "Add clips… (choose files)")) { model.addClips() }
             }

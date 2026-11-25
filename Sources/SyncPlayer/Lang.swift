@@ -20,3 +20,15 @@ enum UILang: String, CaseIterable, Identifiable {
 func L(_ ja: String, _ en: String) -> String {
     UILang.current == .ja ? ja : en
 }
+
+/// The control window's own greys (Akira 2026-11-25: the dark mode was too dark and flat). In dark,
+/// a slightly lighter base with panels (lists, status) a step darker, like Adobe's panels.
+enum UIColors {
+    private static func dynamic(dark: NSColor, light: NSColor) -> NSColor {
+        NSColor(name: nil) { ap in ap.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light }
+    }
+    static let base = dynamic(dark: NSColor(srgbRed: 0.200, green: 0.204, blue: 0.220, alpha: 1),
+                              light: .windowBackgroundColor)
+    static let panel = dynamic(dark: NSColor(srgbRed: 0.150, green: 0.153, blue: 0.168, alpha: 1),
+                               light: .controlBackgroundColor)
+}
