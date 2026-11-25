@@ -703,6 +703,32 @@ final class AppModel: ObservableObject {
         notify("映像を \(urls.count) つ足しました")
     }
 
+    /// Show a different movie on one layer (from the layer list's movie chooser or a drop).
+    func setLayerClip(_ layerID: String, _ clipID: String) {
+        guard show.clip(clipID) != nil else { return }
+        for o in show.outputs.indices {
+            if let l = show.outputs[o].layers.firstIndex(where: { $0.id == layerID }), show.outputs[o].layers[l].clipID != clipID {
+                show.outputs[o].layers[l].clipID = clipID
+                notify("レイヤーの映像: \(clipName(clipID))")
+            }
+        }
+    }
+
+    /// Add movies from files and show the first one on a layer.
+    func addClipsForLayer(_ layerID: String) {
+        let urls = pickMovies(message: "このレイヤーに出す映像を選んでください", multiple: false)
+        guard let u = urls.first else { return }
+        let c = Clip(id: show.newClipID(), path: u.path)
+        var s = show
+        s.clips.append(c)
+        for o in s.outputs.indices {
+            if let l = s.outputs[o].layers.firstIndex(where: { $0.id == layerID }) { s.outputs[o].layers[l].clipID = c.id }
+        }
+        show = s
+        learned("added")
+        notify("映像: \(u.lastPathComponent)")
+    }
+
     func replaceClip(_ id: String) {
         guard let i = show.clips.firstIndex(where: { $0.id == id }),
               let u = pickMovies(message: "「\(show.clips[i].name)」と入れ替える映像", multiple: false).first else { return }

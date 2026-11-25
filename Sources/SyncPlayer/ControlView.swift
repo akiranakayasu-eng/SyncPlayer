@@ -266,9 +266,15 @@ struct Sidebar: View {
                         Text("\(k + 1)").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
                             .frame(minWidth: 16, alignment: .trailing)
                         Toggle("", isOn: model.visibleBinding(l.id)).labelsHidden().help("入れると見える")
-                        Text(model.clipName(l.clipID)).lineLimit(1).truncationMode(.middle)
+                        LayerClipButton(model: model, layerID: l.id, clipID: l.clipID)
                     }
                     .tag(Optional(l.id))
+                    // Drop a movie from the movie list below onto a layer to show it there.
+                    .dropDestination(for: String.self) { ids, _ in
+                        guard let id = ids.first, id.hasPrefix(ClipDrag.prefix) else { return false }
+                        model.setLayerClip(l.id, String(id.dropFirst(ClipDrag.prefix.count)))
+                        return true
+                    }
                     .help("ドラッグで順番を入れ替える（上が手前）")
                 }
                 .onMove { model.moveLayers(fromDisplayed: $0, toDisplayed: $1) }
@@ -295,9 +301,11 @@ struct Sidebar: View {
                         if model.clipBroken(c.id) {
                             Text("⚠︎ 開けない").font(.caption).foregroundColor(.red)
                         }
-                        Text(c.name).lineLimit(1).truncationMode(.middle).help(c.name)
+                        Text(c.name).lineLimit(1).truncationMode(.middle)
                     }
                     .tag(Optional(c.id))
+                    .help("\(c.name)\nレイヤーの行へドラッグすると、そのレイヤーの映像になる")
+                    .draggable(ClipDrag.prefix + c.id)
                 }
             }
             .frame(height: listHeight(model.show.clips.count, max: 6))
@@ -346,6 +354,61 @@ struct Sidebar: View {
     private var screenChoices: [Int] {
         let n = max(model.screenNames.count, (model.selectedOutputConfig?.screen ?? 0) + 1)
         return Array(0..<n)
+    }
+}
+
+/// A movie dragged from the movie list (a plain string, so other text drops are told apart).
+enum ClipDrag { static let prefix = "syncplayer-clip:" }
+
+/// The movie name in a layer row. Clicking it opens a small chooser beside the row: the show's
+/// movies (the current one ticked) and "add from a file". Nothing else on screen moves.
+struct LayerClipButton: View {
+    @ObservedObject var model: AppModel
+    let layerID: String
+    let clipID: String
+    @State private var open = false
+
+    var body: some View {
+        Button { open = true } label: {
+            HStack(spacing: 2) {
+                Text(model.clipName(clipID)).lineLimit(1).truncationMode(.middle)
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 8)).foregroundColor(.secondary)
+            }
+        }
+        .buttonStyle(.plain)
+        .help("押すと、このレイヤーに出す映像を選べる（下の映像の行をドラッグしてきても替わる）")
+        .popover(isPresented: $open, arrowEdge: .trailing) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("このレイヤーに出す映像").font(.caption).foregroundColor(.secondary)
+                    .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 4)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.show.clips) { c in
+                            Button {
+                                model.setLayerClip(layerID, c.id); open = false
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "checkmark").opacity(c.id == clipID ? 1 : 0)
+                                    Text(c.name).lineLimit(1).truncationMode(.middle)
+                                    if model.clipBroken(c.id) { Text("⚠︎").foregroundColor(.red) }
+                                    Spacer()
+                                }
+                                .contentShape(Rectangle())
+                                .padding(.horizontal, 10).padding(.vertical, 4)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 320)
+                Divider()
+                Button { open = false; model.addClipsForLayer(layerID) } label: {
+                    Label("ファイルから選ぶ…", systemImage: "plus").padding(.horizontal, 10).padding(.vertical, 6)
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(width: 260)
+        }
     }
 }
 
