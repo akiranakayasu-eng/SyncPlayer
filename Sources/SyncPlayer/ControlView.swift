@@ -200,6 +200,39 @@ struct RoleSwitch: View {
     }
 }
 
+/// The layer being adjusted, at the top of the Layer tab: its number (1 = front) in a filled
+/// badge, its name large, and the output it is on, so it is clear at a glance (Akira 2026-11-25).
+struct SelectedLayerHeader: View {
+    @ObservedObject var model: AppModel
+    var body: some View {
+        if let ix = model.selectedLayerIndex {
+            let o = model.show.outputs[ix.o]
+            let l = o.layers[ix.l]
+            HStack(spacing: 8) {
+                Text("\(o.layers.count - ix.l)")
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .frame(minWidth: 26, minHeight: 26)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(l.name ?? model.clipName(l.clipID))
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1).truncationMode(.middle)
+                    Text(L("レイヤー \(o.layers.count - ix.l) ・ \(o.name)", "Layer \(o.layers.count - ix.l) · \(o.name)"))
+                        .font(.caption).foregroundColor(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.14)))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor.opacity(0.6), lineWidth: 1))
+        } else {
+            SectionTitle(L("選んだレイヤー", "Selected Layer"))
+        }
+    }
+}
+
 // MARK: top bar
 
 /// The state of this Mac in words, with a coloured dot.
@@ -1060,7 +1093,7 @@ struct Inspector: View {
     }
 
     @ViewBuilder private var layerSection: some View {
-        SectionTitle(L("選んだレイヤー", "Selected Layer"))
+        SelectedLayerHeader(model: model)
         Picker(L("映像", "Source"), selection: model.layerBinding(\.clipID, "")) {
             ForEach(model.show.clips) { c in Text(c.name).tag(c.id) }
         }
