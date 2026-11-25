@@ -8,6 +8,7 @@ OUT="${1:-samples}"
 mkdir -p "$OUT"
 FONT="${FONT:-$(fc-match -f '%{file}' 'DejaVu Sans:bold' 2>/dev/null || echo /System/Library/Fonts/Helvetica.ttc)}"
 W=1280; H=720; R=30; D=20
+HAS_TEXT=1; ffmpeg -hide_banner -filters 2>/dev/null | grep -q " drawtext " || { HAS_TEXT=0; echo "note: this ffmpeg has no drawtext, so the movies have no text"; }
 PI=3.14159265
 
 label() { # $1 = title
@@ -18,6 +19,10 @@ drawtext=fontfile=$FONT:text='%{pts\:hms}   frame %{n}':x=(w-tw)/2:y=h-60:fontsi
 make() { # $1 = file name, $2 = video source + filters, $3 = audio expression (left|right or one for both)
   local name="$1" vf="$2" af="$3"
   local ach="$af|$af"; [[ "$af" == *"|"* ]] && ach="$af"
+  # Without drawtext (e.g. Homebrew ffmpeg) the movies are made without their text.
+  if [ "$HAS_TEXT" = 0 ]; then
+    vf=$(printf '%s' "$vf" | perl -pe 's/drawtext=(?:[^,\\]|\\.)*,?//g; s/,$//')
+  fi
   ffmpeg -hide_banner -loglevel error -y \
     -f lavfi -i "$vf" \
     -f lavfi -i "aevalsrc=exprs=$ach:s=48000:d=$D" \
