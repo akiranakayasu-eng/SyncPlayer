@@ -28,6 +28,7 @@ func timeString(_ t: Double) -> String {
 struct ControlView: View {
     @ObservedObject var model: AppModel
     let status: StatusModel
+    @AppStorage("ui.sidebarWidth") private var sidebarWidth: Double = 250
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,8 +37,9 @@ struct ControlView: View {
             Divider()
             HStack(spacing: 0) {
                 Sidebar(model: model)
-                    .frame(width: 250)
-                Divider()
+                    .frame(width: sidebarWidth)
+                // Drag the line to widen or narrow the left column (kept per Mac).
+                WidthHandle(width: $sidebarWidth, range: 200...520)
                 VSplitView {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("プレビュー: \(model.selectedOutputConfig?.name ?? "出力がありません")")
@@ -380,6 +382,28 @@ struct Sidebar: View {
     private var screenChoices: [Int] {
         let n = max(model.screenNames.count, (model.selectedOutputConfig?.screen ?? 0) + 1)
         return Array(0..<n)
+    }
+}
+
+/// A vertical line that can be dragged sideways to change the width of the column on its left.
+struct WidthHandle: View {
+    @Binding var width: Double
+    let range: ClosedRange<Double>
+    @State private var start: Double?
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1)
+            .padding(.horizontal, 3)
+            .contentShape(Rectangle())
+            .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+            .gesture(DragGesture(minimumDistance: 1)
+                .onChanged { g in
+                    if start == nil { start = width }
+                    width = min(max((start ?? width) + g.translation.width, range.lowerBound), range.upperBound)
+                }
+                .onEnded { _ in start = nil })
+            .help("ドラッグして左の欄の幅を変える")
     }
 }
 
