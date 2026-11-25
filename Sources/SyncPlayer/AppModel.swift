@@ -839,28 +839,28 @@ final class AppModel: ObservableObject {
     /// there stays, and the other goes back to a window, with a message. ⌘Z undoes it.
     private func resolveFullClash() -> Bool {
         let screens = NSScreen.screens
-        func screenOf(_ o: OutputConfig) -> ObjectIdentifier? {
-            let sc = screens.indices.contains(o.screen) ? screens[o.screen] : (NSScreen.main ?? screens.first)
-            return sc.map { ObjectIdentifier($0) }
-        }
-        var groups: [ObjectIdentifier: [Int]] = [:]
+        // Only outputs whose display is connected now: one set to a display that is not there yet
+        // (a projector still waking) must keep its full screen for when it comes (check 51 H1).
+        func screenOf(_ o: OutputConfig) -> Int? { screens.indices.contains(o.screen) ? o.screen : nil }
+        var groups: [Int: [Int]] = [:]
         for (i, o) in show.outputs.enumerated() where o.fullscreen {
             if let k = screenOf(o) { groups[k, default: []].append(i) }
         }
         var s = show
-        var dropped: [String] = []
+        var any = false
         for idx in groups.values where idx.count > 1 {
+            var dropped: [String] = []
             let fresh = idx.last { i in
                 let o = show.outputs[i]
                 guard let w = outputs[o.id] else { return true }
                 return !w.isFull || w.screenIndex != o.screen
             }
             let keep = fresh ?? idx[0]
-            for i in idx where i != keep { s.outputs[i].fullscreen = false; dropped.append(s.outputs[i].name) }
+            for i in idx where i != keep { s.outputs[i].fullscreen = false; dropped.append(s.outputs[i].name); any = true }
             notify(L("1 つのディスプレイに全画面の出力は 1 つだけ。「\(show.outputs[keep].name)」を全画面にし、「\(dropped.joined(separator: "」「"))」は窓に戻しました（⌘Z で戻せる）",
                      "One full-screen output per display. \(show.outputs[keep].name) is full screen; \(dropped.joined(separator: ", ")) went back to a window (⌘Z undoes)"))
         }
-        if dropped.isEmpty { return false }
+        if !any { return false }
         show = s
         return true
     }
