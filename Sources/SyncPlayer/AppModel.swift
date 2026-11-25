@@ -1213,7 +1213,14 @@ final class AppModel: ObservableObject {
                   let field = editor.delegate as? NSView else { return e }
             let p = field.convert(e.locationInWindow, from: nil)
             // Leave only if that same field is still being typed in (a click on another field moved there).
-            if !field.bounds.contains(p) { DispatchQueue.main.async { if w.firstResponder === editor { w.makeFirstResponder(nil) } } }
+            // The field editor is shared by the window, so compare the field it is editing.
+            if !field.bounds.contains(p) {
+                DispatchQueue.main.async {
+                    if let now = w.firstResponder as? NSTextView, now.isFieldEditor, (now.delegate as? NSView) === field {
+                        w.makeFirstResponder(nil)
+                    }
+                }
+            }
             return e
         }
     }
