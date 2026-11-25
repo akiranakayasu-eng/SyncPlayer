@@ -1362,8 +1362,14 @@ struct Inspector: View {
     /// Settings for an exhibition: after a restart the Mac comes back as it was.
     @ViewBuilder private var exhibitSection: some View {
         FoldSection(L("展示の前の点検", "Pre-show Check"), key: "check", help: "check") {
-        Button(L("点検する", "Check")) { model.runExhibitCheck() }
-            .help(L("展示に入る前に、この Mac の設定とつながりを一度に確かめる", "Check this Mac's settings and connections at once before the exhibition"))
+        HStack(spacing: 6) {
+            Button(L("点検する", "Check")) { model.runExhibitCheck() }
+                .help(L("展示に入る前に、この Mac の設定とつながりを一度に確かめる", "Check this Mac's settings and connections at once before the exhibition"))
+            if model.checkedAt != nil {
+                Button(L("クリア", "Clear")) { model.clearExhibitCheck() }
+                    .help(L("点検の結果を消す（設定は変わらない）", "Clear the check results (settings are not changed)"))
+            }
+        }
         if let at = model.checkedAt {
             Text(L("点検した時刻 \(at.formatted(date: .omitted, time: .shortened))（直したら、もう一度押す）", "Checked at \(at.formatted(date: .omitted, time: .shortened)) (press again after fixing)"))
                 .font(.caption).foregroundColor(.secondary)

@@ -1977,6 +1977,8 @@ final class AppModel: ObservableObject {
     }
     @Published private(set) var checks: [CheckItem] = []
     @Published private(set) var checkedAt: Date?
+    /// Clear the check results (Akira 2026-11-26: a Clear after checking).
+    func clearExhibitCheck() { checks = []; checkedAt = nil }
 
     func runExhibitCheck() {
         var c: [CheckItem] = []
