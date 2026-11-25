@@ -175,6 +175,13 @@ struct KeyListView: View {
 
 /// Follower / Master as two joined buttons; the chosen one is filled in its own colour
 /// (master blue, follower grey), so the role can be told across the room (Akira 2026-11-25).
+/// The role switch's tooltip: what on and off mean.
+func isMaster_help(_ on: Bool) -> String {
+    (on ? L("いま: マスター（この Mac が再生を決める）。", "Now: master (this Mac controls playback). ")
+        : L("いま: フォロワー（マスターに付いていく）。", "Now: follower (follows the master). "))
+    + L("入れるとマスター、切るとフォロワー（M キーでも切り替わる）。マスターは全台で 1 台だけ", "On = master, off = follower (M also switches). Only one master.")
+}
+
 struct RoleSwitch: View {
     let isMaster: Bool
     let set: (Bool) -> Void
@@ -317,7 +324,7 @@ struct TopBar: View {
                 SeatChip(model: model)
                 Spacer(minLength: 8)
                 RoleSwitch(isMaster: model.isMaster) { model.setRoleByHand(master: $0) }
-                .help(L("この Mac の役（M キー）。マスターが再生を決め、ほかの Mac（フォロワー）は付いてくる。マスターは全台で 1 台だけ", "This Mac's role (M). The master controls playback; the other Macs (followers) follow. Only one master."))
+                .help(isMaster_help(model.isMaster))
                 // Sound: a speaker switch and, beside it, which movie's sound (Akira 2026-11-25).
                 Toggle(isOn: Binding(get: { model.audioOn }, set: { model.setAudio($0) })) {
                     Image(systemName: model.audioOn ? "speaker.wave.2.fill" : "speaker.slash")
