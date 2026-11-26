@@ -626,6 +626,8 @@ struct Sidebar: View {
     @AppStorage("ui.leftTab") private var leftTab = 0
     /// Preview sound for the selected footage: off by default (the operator Mac drives the show speakers).
     @State private var clipPreviewSound = false
+    /// The footage details close by clicking the name line, like a folded section (Akira 2026-11-26).
+    @AppStorage("ui.fold.clipDetails") private var clipDetailsOpen = true
     @AppStorage("ui.h.layers") private var hLayers: Double = 0
     @AppStorage("ui.h.clips") private var hClips: Double = 0
 
@@ -937,7 +939,19 @@ struct Sidebar: View {
         if let c = model.show.clip(id) {
             let info = model.clipInfo(id)
             VStack(alignment: .leading, spacing: 4) {
-                Text(c.name).font(.caption.bold()).lineLimit(1).truncationMode(.middle)
+                // Click the name line to close or open the details (kept per Mac; Akira 2026-11-26).
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                        .rotationEffect(.degrees(clipDetailsOpen ? 90 : 0))
+                        .frame(width: 10)
+                    Text(c.name).font(.caption.bold()).lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { clipDetailsOpen.toggle() }
+                .help(clipDetailsOpen ? L("クリックで閉じる", "Click to close") : L("クリックで開く", "Click to open"))
+                if clipDetailsOpen {
                 Group {
                     if model.showPlaying { ClipStill(path: c.path) }
                     else { ClipPreview(path: c.path, sound: clipPreviewSound) }
@@ -977,6 +991,7 @@ struct Sidebar: View {
                 }
                 .buttonStyle(.plain)
                 .help(c.path)
+                }
             }
             .padding(6)
             .frame(maxWidth: .infinity, alignment: .leading)
