@@ -350,6 +350,12 @@ final class AppModel: ObservableObject {
                                                object: nil, queue: .main) { [weak self] _ in self?.screensChanged() }
 
         tickTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in self?.tick() }
+        // The app's file name carries its version, so after an update the login item may still name
+        // the old file: enter this one again (only when Open at Login was turned on here).
+        if UserDefaults.standard.bool(forKey: "login.wanted") {
+            try? SMAppService.mainApp.register()
+            loginItemOn = SMAppService.mainApp.status == .enabled
+        }
         RunLoop.main.add(tickTimer!, forMode: .common)
         if opts.log {
             logTimer = Timer.scheduledTimer(withTimeInterval: opts.logInterval, repeats: true) { [weak self] _ in
@@ -1521,6 +1527,8 @@ final class AppModel: ObservableObject {
     var openAtLogin: Bool {
         get { loginItemOn }
         set {
+            // Remembered, so a new version with another file name (SyncPlayer 0.3.5.app) is entered again.
+            UserDefaults.standard.set(newValue, forKey: "login.wanted")
             do {
                 if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             } catch {
