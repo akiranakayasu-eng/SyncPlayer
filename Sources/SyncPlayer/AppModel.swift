@@ -2169,6 +2169,26 @@ final class AppModel: ObservableObject {
     @Published private(set) var resting = false
     /// The show is playing (for views that should be lighter then, such as the footage preview).
     @Published private(set) var showPlaying = false
+    /// When the show started playing (nil while stopped), for the time played in the status and log
+    /// (Akira 2026-11-26: "再生してからの累積時間を debug でも").
+    private var playingSince: Double?
+    private var droppedAtPlay = 0
+    private var lowestDraw: Double?
+    private var droppedMinute: (at: Double, base: Int, last: Int) = (0, 0, 0)
+    /// Frames skipped over all clips since the app started.
+    var droppedTotal: Int { transport.frames.values.reduce(0) { $0 + $1.framesDropped } }
+    /// One line for the status: time played, frames dropped since Play and in the last minute, lowest draw rate.
+    var playLoadText: String {
+        guard playingSince != nil else { return L("停止中", "stopped") }
+        return String(format: L("再生 %@  落ちたコマ %d（直前の 1 分 %d）  描画の最低 %@", "played %@  dropped %d (last minute %d)  lowest draw %@"),
+                      playedText, max(0, droppedTotal - droppedAtPlay), droppedMinute.last,
+                      lowestDraw.map { String(format: "%.0f fps", $0) } ?? "–")
+    }
+    /// Time played since Play, as 1:23:45 (0:00:00 while stopped).
+    var playedText: String {
+        let t = Int(playingSince.map { max(0, hostNow() - $0) } ?? 0)
+        return String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60)
+    }
     /// Seconds without use before resting (0 = never rest). Kept per Mac.
     var restAfter: Double {
         get { UserDefaults.standard.object(forKey: "ui.restAfter") as? Double ?? 10 }
@@ -2213,7 +2233,17 @@ final class AppModel: ObservableObject {
             ProcessInfo.processInfo.endActivity(a); awake = nil
         }
         let p = transport.schedule?.playing ?? false
-        if p != showPlaying { showPlaying = p }
+        if p != showPlaying {
+            showPlaying = p; playingSince = p ? hostNow() : nil
+            droppedAtPlay = droppedTotal; lowestDraw = nil; droppedMinute = (hostNow(), droppedTotal, 0)
+        }
+        if p {
+            // Lowest draw rate since Play, skipping the first 5 s (clips loading), and drops in the last minute.
+            if let since = playingSince, hostNow() - since > 5, let r = outputs.values.map({ $0.picture.renderer.drawRate }).min(), r > 0 {
+                lowestDraw = min(lowestDraw ?? r, r)
+            }
+            if hostNow() - droppedMinute.at >= 60 { droppedMinute = (hostNow(), droppedTotal, max(0, droppedTotal - droppedMinute.base)) }
+        }
         updateResting()
         // Resting: the control window's words once a second instead of five times.
         guard tickCount % (resting ? 20 : 4) == 0 else { return }
@@ -2512,6 +2542,8 @@ final class AppModel: ObservableObject {
         let longNow = hostNow() < messageUntil && hostNow() < longUntil
         if longNow { add(message, 2) }
         add(String(format: "%@ %@  %@", isMaster ? "MASTER" : "follower", opts.name, show.fileLabel))
+        add(playLoadText, (droppedMinute.last > 300 && playingSince != nil) ? 2 : 0,
+            droppedMinute.last > 300 && playingSince != nil ? L("コマ落ちが多い。素材のプレビューを閉じる、操作の窓を隠す（S）、映像の本数か大きさを減らす", "Many dropped frames. Close the footage preview, hide the control window (S), or use fewer or smaller clips") : nil)
         add(String(format: "pos %.3f s  error %+.1f ms  jumps %d", transport.displayTime(), maxErr, transport.resyncCount),
             abs(maxErr) > 40 ? 3 : abs(maxErr) > 8 ? 2 : 0,
             abs(maxErr) > 8 ? L("ずれが大きい。数秒で戻らないときは、映像の本数か大きさを減らす（目安 1080p 以下、H.264/HEVC）", "Large error. If it doesn't settle in a few seconds, use fewer or smaller clips (about 1080p or less, H.264/HEVC)") : nil)
@@ -2609,6 +2641,7 @@ final class AppModel: ObservableObject {
         // Load check: frames shown / skipped over all clips, and the slowest output's draw rate.
         let fs = Array(transport.frames.values)
         let rates = outputs.values.map { $0.picture.renderer.drawRate }
+        line += "\tplayed=" + playedText + String(format: "\tdropped_since_play=%d\tdropped_last_min=%d", max(0, droppedTotal - droppedAtPlay), droppedMinute.last)
         line += String(format: "\tshown=%d\tdropped=%d\tdraw_fps=%.1f\tformats=%@",
                        fs.reduce(0) { $0 + $1.framesShown }, fs.reduce(0) { $0 + $1.framesDropped }, rates.min() ?? 0,
                        Set(fs.map(\.format)).sorted().joined(separator: ","))
