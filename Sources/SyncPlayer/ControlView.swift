@@ -804,6 +804,13 @@ struct Sidebar: View {
             outputSection
             ThinLine()
             FoldSection("Layers", key: "layers", help: "layers") {
+            // Column names: click Name or Duration to sort, again to reverse, like Finder's list
+            // view (Akira 2026-11-26). The list's order is the front and back, so this moves them too.
+            ColumnHeader(numberWidth: 16, gapForEye: true,
+                         name: (model.layerSortState(.layerName), { model.sortLayers(by: .layerName) }),
+                         length: (model.layerSortState(.length), { model.sortLayers(by: .length) }),
+                         help: L("押すと並べ替え、もう一度押すと逆順。上が手前なので、手前・奥も変わる（⌘Z で戻せる）",
+                                 "Click to sort, again to reverse. The top is the front, so front and back change too (⌘Z to undo)"))
             ScrollViewReader { proxy in
             List {
                 // Numbered from the front (1 = frontmost, like After Effects). Drag a row to change
@@ -890,6 +897,10 @@ struct Sidebar: View {
                 VStack(alignment: .leading, spacing: 6) {
                 // One line per movie (the list was 2 lines a movie and made the column long). Replace and
                 // remove act on the selected movie, like the layer buttons.
+                ColumnHeader(numberWidth: nil, gapForEye: false,
+                             name: (model.clipSortState(.fileName), { model.sortClips(by: .fileName) }),
+                             length: (model.clipSortState(.length), { model.sortClips(by: .length) }),
+                             help: L("押すと並べ替え、もう一度押すと逆順（⌘Z で戻せる）", "Click to sort, again to reverse (⌘Z to undo)"))
                 ScrollViewReader { proxy in
                 List {
                     ForEach(model.show.clips) { c in
@@ -2106,5 +2117,42 @@ struct SortMenu: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .help(help)
+    }
+}
+
+/// Column names over a list (# · Name · Duration). Name and Duration sort when clicked, again to
+/// reverse, with an arrow beside the one the list is sorted by now (Akira 2026-11-26, like Finder).
+struct ColumnHeader: View {
+    let numberWidth: CGFloat?
+    let gapForEye: Bool
+    let name: (Bool?, () -> Void)
+    let length: (Bool?, () -> Void)
+    let help: String
+    var body: some View {
+        HStack(spacing: 4) {
+            if let w = numberWidth {
+                Text("#").frame(minWidth: w, alignment: .trailing).foregroundColor(.secondary)
+            }
+            if gapForEye { Color.clear.frame(width: 18, height: 1) }
+            head("Name", name.0, name.1)
+            Spacer(minLength: 4)
+            head("Duration", length.0, length.1)
+        }
+        .font(.system(size: 10, weight: .semibold))
+        // Lined up with the rows' text inside the list's inset.
+        .padding(.horizontal, 10)
+        .padding(.bottom, -2)
+    }
+    private func head(_ title: String, _ up: Bool?, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 2) {
+                Text(title)
+                if let up { Image(systemName: up ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .bold)) }
+            }
+            .foregroundColor(up == nil ? .secondary : .primary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }

@@ -1234,6 +1234,36 @@ final class AppModel: ObservableObject {
         notify(L("レイヤーを並べ替えました（上が手前。⌘Z で戻せる）", "Layers sorted (top = front; ⌘Z to undo)"))
     }
 
+    /// How the selected Screen's layers are ordered now by this key, as the list shows them
+    /// (front first): true = ascending, false = descending, nil = neither. The column headers
+    /// show it as an arrow, read from the order itself so ⌘Z and dragging keep it right.
+    func layerSortState(_ key: SortKey) -> Bool? {
+        guard let o = selectedOutputIndex, show.outputs[o].layers.count > 1 else { return nil }
+        let shown = Array(show.outputs[o].layers.reversed())
+        func name(_ l: Layer) -> String { key == .layerName ? (l.name ?? clipName(l.clipID)) : clipName(l.clipID) }
+        return sortState(shown, length: key == .length ? { self.clipLength($0.clipID) } : nil, name: name)
+    }
+
+    /// The same for Footage.
+    func clipSortState(_ key: SortKey) -> Bool? {
+        sortState(show.clips, length: key == .length ? { self.clipLength($0.id) } : nil, name: { $0.name })
+    }
+
+    private func sortState<T>(_ xs: [T], length: ((T) -> Double)?, name: (T) -> String) -> Bool? {
+        guard xs.count > 1 else { return nil }
+        func cmp(_ a: T, _ b: T) -> ComparisonResult {
+            if let length {
+                let x = length(a), y = length(b)
+                if x != y { return x < y ? .orderedAscending : .orderedDescending }
+            }
+            return name(a).localizedStandardCompare(name(b))
+        }
+        let pairs = zip(xs, xs.dropFirst()).map { cmp($0, $1) }
+        if pairs.allSatisfy({ $0 != .orderedDescending }) && pairs.contains(.orderedAscending) { return true }
+        if pairs.allSatisfy({ $0 != .orderedAscending }) && pairs.contains(.orderedDescending) { return false }
+        return nil
+    }
+
     /// Sorts Footage by name or length; the same way twice turns it round.
     func sortClips(by key: SortKey) {
         guard show.clips.count > 1 else { return }
