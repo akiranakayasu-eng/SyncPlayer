@@ -227,16 +227,17 @@ final class GPU {
     /// Grid vertices (output x,y + source u,v) for one layer's look.
     func vertices(_ s: DisplaySettings, viewAspect: Double, videoAspect: Double) -> MTLBuffer? {
         let N = GPU.N
-        let H = Warp.Homography(Warp.corners(s, viewAspect: viewAspect, videoAspect: videoAspect))
+        let q = Warp.corners(s, viewAspect: viewAspect, videoAspect: videoAspect)
+        let H = Warp.Homography(q), P = Warp.Place(s, corners: q, viewAspect: viewAspect)
         let m = s.meshOffsets
         var verts: [SIMD4<Float>] = []
         verts.reserveCapacity((N + 1) * (N + 1))
         for j in 0...N {
             for i in 0...N {
                 let u = Double(i) / Double(N), v = Double(j) / Double(N)
-                let o = Warp.output(s, H, m, u, v)
-                let src = Warp.source(s, videoAspect: videoAspect, u, v)
-                verts.append(SIMD4(Float(o.x), Float(o.y), Float(src.x), Float(src.y)))
+                // The movie fills the layer; position, scale and rotation move the layer on the Screen.
+                let o = P.map(Warp.output(s, H, m, u, v))
+                verts.append(SIMD4(Float(o.x), Float(o.y), Float(u), Float(v)))
             }
         }
         return device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<SIMD4<Float>>.stride)

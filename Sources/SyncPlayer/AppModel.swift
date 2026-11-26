@@ -90,10 +90,10 @@ final class AppModel: ObservableObject {
         var video = 16.0 / 9.0
         if let a = transport.frames[l.clipID]?.aspect, a > 0 { video = a }
         let q = Warp.corners(s, viewAspect: viewAspect, videoAspect: video)
-        let H = Warp.Homography(q), m = s.meshOffsets
+        let H = Warp.Homography(q), m = s.meshOffsets, P = Warp.Place(s, corners: q, viewAspect: viewAspect)
         var lo = SIMD2<Double>(.infinity, .infinity), hi = -lo
         for j in 0...s.meshRows {
-            for k in 0...s.meshCols { let p = Warp.meshNode(s, H, m, k, j); lo = pointwiseMin(lo, p); hi = pointwiseMax(hi, p) }
+            for k in 0...s.meshCols { let p = P.map(Warp.meshNode(s, H, m, k, j)); lo = pointwiseMin(lo, p); hi = pointwiseMax(hi, p) }
         }
         guard lo.x.isFinite, hi.x > lo.x, hi.y > lo.y else { return nil }
         return CGRect(x: lo.x, y: lo.y, width: hi.x - lo.x, height: hi.y - lo.y)
@@ -1634,11 +1634,11 @@ final class AppModel: ObservableObject {
         for l in o.layers.reversed() where l.visible && l.opacity > 0.01 {
             let a = transport.frames[l.clipID]?.aspect ?? 0
             let video = a > 0 ? a : 16.0 / 9.0
-            let H = Warp.Homography(Warp.corners(l.look, viewAspect: view, videoAspect: video))
-            guard let uv = H.unmap(p.x, p.y), (0...1).contains(uv.x), (0...1).contains(uv.y) else { continue }
-            let src = Warp.source(l.look, videoAspect: video, uv.x, uv.y)
+            let q = Warp.corners(l.look, viewAspect: view, videoAspect: video)
+            let back = Warp.Place(l.look, corners: q, viewAspect: view).unmap(p)
+            guard let uv = Warp.Homography(q).unmap(back.x, back.y), (0...1).contains(uv.x), (0...1).contains(uv.y) else { continue }
             let s = l.look
-            guard src.x >= s.cropL, src.x <= 1 - s.cropR, src.y >= s.cropB, src.y <= 1 - s.cropT else { continue }
+            guard uv.x >= s.cropL, uv.x <= 1 - s.cropR, uv.y >= s.cropB, uv.y <= 1 - s.cropT else { continue }
             if selectedLayer != l.id {
                 selectedLayer = l.id
                 notify(L("レイヤー: \(clipName(l.clipID))", "Layer: \(clipName(l.clipID))"))

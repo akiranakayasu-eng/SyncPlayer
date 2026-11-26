@@ -4,7 +4,7 @@ import Foundation
 /// Coordinates are normalized to the output window: (0,0) bottom-left, (1,1) top-right.
 struct DisplaySettings: Codable, Equatable {
     // Content transform inside the canvas
-    var posX = 0.0, posY = 0.0          // shift, in canvas widths/heights
+    var posX = 0.0, posY = 0.0          // moves the whole layer, in Screen widths/heights
     var scale = 1.0
     var rotation = 0.0                  // degrees, counter-clockwise
     // Crop (mask) of the source picture, fraction of each side

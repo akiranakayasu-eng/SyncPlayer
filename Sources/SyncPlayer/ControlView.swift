@@ -1868,17 +1868,17 @@ struct Inspector: View {
         DisclosureGroup(isExpanded: $openPlace) {
             VStack(alignment: .leading, spacing: 6) {
                 SliderRow(label: L("横の位置", "Position X"), value: model.lookBinding(\.posX, 0), range: -1...1, defaultValue: 0, unit: ValueText.signedPercent,
-                          help: L("レイヤーの枠（4 分割なら 1 ます）の幅に対する割合。＋で右へ", "Fraction of the layer frame's width (one cell when tiled). + is right"))
+                          help: L("Screen の幅に対する割合。＋で右へ", "Fraction of the Screen's width. + is right"))
                 SliderRow(label: L("縦の位置", "Position Y"), value: model.lookBinding(\.posY, 0), range: -1...1, defaultValue: 0, unit: ValueText.signedPercent,
-                          help: L("レイヤーの枠の高さに対する割合", "Fraction of the layer frame's height"))
+                          help: L("Screen の高さに対する割合。＋で上へ", "Fraction of the Screen's height. + is up"))
                 SliderRow(label: L("大きさ", "Scale"), value: model.lookBinding(\.scale, 1), range: 0.1...4, defaultValue: 1, unit: ValueText.percent,
-                          help: L("100% でレイヤーの枠いっぱい", "100% fills the layer frame"))
+                          help: L("レイヤーを四隅の真ん中を中心に大きく・小さく", "Scales the layer about the middle of its corners"))
                 SliderRow(label: L("回転", "Rotation"), value: model.lookBinding(\.rotation, 0), range: -180...180, defaultValue: 0, unit: ValueText.degrees)
                 Button(L("位置・大きさ・回転を戻す（0）", "Reset Transform (0)")) {
                     guard var s = model.selectedLook else { return }
                     s.resetTransform(); model.updateLook(s)
                 }
-                Text(L("レイヤーの板の中で絵を動かす。板そのものの形と置き場所は Corner Pin で変える。", "Moves the picture inside the layer's frame. The frame itself is moved with Corner Pin."))
+                Text(L("レイヤーを四隅・曲面ごと Screen の上で動かす（After Effects と同じ）。はみ出しは Screen の端でだけ切れる。", "Moves the whole layer, corners and mesh included, on the Screen (as in After Effects). Only the Screen's edge cuts it."))
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
@@ -1932,7 +1932,7 @@ struct Inspector: View {
                     Button(L("メッシュを戻す", "Reset Mesh")) { guard var s = model.selectedLook else { return }; s.resetMesh(); model.updateLook(s) }
                 }
                 Toggle(L("確認用の格子（G）", "Grid (G)"), isOn: model.lookBinding(\.showGrid, false))
-                Text(L("レイヤーの板の 4 つの角と曲面の点を、Screen の上で動かす。点はプレビューか Screen の窓でドラッグ。Tab で次の点、矢印で 1 px（shift で 10 px）。", "Moves the corners and mesh points of the layer's frame on the Screen. Drag points in the preview or a screen. Tab: next point, arrows: 1 px (shift: 10 px)."))
+                Text(L("レイヤーの 4 つの角と曲面の点を、Screen の上で動かす。点はプレビューか Screen の窓でドラッグ。Tab で次の点、矢印で 1 px（shift で 10 px）。", "Moves the layer's corners and mesh points on the Screen. Drag points in the preview or a screen. Tab: next point, arrows: 1 px (shift: 10 px)."))
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)

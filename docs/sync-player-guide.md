@@ -167,7 +167,7 @@ Releases の `SyncPlayer-<版>-samples.zip`（アプリとは別のダウンロ�
 | 大きさ | 何か | 効く設定 |
 |---|---|---|
 | 素材 | 映像そのもの（1 コマの絵） | Crop（切り取り・ぼかし）、Mask |
-| レイヤーの板 | Screen の上に置いた 1 枚の板。四隅の点がその角 | Corner Pin & Mesh（板の形と置き場所）、Transform（板の中で絵を動かす）、Opacity |
+| レイヤー | Screen の上に置いた 1 枚の絵。四隅の点がその角 | Corner Pin & Mesh（四隅と曲面の形）、Transform（四隅・曲面ごとレイヤーを Screen の上で動かす。After Effects と同じ）、Opacity |
 | Screen | プロジェクター 1 台に出す 1 枚の絵 | Edge Blend |
 
 Properties のタブは、上に選んだレイヤーの設定、下に選んでいる Screen の設定（Edge Blend）を出す。
