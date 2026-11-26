@@ -351,7 +351,9 @@ final class AppModel: ObservableObject {
 
         tickTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in self?.tick() }
         // The app's file name carries its version, so after an update the login item may still name
-        // the old file: enter this one again (only when Open at Login was turned on here).
+        // the old file: enter this one again when Open at Login was on (check 63 M1: also when it was
+        // turned on in 0.3.4, which did not remember it).
+        if SMAppService.mainApp.status == .enabled { UserDefaults.standard.set(true, forKey: "login.wanted") }
         if UserDefaults.standard.bool(forKey: "login.wanted") {
             try? SMAppService.mainApp.register()
             loginItemOn = SMAppService.mainApp.status == .enabled
@@ -453,6 +455,12 @@ final class AppModel: ObservableObject {
 
     private func showDidChange(_ old: Show) {
         recordUndo(old)
+        if Show.oldTransforms > 0 {
+            let n = Show.oldTransforms
+            Show.oldTransforms = 0
+            notify(L("前の版のショーです。位置・大きさ・回転はレイヤーごと動かす作りになったので、それを変えていたレイヤー \(n) 枚は見え方が変わります。Properties の Transform で合わせ直してください",
+                     "A show from an earlier version: position, scale and rotation now move the whole layer, so \(n) layer(s) that used them look different. Adjust them again under Transform in Properties"))
+        }
         if show.seatClips != old.seatClips { transport.setClips(show.seatClips) }
         // A show opened or another seat brings this Mac's sound setting with it.
         var soundChanged = show.seatClips != old.seatClips || show.audioClip != old.audioClip

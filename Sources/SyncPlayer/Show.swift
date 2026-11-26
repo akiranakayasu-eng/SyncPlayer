@@ -49,6 +49,19 @@ struct Layer: Codable, Equatable, Identifiable {
 struct EdgeBlend: Codable, Equatable {
     var l = 0.0, r = 0.0, t = 0.0, b = 0.0
     var gamma = 2.2
+
+    init(l: Double = 0, r: Double = 0, t: Double = 0, b: Double = 0, gamma: Double = 2.2) {
+        self.l = l; self.r = r; self.t = t; self.b = b; self.gamma = gamma
+    }
+    /// A missing value reads as its default (a file edited by hand still opens; check 63 L3).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        l = try c.decodeIfPresent(Double.self, forKey: .l) ?? 0
+        r = try c.decodeIfPresent(Double.self, forKey: .r) ?? 0
+        t = try c.decodeIfPresent(Double.self, forKey: .t) ?? 0
+        b = try c.decodeIfPresent(Double.self, forKey: .b) ?? 0
+        gamma = try c.decodeIfPresent(Double.self, forKey: .gamma) ?? 2.2
+    }
 }
 
 /// One output window (a Screen): the display or projector it goes to and the layers drawn on it.
@@ -132,7 +145,11 @@ struct Seat: Codable, Equatable, Identifiable {
 /// and the loop. Saved as one .syncshow file (JSON) that every Mac opens.
 /// outputs / audioClip / audioOn are those of the seat this Mac is (seatID, kept per Mac, not in the file).
 struct Show: Codable, Equatable {
-    var version = 2
+    /// 3 since 0.3.5: position / scale / rotation move the whole layer (before: the picture inside it).
+    var version = 3
+    /// Layers with a moved, scaled or turned picture in the last file of version 2 or older that was
+    /// read; they now look different. The app tells once and clears it (check 63 M2).
+    static var oldTransforms = 0
     /// Identifies the exhibition, so each Mac can remember its seat in it (also after copying the file).
     var id = UUID().uuidString
     var clips: [Clip] = []
@@ -204,6 +221,12 @@ struct Show: Codable, Equatable {
         var seen = Set<String>()
         for i in seats.indices { if !seen.insert(seats[i].id).inserted { seats[i].id = UUID().uuidString } }
         seatID = seats[0].id
+        if version < 3 {
+            let d = DisplaySettings()
+            Show.oldTransforms += seats.flatMap { $0.outputs.flatMap(\.layers) }.filter {
+                $0.look.posX != d.posX || $0.look.posY != d.posY || $0.look.scale != d.scale || $0.look.rotation != d.rotation
+            }.count
+        }
         loopTogether = try c.decodeIfPresent(Bool.self, forKey: .loopTogether) ?? true
         loopLength = max(0, try c.decodeIfPresent(Double.self, forKey: .loopLength) ?? 0)
         if loopLength > 0 && loopLength < Show.minLoop { loopLength = Show.minLoop }
@@ -211,7 +234,7 @@ struct Show: Codable, Equatable {
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(2, forKey: .version)
+        try c.encode(3, forKey: .version)
         try c.encode(id, forKey: .id)
         try c.encode(clips, forKey: .clips)
         try c.encode(seats, forKey: .seats)
