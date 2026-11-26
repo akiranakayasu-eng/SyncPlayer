@@ -1548,9 +1548,10 @@ struct Inspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Picker("", selection: $tab) {
-                Text(L("手順", "Steps")).tag(3)
+                // Layer at the left, Steps at the right (Akira 2026-11-26).
                 Text(L("画面の調整", "Layer")).tag(0)
                 Text(L("展示の設定", "Exhibit")).tag(1)
+                Text(L("手順", "Steps")).tag(3)
             }
             .pickerStyle(.segmented)
             .labelsHidden()

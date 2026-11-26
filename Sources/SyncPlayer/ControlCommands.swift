@@ -159,7 +159,8 @@ extension AppModel {
                 "number": i + 1, "name": o.name, "display": o.screen + 1, "fullscreen": o.fullscreen,
                 "drawFps": outputs[o.id]?.picture.renderer.drawRate ?? 0,
                 "layers": o.layers.reversed().enumerated().map { (j, l) -> [String: Any] in
-                    ["number": j + 1,   // 1 = front, as in the layer list "name": l.name ?? clipName(l.clipID), "visible": l.visible, "opacity": l.opacity]
+                    ["number": j + 1,   // 1 = front, as in the layer list
+                     "name": l.name ?? clipName(l.clipID), "visible": l.visible, "opacity": l.opacity]
                 },
             ]
         }
