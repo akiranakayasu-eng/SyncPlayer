@@ -103,6 +103,7 @@ extension AppModel {
             log("layer \(o + 1)/\(n) visible=\(l.visible) opacity=\(l.opacity)")
         case "/overlay":
             if let b = flag("names") { showIdent = b }
+            if let b = flag("labels") { showLabels = b }
             if let b = flag("info") { setInfoShown(b) }
             if let b = flag("grid") {
                 var s = show
@@ -126,7 +127,7 @@ extension AppModel {
             transport.resetCounts()
             log("reset counts")
         default:
-            return .error(404, "unknown command \(r.path). Commands: /status /play /pause /toggle /home /seek?t= /role?master= /audio?on= /layer?o=&n=&visible=&opacity= /overlay?grid=&names=&info= /open?show= /reset-counts")
+            return .error(404, "unknown command \(r.path). Commands: /status /play /pause /toggle /home /seek?t= /role?master= /audio?on= /layer?o=&n=&visible=&opacity= /overlay?grid=&names=&info=&labels= /open?show= /reset-counts")
         }
         notify(L("外からの命令: \(r.path)", "Command from outside: \(r.path)"))
         var b = controlStatus()
@@ -175,6 +176,7 @@ extension AppModel {
             }
         }
         b["names"] = showIdent
+        b["labels"] = showLabels
         b["info"] = infoShownNow
         return b
     }

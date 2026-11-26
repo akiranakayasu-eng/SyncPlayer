@@ -1164,6 +1164,9 @@ struct PreviewBar: View {
                 model.lookBinding(\.showGrid, false).wrappedValue.toggle()
             }
             .disabled(model.selectedLook == nil)
+            BarIcon("tag", on: model.showLabels, L("レイヤー名とファイル名（T）", "Layer and file names (T)")) {
+                model.showLabels.toggle()
+            }
             BarIcon("number.square", on: model.showIdent, L("Mac 名とディスプレイの番号（N）", "Mac names and display numbers (N)")) {
                 model.showIdent.toggle()
             }

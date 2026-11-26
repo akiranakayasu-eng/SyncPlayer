@@ -80,18 +80,28 @@ final class AppModel: ObservableObject {
     /// layers show around it (Akira 2026-11-26).
     func fitPreviewToLayer() {
         guard let i = selectedLayerIndex, let box = previewBox else { notify(L("レイヤーを選んでください", "Select a layer")); return }
-        let s = show.outputs[i.o].layers[i.l].look
+        guard let r = layerBox(show.outputs[i.o].layers[i.l], viewAspect: box.aspect) else { return }
+        box.focus(r)
+    }
+
+    /// Where a layer lands in its output (normalized, 0,0 bottom-left): the box around its corners and mesh.
+    func layerBox(_ l: Layer, viewAspect: Double) -> CGRect? {
+        let s = l.look
         var video = 16.0 / 9.0
-        if let a = transport.frames[show.outputs[i.o].layers[i.l].clipID]?.aspect, a > 0 { video = a }
-        let q = Warp.corners(s, viewAspect: box.aspect, videoAspect: video)
+        if let a = transport.frames[l.clipID]?.aspect, a > 0 { video = a }
+        let q = Warp.corners(s, viewAspect: viewAspect, videoAspect: video)
         let H = Warp.Homography(q), m = s.meshOffsets
         var lo = SIMD2<Double>(.infinity, .infinity), hi = -lo
         for j in 0...s.meshRows {
             for k in 0...s.meshCols { let p = Warp.meshNode(s, H, m, k, j); lo = pointwiseMin(lo, p); hi = pointwiseMax(hi, p) }
         }
-        guard lo.x.isFinite, hi.x > lo.x, hi.y > lo.y else { return }
-        box.focus(CGRect(x: lo.x, y: lo.y, width: hi.x - lo.x, height: hi.y - lo.y))
+        guard lo.x.isFinite, hi.x > lo.x, hi.y > lo.y else { return nil }
+        return CGRect(x: lo.x, y: lo.y, width: hi.x - lo.x, height: hi.y - lo.y)
     }
+
+    /// Layer name and file name, large, on every visible layer of the preview and the outputs
+    /// (T, or the tag under the preview; this Mac only. Akira 2026-11-26).
+    @Published var showLabels = false { didSet { redrawOverlays() } }
     var showHelp = false
     /// Info text on windowed outputs (shown unless I hides it).
     var infoHidden = false
@@ -156,6 +166,7 @@ final class AppModel: ObservableObject {
             KeyItem(key: "⇧⌘Y", what: L("詳しい状態を隠す／出す", "Hide / show the status panel")),
             KeyItem(key: "I", what: L("動作確認の文字", "Info text")),
             KeyItem(key: "N", what: L("Mac 名とディスプレイの番号", "Mac names and display numbers")),
+            KeyItem(key: "T", what: L("レイヤー名とファイル名", "Layer and file names")),
             KeyItem(key: "⇧Z", what: L("プレビューを選んだレイヤーに合わせる", "Fit the preview to the selected layer")),
             KeyItem(key: "H  ?", what: L("キー一覧（出力の画面に）", "Key list (on the outputs)")),
             KeyItem(key: "F", what: L("全画面", "Full screen")),
@@ -971,6 +982,16 @@ final class AppModel: ObservableObject {
             return (viewAspect(), video)
         }
         ov.onChange = { [weak self] s in self?.updateLook(s) }
+        ov.showLabels = { [weak self] in self?.showLabels ?? false }
+        ov.labels = { [weak self] in
+            guard let self, let id = outputID(), let o = self.show.outputs.first(where: { $0.id == id }) else { return [] }
+            let va = viewAspect()
+            return o.layers.compactMap { l in
+                guard l.visible, let r = self.layerBox(l, viewAspect: va) else { return nil }
+                let file = self.clipName(l.clipID)
+                return (l.name ?? file, file, r)
+            }
+        }
     }
 
     private func updatePresentation() {
@@ -1963,6 +1984,7 @@ final class AppModel: ObservableObject {
         case "l": selectNextLayer()
         case "a": setAudio(!audioOn)
         case "n": showIdent.toggle()
+        case "t": showLabels.toggle()
         case "z": if shift { fitPreviewToLayer() } else { return false }
         case "q": NSApp.terminate(nil)
         case "g", "e", "w", "+", "=", "-", "_", "[", "]", "0":
@@ -2142,7 +2164,7 @@ final class AppModel: ObservableObject {
         }
         add(!(exhibitTakenOver && exhibitMaster && master == nil), L("展示のマスターは 1 台だけ", "Only one exhibition master"), L("ほかの Mac の「展示のマスター」を切る", "Turn off Exhibition Master on the other Mac"))
         add(!netBlocked, L("ネットワークに届く", "The network is reachable"), L("システム設定 → プライバシーとセキュリティ → ローカルネットワークで SyncPlayer を入れる", "Turn on SyncPlayer in System Settings → Privacy & Security → Local Network"))
-        add(!infoShownNow && !showIdent, L("動作確認の文字と名前の表示（I・N）を消してある", "Info text and names (I, N) are off"), L("I と N を切る", "Turn off I and N"))
+        add(!infoShownNow && !showIdent && !showLabels, L("動作確認の文字と名前の表示（I・N・T）を消してある", "Info text and names (I, N, T) are off"), L("I・N・T を切る", "Turn off I, N and T"))
         add(AppModel.pmsetValue("autorestart").map { $0 == "1" }, L("停電のあと電源が戻ると Mac が起動する", "The Mac starts when power returns"),
             L("ターミナルで sudo pmset -a autorestart 1、またはシステム設定の「停電後に自動的に起動」", "sudo pmset -a autorestart 1 in Terminal, or Start up automatically after a power failure in System Settings"))
         add(AppModel.plist("/Library/Preferences/com.apple.loginwindow.plist").map { $0["autoLoginUser"] != nil },
