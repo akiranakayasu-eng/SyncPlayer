@@ -413,6 +413,7 @@ struct TopBar: View {
                     Text(" / ")
                     Text(L("ループ", "Loop") + (model.show.loopClip.map { " = " + model.clipName($0) } ?? ""))
                         .lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: 140, alignment: .leading)   // a long name doesn't squeeze the bar (check 67 L5)
                 }
                 .font(.system(size: 9)).foregroundColor(.secondary)
                 HStack(spacing: 0) {
@@ -490,10 +491,12 @@ struct TopBar: View {
                             }
                             Divider()
                             ForEach(model.show.clips) { c in
+                                let len = model.clipLength(c.id)
                                 Button { model.loopToClip(c.id) } label: {
-                                    let t = "\(c.name)  \(timeString(model.clipLength(c.id)))"
+                                    let t = "\(c.name)  " + (len > 0 ? timeString(len) : L("（長さが読めない）", "(length unknown)"))
                                     if model.show.loopClip == c.id { Label(t, systemImage: "checkmark") } else { Text(t) }
                                 }
+                                .disabled(len <= 0)   // not on this Mac (another seat's) or not read yet (check 67 L1)
                             }
                         } label: { Image(systemName: "chevron.down") }
                             .menuStyle(.borderlessButton)
@@ -516,7 +519,13 @@ struct TopBar: View {
                     .help(L("ドラッグして離すと、全部の Mac がその位置へ", "Drag and release to move all Macs there"))
                 // Next to the loop length it governs (Akira 2026-11-25: up here, not at the bottom of the left column).
                 Toggle(L("全部いっしょにループ", "Loop Together"), isOn: Binding(get: { model.show.loopTogether },
-                                                        set: { v in if model.show.loopTogether != v { model.show.loopTogether = v } }))
+                                                        set: { v in
+                                                            guard model.show.loopTogether != v else { return }
+                                                            var s = model.show
+                                                            s.loopTogether = v
+                                                            if !v { s.loopClip = nil }   // each clip's own length: nothing to follow (check 67 M1)
+                                                            model.show = s
+                                                        }))
                     .toggleStyle(.checkbox)
                     .fixedSize()
                     .help(L("入れると、すべての Mac の映像が同じ長さ（左の / のあとの時刻。押すと打てる）で頭へ戻る。短い映像は最後のコマで待つ。切ると映像ごとに自分の長さでループする（マスターの設定が使われる）", "On: every clip on every Mac goes back to the start at one length (the time after / at the left; click to type). Shorter clips hold their last frame. Off: each clip loops at its own length (the master's setting is used)"))

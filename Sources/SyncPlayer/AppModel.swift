@@ -1266,11 +1266,13 @@ final class AppModel: ObservableObject {
     /// Keeps loopLength equal to the followed clip's length once that is known.
     func followLoopClip() {
         guard isMaster, let id = show.loopClip else { return }   // the master's loop is the one used
-        guard show.clip(id) != nil else { show.loopClip = nil; return }
+        // Kept out of undo: ⌘Z of a replace brings the old movie back, and this follows it again
+        // (check 67 L1). Never turns Loop Together back on (check 67 M1).
+        guard show.clip(id) != nil else { undoing = true; show.loopClip = nil; undoing = false; return }
         let t = clipLength(id)
         guard t > 0 else { return }
         let want = max(t, Show.minLoop)
-        if abs(show.loopLength - want) > 0.0005 || !show.loopTogether { show.loopLength = want; show.loopTogether = true }
+        if abs(show.loopLength - want) > 0.0005 { undoing = true; show.loopLength = want; undoing = false }
     }
 
     /// The clip's length in seconds (0 while it is still being read or cannot be opened).
@@ -2172,8 +2174,9 @@ final class AppModel: ObservableObject {
 
     private func watchUse() {
         control?.acceptsMouseMovedEvents = true
-        useMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .leftMouseDragged,
-                                                                 .scrollWheel, .keyDown, .flagsChanged]) { [weak self] e in
+        useMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseDragged,
+                                                                 .rightMouseDragged, .otherMouseDragged, .scrollWheel, .magnify,
+                                                                 .keyDown, .flagsChanged]) { [weak self] e in
             guard let self else { return e }
             if e.window === self.control || e.type == .keyDown {
                 self.lastUse = hostNow()
@@ -2225,7 +2228,9 @@ final class AppModel: ObservableObject {
             if shape(ps) != shape(peers) || now - peersAt >= 1 { peers = ps; peersAt = now }
         }
         if master != nil && !ps.isEmpty { learned("synced") }
-        if tickCount % 100 == 4 { probeNetwork() }
+        // On a multiple of 20 so it still runs while resting (check 67 L2).
+        if tickCount % 100 == 0 { probeNetwork() }
+        if tickCount % 20 == 0 { followLoopClip() }   // once a second: a new master, a replaced or undone movie (check 67 L1)
         // Just made full screen by hand (not the exhibition starting): how to get back, for a few seconds.
         let fullNow = Set(outputs.filter { $0.value.isFull }.map(\.key))
         if hostNow() - started > 10 {
@@ -2497,8 +2502,10 @@ final class AppModel: ObservableObject {
             out.append(StatusLine(id: out.count, text: t, level: level, fix: fix))
         }
         let maxErr = transport.maxError * 1000
-        // The last message first, so it is seen without scrolling; a long (important) one in orange.
-        if hostNow() < messageUntil { add(message, hostNow() < longUntil ? 2 : 0) }
+        // An important (long) message first and in orange, so it is seen without scrolling; short ones
+        // at the end as before, so the rows don't jump each time (check 67 L3).
+        let longNow = hostNow() < messageUntil && hostNow() < longUntil
+        if longNow { add(message, 2) }
         add(String(format: "%@ %@  %@", isMaster ? "MASTER" : "follower", opts.name, show.fileLabel))
         add(String(format: "pos %.3f s  error %+.1f ms  jumps %d", transport.displayTime(), maxErr, transport.resyncCount),
             abs(maxErr) > 40 ? 3 : abs(maxErr) > 8 ? 2 : 0,
@@ -2580,6 +2587,7 @@ final class AppModel: ObservableObject {
             add(String(format: L("描画 %@ %.0f fps", "Draw %@ %.0f fps"), o.name, r), r > 0 && r < 50 ? 2 : 0,
                 r > 0 && r < 50 ? L("描画が遅い。Screen・レイヤーの数か映像の大きさを減らす", "Drawing is slow. Use fewer screens or layers, or smaller clips") : nil)
         }
+        if hostNow() < messageUntil && !longNow { add(message) }
         return out
     }
 

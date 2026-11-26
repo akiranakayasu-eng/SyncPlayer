@@ -272,7 +272,8 @@ struct Show: Codable, Equatable {
     /// Kept under ~400 bytes so the announcement fits one packet; long lists become a count,
     /// the start of the names and a short hash (the same on every Mac with the same clips).
     var fileLabel: String {
-        let full = clips.map(\.name).joined(separator: " + ").precomposedStringWithCanonicalMapping
+        // In name order, so sorting Footage on one Mac doesn't look like another show (check 67 M2).
+        let full = clips.map(\.name).sorted().joined(separator: " + ").precomposedStringWithCanonicalMapping
         guard full.utf8.count > 400 else { return full }
         var h: UInt32 = 2_166_136_261
         for b in full.utf8 { h = (h ^ UInt32(b)) &* 16_777_619 }
