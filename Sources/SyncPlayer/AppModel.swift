@@ -98,6 +98,11 @@ final class AppModel: ObservableObject {
     private var peersAt = 0.0
     /// Sends from this Mac do not reach the network (no Local Network permission, or no network).
     @Published private(set) var netBlocked = false
+    /// The command port (ControlCommands.swift): open or not, why it could not open, last command.
+    let controlPort = ControlPort()
+    @Published var controlOn = false
+    @Published var controlError: String?
+    @Published var controlLastAt = 0.0
     private var probe: UDPSocket?
     private let started = hostNow()
     private var fullBefore: Set<String> = []

@@ -344,6 +344,7 @@ struct TopBar: View {
             HStack(spacing: 10) {
                 // The seat at the far left; the state and the master switch in the middle (Akira 2026-11-26).
                 SeatChip(model: model)
+                ControlChip(model: model)
                 Spacer(minLength: 8)
                 StatusBadge(status: status)
                 RoleSwitch(isMaster: model.isMaster) { model.setRoleByHand(master: $0) }
@@ -1046,6 +1047,78 @@ extension View {
                 }
             }
         } else { self }
+    }
+}
+
+/// Settings ▸ the command port (Akira 2026-11-26: off by default, turned on here, with the risk written out).
+extension SettingsView {
+    @ViewBuilder var controlSection: some View {
+        Section(L("ほかのソフトからの操作（Claude・Max・TouchDesigner）", "Control from other software (Claude, Max, TouchDesigner)")) {
+            Picker(L("命令を受ける", "Accept commands"), selection: Binding(
+                get: { model.controlMode.rawValue },
+                set: { UserDefaults.standard.set($0, forKey: AppModel.controlModeKey); model.applyControlPort() })) {
+                Text(L("切", "Off")).tag(0)
+                Text(L("この Mac の中だけ", "This Mac only")).tag(1)
+                Text(L("ほかの Mac からも", "Also other Macs")).tag(2)
+            }
+            .pickerStyle(.segmented)
+            .disabled(model.opts.control != nil)
+            .help(model.opts.control != nil ? L("起動のときの --control で決めているので、ここでは変えられない", "Set by --control at launch") : "")
+            Text(L("入れると、ここで選んだ範囲の機器から、鍵を使って再生・停止・位置・役・音・レイヤーの表示と不透明度・N/I/G の表示・同じフォルダのショーを開く、ができるようになります。「ほかの Mac からも」は、インターネットにつながない展示用のネットワーク（有線ルーターか Wi‑Fi ルーター）でだけ入れてください。通信は暗号化されないので、同じネットワークの人には鍵が見えることがあります。大学や会場の共有 Wi‑Fi では入れないでください。消す・終了・設定を変える命令はありません。",
+                   "When on, devices in the range you choose can, with the key, play, stop, move, switch the role and sound, show or hide layers and set their opacity, toggle N/I/G, and open a show from the same folder. Use \"Also other Macs\" only on a closed exhibition network (a wired or Wi‑Fi router not connected to the internet). Traffic is not encrypted, so others on the same network may see the key. Do not turn it on over a shared campus or venue Wi‑Fi. There are no commands to delete, quit or change settings."))
+                .font(.caption).foregroundColor(model.controlMode == .lan ? .orange : .secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if model.controlMode != .off {
+                HStack {
+                    Text(L("鍵", "Key"))
+                    Spacer()
+                    Text(model.controlKey).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                    Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(model.controlKey, forType: .string) } label: { Image(systemName: "doc.on.doc") }
+                        .buttonStyle(.borderless).help(L("鍵を写す", "Copy the key"))
+                    Button { model.newControlKey() } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(.borderless).help(L("新しい鍵にする（前の鍵は使えなくなる）", "New key (the old one stops working)"))
+                        .disabled(model.opts.controlKey != nil)
+                }
+                HStack {
+                    Text(L("ポート", "Port"))
+                    Spacer()
+                    TextField("", text: $portText)
+                        .frame(width: 70).multilineTextAlignment(.trailing)
+                        .onSubmit {
+                            if let v = Int(portText), (1024...65535).contains(v) {
+                                UserDefaults.standard.set(v, forKey: AppModel.controlPortKey); model.applyControlPort()
+                            }
+                            portText = String(model.controlPortNumber)
+                        }
+                        .disabled(model.opts.controlPort != nil)
+                }
+                if let e = model.controlError {
+                    Text(e).font(.caption).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(L("例: curl -H \"X-Key: 鍵\" http://\(model.controlMode == .local ? "127.0.0.1" : L("この Mac の IP", "this-Mac-IP")):\(model.controlPortNumber)/status",
+                           "e.g. curl -H \"X-Key: KEY\" http://\(model.controlMode == .local ? "127.0.0.1" : "this-Mac-IP"):\(model.controlPortNumber)/status"))
+                        .font(.caption.monospaced()).foregroundColor(.secondary).textSelection(.enabled)
+                }
+            }
+        }
+        .onAppear { portText = String(model.controlPortNumber) }
+    }
+}
+
+/// Top bar: the command port is on (always shown while on, so it is not left on by mistake);
+/// orange for 10 s after a command came in.
+struct ControlChip: View {
+    @ObservedObject var model: AppModel
+    var body: some View {
+        if model.controlOn {
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                let recent = hostNow() - model.controlLastAt < 10
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .foregroundColor(model.controlError != nil ? .red : recent ? .orange : .secondary)
+                    .help(model.controlError ?? (recent ? L("外から操作中（設定 ⌘, で切れる）", "Being controlled from outside (turn off in Settings ⌘,)")
+                                                        : L("ほかのソフトからの操作: 入（設定 ⌘, で切れる）", "Control from other software: on (turn off in Settings ⌘,)")))
+            }
+        }
     }
 }
 
@@ -1787,6 +1860,7 @@ extension Text {
 /// Exhibit › This Mac.
 struct SettingsView: View {
     @ObservedObject var model: AppModel
+    @State private var portText = ""
     var body: some View {
         Form {
             Section(L("見た目", "Appearance")) {
@@ -1804,9 +1878,10 @@ struct SettingsView: View {
                     Toggle(k.label, isOn: model.asksBinding(k))
                 }
             }
+            controlSection
         }
         .formStyle(.grouped)
-        .frame(width: 420)
+        .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
     }
 }
