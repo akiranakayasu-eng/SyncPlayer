@@ -37,7 +37,7 @@ enum Practice {
         if let last = s.outputs[0].layers.indices.last, FileManager.default.fileExists(atPath: maskPath) {
             s.outputs[0].layers[last].mask = maskPath
         }
-        s.outputs[0].name = "練習の出力"
+        s.outputs[0].name = "練習の Screen"
         return s
     }
 

@@ -4,14 +4,16 @@ import Foundation
 /// Coordinates are normalized to the output window: (0,0) bottom-left, (1,1) top-right.
 struct DisplaySettings: Codable, Equatable {
     // Content transform inside the canvas
-    var posX = 0.0, posY = 0.0          // shift, in canvas widths/heights
+    var posX = 0.0, posY = 0.0          // moves the whole layer, in Screen widths/heights
     var scale = 1.0
     var rotation = 0.0                  // degrees, counter-clockwise
     // Crop (mask) of the source picture, fraction of each side
     var cropL = 0.0, cropR = 0.0, cropT = 0.0, cropB = 0.0
-    // Edge blend at the window edges (fraction of width/height) and its gamma
+    // Edge blend of 0.3.4 and before (kept only to read old files: the Screen's EdgeBlend now)
     var blendL = 0.0, blendR = 0.0, blendT = 0.0, blendB = 0.0
     var blendGamma = 2.2
+    /// Feather: the cropped edge of the movie fades out over this fraction of the movie (0 = sharp).
+    var feather = 0.0
     /// Corner pin: x,y for bottom-left, bottom-right, top-right, top-left. nil = fit the video in the window.
     var corners: [Double]? = nil
     /// Curved-surface mesh: (cols+1)*(rows+1) points, each an x,y offset added after the corner pin.
@@ -39,6 +41,7 @@ struct DisplaySettings: Codable, Equatable {
         blendT = try c.decodeIfPresent(Double.self, forKey: .blendT) ?? 0
         blendB = try c.decodeIfPresent(Double.self, forKey: .blendB) ?? 0
         blendGamma = try c.decodeIfPresent(Double.self, forKey: .blendGamma) ?? d.blendGamma
+        feather = min(0.5, max(0, try c.decodeIfPresent(Double.self, forKey: .feather) ?? 0))
         corners = try c.decodeIfPresent([Double].self, forKey: .corners)
         meshCols = try c.decodeIfPresent(Int.self, forKey: .meshCols) ?? d.meshCols
         meshRows = try c.decodeIfPresent(Int.self, forKey: .meshRows) ?? d.meshRows

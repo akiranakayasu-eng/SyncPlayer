@@ -21,6 +21,8 @@ final class EditOverlay: NSView {
     /// Layer and file names drawn on each visible layer (T): name, file, box (normalized).
     var showLabels: () -> Bool = { false }
     var labels: () -> [(name: String, file: String, box: CGRect)] = { [] }
+    /// The selected layer's outline (preview only, B; Akira 2026-11-26): its look and the aspects.
+    var outline: () -> (look: DisplaySettings, view: Double, video: Double)? = { nil }
     private var dragging: Int?
     private var downAt: NSPoint?
     private var panning = false
@@ -43,13 +45,14 @@ final class EditOverlay: NSView {
         guard let s = settings() else { return [] }
         let a = aspects()
         let q = Warp.corners(s, viewAspect: a.view, videoAspect: a.video)
+        let P = Warp.Place(s, corners: q, viewAspect: a.view)
         switch mode {
         case .none: return []
-        case .corners: return (0..<4).map { SIMD2(q[$0 * 2], q[$0 * 2 + 1]) }
+        case .corners: return (0..<4).map { P.map(SIMD2(q[$0 * 2], q[$0 * 2 + 1])) }
         case .mesh:
             let H = Warp.Homography(q), m = s.meshOffsets
             var out: [SIMD2<Double>] = []
-            for j in 0...s.meshRows { for i in 0...s.meshCols { out.append(Warp.meshNode(s, H, m, i, j)) } }
+            for j in 0...s.meshRows { for i in 0...s.meshCols { out.append(P.map(Warp.meshNode(s, H, m, i, j))) } }
             return out
         }
     }
@@ -63,14 +66,16 @@ final class EditOverlay: NSView {
         switch mode {
         case .none: return
         case .corners:
-            var q = Warp.corners(s, viewAspect: a.view, videoAspect: a.video)
-            guard k >= 0, k * 2 + 1 < q.count else { return }
-            q[k * 2] += d.x; q[k * 2 + 1] += d.y
-            s.corners = q
+            // Points are dragged on the Screen; store the corners that land there (the others stay put).
+            var Q = Warp.placedCorners(s, viewAspect: a.view, videoAspect: a.video)
+            guard k >= 0, k < Q.count else { return }
+            Q[k] += d
+            s.corners = Warp.cornersLanding(at: Q, s, viewAspect: a.view)
         case .mesh:
             var m = s.meshOffsets
             guard k >= 0, k * 2 + 1 < m.count else { return }
-            m[k * 2] += d.x; m[k * 2 + 1] += d.y
+            let e = Warp.place(s, viewAspect: a.view, videoAspect: a.video).unturn(d)
+            m[k * 2] += e.x; m[k * 2 + 1] += e.y
             s.mesh = m
         }
         onChange?(s)
@@ -106,7 +111,10 @@ final class EditOverlay: NSView {
             let d = hypot(v.x - p.x, v.y - p.y)
             if d < bestD { bestD = d; best = k }
         }
-        if best >= 0 { dragging = best; select(best) }
+        if best >= 0 { dragging = best; select(best); return }
+        // Not on a point: a click on another layer selects it and keeps the same edit mode, so its
+        // points can be dragged next (Akira 2026-11-26).
+        if bounds.width > 0, bounds.height > 0 { pick?(SIMD2(Double(p.x / bounds.width), Double(p.y / bounds.height))) }
     }
 
     override func mouseDragged(with e: NSEvent) {
@@ -133,10 +141,11 @@ final class EditOverlay: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         if showLabels() { drawLabels() }
+        if mode == .none, let o = outline() { drawOutline(o.look, view: o.view, video: o.video) }
         guard mode != .none, let s = settings() else { return }
         let a = aspects()
         let q = Warp.corners(s, viewAspect: a.view, videoAspect: a.video)
-        let H = Warp.Homography(q), m = s.meshOffsets
+        let H = Warp.Homography(q), m = s.meshOffsets, P = Warp.Place(s, corners: q, viewAspect: a.view)
 
         // Outline of the warped canvas and the mesh lines.
         NSColor.systemYellow.withAlphaComponent(0.8).setStroke()
@@ -147,14 +156,14 @@ final class EditOverlay: NSView {
         for i in 0...cols {
             let u = Double(i) / Double(cols)
             for t in 0...steps {
-                let pt = toView(Warp.output(s, H, m, u, Double(t) / Double(steps)))
+                let pt = toView(P.map(Warp.output(s, H, m, u, Double(t) / Double(steps))))
                 t == 0 ? path.move(to: pt) : path.line(to: pt)
             }
         }
         for j in 0...rows {
             let v = Double(j) / Double(rows)
             for t in 0...steps {
-                let pt = toView(Warp.output(s, H, m, Double(t) / Double(steps), v))
+                let pt = toView(P.map(Warp.output(s, H, m, Double(t) / Double(steps), v)))
                 t == 0 ? path.move(to: pt) : path.line(to: pt)
             }
         }
@@ -169,6 +178,41 @@ final class EditOverlay: NSView {
             NSColor.black.setStroke()
             o.lineWidth = 1
             o.stroke()
+        }
+    }
+
+    /// The selected layer's picture as it is drawn: the cropped movie through corners and mesh, then
+    /// moved by position, scale and rotation. Small squares at its corners, like
+    /// the layer bounds in After Effects. Cyan, so it is not the yellow of editing.
+    private func drawOutline(_ s: DisplaySettings, view: Double, video: Double) {
+        let poly = Warp.pictureOutline(s)
+        guard poly.count >= 3 else { return }
+        let q = Warp.corners(s, viewAspect: view, videoAspect: video)
+        let H = Warp.Homography(q), m = s.meshOffsets, P = Warp.Place(s, corners: q, viewAspect: view)
+        let path = NSBezierPath()
+        let steps = 24   // each side bent by corners and mesh
+        for i in poly.indices {
+            let a = poly[i], c = poly[(i + 1) % poly.count]
+            for t in 0..<steps {
+                let p = a + (c - a) * (Double(t) / Double(steps))
+                let pt = toView(P.map(Warp.output(s, H, m, p.x, p.y)))
+                i == 0 && t == 0 ? path.move(to: pt) : path.line(to: pt)
+            }
+        }
+        path.close()
+        NSColor.black.withAlphaComponent(0.6).setStroke()
+        path.lineWidth = 3.5
+        path.stroke()
+        NSColor.systemCyan.setStroke()
+        path.lineWidth = 1.5
+        path.stroke()
+        for p in poly {
+            let c = toView(P.map(Warp.output(s, H, m, p.x, p.y)))
+            let r = NSRect(x: c.x - 3, y: c.y - 3, width: 6, height: 6)
+            NSColor.systemCyan.setFill()
+            r.fill()
+            NSColor.black.setStroke()
+            NSBezierPath(rect: r).stroke()
         }
     }
 

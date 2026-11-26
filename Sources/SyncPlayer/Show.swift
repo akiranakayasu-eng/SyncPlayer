@@ -43,13 +43,35 @@ struct Layer: Codable, Equatable, Identifiable {
     }
 }
 
-/// One output window: a screen (display or projector) and the layers drawn on it.
+/// Edge blend of a Screen: its edges fade to black where two projectors overlap (fraction of the
+/// Screen's width / height) and the gamma of that fade. It belongs to the Screen, not to a layer
+/// (Akira 2026-11-26), and applies to every layer drawn on it.
+struct EdgeBlend: Codable, Equatable {
+    var l = 0.0, r = 0.0, t = 0.0, b = 0.0
+    var gamma = 2.2
+
+    init(l: Double = 0, r: Double = 0, t: Double = 0, b: Double = 0, gamma: Double = 2.2) {
+        self.l = l; self.r = r; self.t = t; self.b = b; self.gamma = gamma
+    }
+    /// A missing value reads as its default (a file edited by hand still opens; check 63 L3).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        l = try c.decodeIfPresent(Double.self, forKey: .l) ?? 0
+        r = try c.decodeIfPresent(Double.self, forKey: .r) ?? 0
+        t = try c.decodeIfPresent(Double.self, forKey: .t) ?? 0
+        b = try c.decodeIfPresent(Double.self, forKey: .b) ?? 0
+        gamma = try c.decodeIfPresent(Double.self, forKey: .gamma) ?? 2.2
+    }
+}
+
+/// One output window (a Screen): the display or projector it goes to and the layers drawn on it.
 struct OutputConfig: Codable, Equatable, Identifiable {
     var id = UUID().uuidString
     var name: String
     var screen = 0
     var fullscreen = false
     var layers: [Layer] = []
+    var blend = EdgeBlend()
 
     init(name: String, screen: Int = 0, fullscreen: Bool = false, layers: [Layer] = []) {
         self.name = name
@@ -61,10 +83,32 @@ struct OutputConfig: Codable, Equatable, Identifiable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
-        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "出力"
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Screen"
+        // The default names of 0.3.4 and before ("出力 2", "Output 2", "出力", "練習の出力") read as
+        // Screen (Akira 2026-11-26: one word, Screen). Only files of those versions (no "blend" key
+        // on the Screen yet), so a name typed in this version stays as typed.
+        if !c.contains(.blend) {
+            for old in ["出力 ", "Output "] where name.hasPrefix(old) && Int(name.dropFirst(old.count)) != nil {
+                name = "Screen " + name.dropFirst(old.count)
+            }
+            if name == "出力" || name == "Output" { name = "Screen" }
+            if name == "練習の出力" { name = "練習の Screen" }
+        }
         screen = try c.decodeIfPresent(Int.self, forKey: .screen) ?? 0
         fullscreen = try c.decodeIfPresent(Bool.self, forKey: .fullscreen) ?? false
         layers = try c.decodeIfPresent([Layer].self, forKey: .layers) ?? []
+        if let b = try c.decodeIfPresent(EdgeBlend.self, forKey: .blend) {
+            blend = b
+        } else {
+            // 0.3.4 and before kept the edge blend on each layer: the Screen takes the widest of each side.
+            let looks = layers.map(\.look)
+            blend.l = looks.map(\.blendL).max() ?? 0
+            blend.r = looks.map(\.blendR).max() ?? 0
+            blend.t = looks.map(\.blendT).max() ?? 0
+            blend.b = looks.map(\.blendB).max() ?? 0
+            if let g = looks.first(where: { $0.blendL + $0.blendR + $0.blendT + $0.blendB > 0 })?.blendGamma { blend.gamma = g }
+        }
+        blend.gamma = min(4, max(0.5, blend.gamma))
     }
 }
 
@@ -101,7 +145,17 @@ struct Seat: Codable, Equatable, Identifiable {
 /// and the loop. Saved as one .syncshow file (JSON) that every Mac opens.
 /// outputs / audioClip / audioOn are those of the seat this Mac is (seatID, kept per Mac, not in the file).
 struct Show: Codable, Equatable {
-    var version = 2
+    /// 3 since 0.3.5: position / scale / rotation move the whole layer (before: the picture inside it).
+    var version = 3
+    /// Layers of this Mac's seat that moved, scaled or turned their picture in a file of version 2 or
+    /// older: they look different since 0.3.5 (check 63 M2). 0 for a file of this version.
+    var oldTransforms: Int {
+        guard version < 3 else { return 0 }
+        let d = DisplaySettings()
+        return outputs.flatMap(\.layers).filter {
+            $0.look.posX != d.posX || $0.look.posY != d.posY || $0.look.scale != d.scale || $0.look.rotation != d.rotation
+        }.count
+    }
     /// Identifies the exhibition, so each Mac can remember its seat in it (also after copying the file).
     var id = UUID().uuidString
     var clips: [Clip] = []
@@ -180,7 +234,7 @@ struct Show: Codable, Equatable {
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(2, forKey: .version)
+        try c.encode(3, forKey: .version)
         try c.encode(id, forKey: .id)
         try c.encode(clips, forKey: .clips)
         try c.encode(seats, forKey: .seats)
@@ -245,8 +299,9 @@ struct Show: Codable, Equatable {
     static func make(paths: [String], look: DisplaySettings = DisplaySettings()) -> Show {
         var show = Show()
         for p in paths { show.clips.append(Clip(id: show.newClipID(), path: p)) }
-        var out = OutputConfig(name: "出力 1", screen: look.screen, fullscreen: look.fullscreen)
+        var out = OutputConfig(name: "Screen 1", screen: look.screen, fullscreen: look.fullscreen)
         out.layers = show.clips.map { Layer(clipID: $0.id, look: look) }
+        out.blend = EdgeBlend(l: look.blendL, r: look.blendR, t: look.blendT, b: look.blendB, gamma: look.blendGamma)
         show.outputs = [out]
         if out.layers.count > 1 { show.arrangeGrid(output: 0) }
         return show

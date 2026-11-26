@@ -89,15 +89,59 @@ enum Warp {
         return H.map(Double(i) / Double(s.meshCols), Double(j) / Double(s.meshRows)) + SIMD2(m[k], m[k + 1])
     }
 
-    /// Source picture coordinate shown at canvas point (u,v): inverse of shift / rotate / scale.
-    static func source(_ s: DisplaySettings, videoAspect: Double, _ u: Double, _ v: Double) -> SIMD2<Double> {
-        let A = videoAspect > 0 ? videoAspect : 16.0 / 9.0
-        var c = SIMD2(u - 0.5 - s.posX, v - 0.5 - s.posY)
-        c.x *= A
-        let th = -s.rotation * .pi / 180
-        c = SIMD2(c.x * cos(th) - c.y * sin(th), c.x * sin(th) + c.y * cos(th))
-        c.x /= A
-        let sc = max(0.01, s.scale)
-        return c / sc + SIMD2(0.5, 0.5)
+    /// Position, scale and rotation move the whole layer on the Screen, corners and mesh included,
+    /// like a layer's Transform in After Effects (Akira 2026-11-26). Before, they moved the picture
+    /// inside the layer and the layer's edge cut it. Turns about the middle of the four corners;
+    /// position is a fraction of the Screen's width / height.
+    struct Place {
+        let c: SIMD2<Double>, pos: SIMD2<Double>
+        let A: Double, cs: Double, sn: Double, sc: Double
+
+        init(_ s: DisplaySettings, corners q: [Double], viewAspect: Double) {
+            c = SIMD2((q[0] + q[2] + q[4] + q[6]) / 4, (q[1] + q[3] + q[5] + q[7]) / 4)
+            pos = SIMD2(s.posX, s.posY)
+            A = viewAspect > 0 ? viewAspect : 16.0 / 9.0
+            let th = s.rotation * .pi / 180
+            cs = cos(th); sn = sin(th); sc = max(0.01, s.scale)
+        }
+        /// The linear part (scale and rotation) of a step d on the Screen.
+        func turn(_ d: SIMD2<Double>) -> SIMD2<Double> {
+            let x = d.x * A, y = d.y
+            return SIMD2((x * cs - y * sn) * sc / A, (x * sn + y * cs) * sc)
+        }
+        /// Its inverse.
+        func unturn(_ d: SIMD2<Double>) -> SIMD2<Double> {
+            let x = d.x * A / sc, y = d.y / sc
+            return SIMD2((x * cs + y * sn) / A, -x * sn + y * cs)
+        }
+        func map(_ p: SIMD2<Double>) -> SIMD2<Double> { c + turn(p - c) + pos }
+        func unmap(_ p: SIMD2<Double>) -> SIMD2<Double> { c + unturn(p - pos - c) }
+    }
+
+    static func place(_ s: DisplaySettings, viewAspect: Double, videoAspect: Double) -> Place {
+        Place(s, corners: corners(s, viewAspect: viewAspect, videoAspect: videoAspect), viewAspect: viewAspect)
+    }
+
+    /// The four corners where they land on the Screen (after position, scale and rotation).
+    static func placedCorners(_ s: DisplaySettings, viewAspect: Double, videoAspect: Double) -> [SIMD2<Double>] {
+        let q = corners(s, viewAspect: viewAspect, videoAspect: videoAspect)
+        let P = Place(s, corners: q, viewAspect: viewAspect)
+        return (0..<4).map { P.map(SIMD2(q[$0 * 2], q[$0 * 2 + 1])) }
+    }
+
+    /// The corners to store so that they land at Q on the Screen (Q in the same order). The middle
+    /// moves with them, so the other corners stay where they are while one is dragged.
+    static func cornersLanding(at Q: [SIMD2<Double>], _ s: DisplaySettings, viewAspect: Double) -> [Double] {
+        let P = Place(s, corners: [0, 0, 0, 0, 0, 0, 0, 0], viewAspect: viewAspect)
+        let mid = (Q[0] + Q[1] + Q[2] + Q[3]) / 4
+        let c = mid - P.pos
+        return Q.flatMap { q -> [Double] in let p = c + P.unturn(q - mid); return [p.x, p.y] }
+    }
+
+    /// The part of the movie that shows (the crop), in (u, v), in order; empty when nothing shows.
+    static func pictureOutline(_ s: DisplaySettings) -> [SIMD2<Double>] {
+        let l = s.cropL, r = 1 - s.cropR, b = s.cropB, t = 1 - s.cropT
+        guard r > l, t > b else { return [] }
+        return [SIMD2(l, b), SIMD2(r, b), SIMD2(r, t), SIMD2(l, t)]
     }
 }

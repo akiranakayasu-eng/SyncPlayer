@@ -63,7 +63,7 @@ final class GPU {
     using namespace metal;
     struct Out { float4 position [[position]]; float2 uv; float2 outPos; };
     struct U { float4 crop; float4 blend; float gamma; float grid; float hasTex; float opacity;
-               float yuv; float mask; float pad1; float pad2; };
+               float yuv; float mask; float feather; float pad2; };
 
     vertex Out vmain(uint vid [[vertex_id]], const device float4* v [[buffer(0)]]) {
         Out o;
@@ -111,6 +111,13 @@ final class GPU {
             c.rgb = mix(c.rgb, float3(1.0, 0.2, 0.2), center);
         }
         float f = 1.0;
+        // Feather: the cropped edge of the movie fades out (a layer's own edge, not the Screen's).
+        if (u.feather > 0.0) {
+            float dx = min(uv.x - u.crop.x, 1.0 - u.crop.y - uv.x);
+            float dy = min(uv.y - u.crop.w, 1.0 - u.crop.z - uv.y);
+            f *= smoothstep(0.0, u.feather, dx) * smoothstep(0.0, u.feather, dy);
+        }
+        // Edge blend: the Screen's edges (where projectors overlap), the same for every layer on it.
         float2 p = in.outPos;
         float ig = 1.0 / max(u.gamma, 0.1);
         if (u.blend.x > 0.0) f *= pow(smoothstep(0.0, 1.0, clamp(p.x / u.blend.x, 0.0, 1.0)), ig);
@@ -220,16 +227,17 @@ final class GPU {
     /// Grid vertices (output x,y + source u,v) for one layer's look.
     func vertices(_ s: DisplaySettings, viewAspect: Double, videoAspect: Double) -> MTLBuffer? {
         let N = GPU.N
-        let H = Warp.Homography(Warp.corners(s, viewAspect: viewAspect, videoAspect: videoAspect))
+        let q = Warp.corners(s, viewAspect: viewAspect, videoAspect: videoAspect)
+        let H = Warp.Homography(q), P = Warp.Place(s, corners: q, viewAspect: viewAspect)
         let m = s.meshOffsets
         var verts: [SIMD4<Float>] = []
         verts.reserveCapacity((N + 1) * (N + 1))
         for j in 0...N {
             for i in 0...N {
                 let u = Double(i) / Double(N), v = Double(j) / Double(N)
-                let o = Warp.output(s, H, m, u, v)
-                let src = Warp.source(s, videoAspect: videoAspect, u, v)
-                verts.append(SIMD4(Float(o.x), Float(o.y), Float(src.x), Float(src.y)))
+                // The movie fills the layer; position, scale and rotation move the layer on the Screen.
+                let o = P.map(Warp.output(s, H, m, u, v))
+                verts.append(SIMD4(Float(o.x), Float(o.y), Float(u), Float(v)))
             }
         }
         return device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<SIMD4<Float>>.stride)
@@ -350,6 +358,8 @@ final class OutputRenderer: NSObject, MTKViewDelegate {
     /// Supplied by the controller: the layers to draw (back to front) and each clip's frames.
     var layers: () -> [Layer] = { [] }
     var frames: (String) -> FrameSource? = { _ in nil }
+    /// The Screen's edge blend (nil = none).
+    var blend: () -> EdgeBlend? = { nil }
     private(set) var viewAspect = 16.0 / 9.0
     /// Frames drawn in the last full second (load check).
     private(set) var drawRate = 0.0
@@ -390,6 +400,7 @@ final class OutputRenderer: NSObject, MTKViewDelegate {
         drawCount += 1
         if now - drawSince >= 1 { drawRate = Double(drawCount) / (now - drawSince); drawCount = 0; drawSince = now }
         let ls = layers().filter { $0.visible && $0.opacity > 0 }
+        let eb = blend() ?? EdgeBlend()
         var keep: [CVMetalTexture] = []
         enc.setRenderPipelineState(gpu.pipeline)
         for l in ls {
@@ -403,9 +414,9 @@ final class OutputRenderer: NSObject, MTKViewDelegate {
             let s = l.look
             let maskTex = l.mask.flatMap { gpu.mask($0) }
             var u: [Float] = [Float(s.cropL), Float(s.cropR), Float(s.cropT), Float(s.cropB),
-                              Float(s.blendL), Float(s.blendR), Float(s.blendT), Float(s.blendB),
-                              Float(s.blendGamma), s.showGrid ? 1 : 0, tex == nil ? 0 : 1, Float(l.opacity),
-                              chroma == nil ? 0 : (fs?.yuvMatrix ?? 0), maskTex == nil ? 0 : (l.maskInvert ? 2 : 1), 0, 0]
+                              Float(eb.l), Float(eb.r), Float(eb.t), Float(eb.b),
+                              Float(eb.gamma), s.showGrid ? 1 : 0, tex == nil ? 0 : 1, Float(l.opacity),
+                              chroma == nil ? 0 : (fs?.yuvMatrix ?? 0), maskTex == nil ? 0 : (l.maskInvert ? 2 : 1), Float(s.feather), 0]
             enc.setVertexBuffer(vb, offset: 0, index: 0)
             enc.setFragmentBytes(&u, length: u.count * 4, index: 0)
             enc.setFragmentTexture(tex ?? gpu.blank, index: 0)

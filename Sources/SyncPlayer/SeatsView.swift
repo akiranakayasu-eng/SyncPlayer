@@ -36,7 +36,7 @@ struct SeatChip: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
-        .help(L("この Mac の Seat（Mac とプロジェクターの組）。押すと、Seat を足す・複製・消す・名前・この Mac を別の Seat にする。出力・レイヤー・音はこの Seat のもの", "This Mac's seat (a Mac and its projectors). Click to add, duplicate, delete, rename or switch seats. Outputs, layers and sound are this seat's"))
+        .help(L("この Mac の Seat（Mac とプロジェクターの組）。押すと、Seat を足す・複製・消す・名前・この Mac を別の Seat にする。Screen・レイヤー・音はこの Seat のもの", "This Mac's seat (a Mac and its projectors). Click to add, duplicate, delete, rename or switch seats. Screens, layers and sound are this seat's"))
         .popover(isPresented: $open, arrowEdge: .bottom) { SeatsPanel(model: model) }
     }
 }
@@ -51,7 +51,7 @@ struct SeatChooserView: View {
     private func summary(_ st: Seat) -> String {
         let layers = st.outputs.flatMap(\.layers)
         let names = layers.reversed().map { l in l.name ?? show.clip(l.clipID)?.name ?? "" }.filter { !$0.isEmpty }
-        let head = L("出力 \(st.outputs.count) · レイヤー \(layers.count)", "\(st.outputs.count) output(s) · \(layers.count) layer(s)")
+        let head = L("Screen \(st.outputs.count) · レイヤー \(layers.count)", "\(st.outputs.count) screen(s) · \(layers.count) layer(s)")
         return names.isEmpty ? head : head + "\n" + names.prefix(4).joined(separator: L("、", ", ")) + (names.count > 4 ? "…" : "")
     }
 

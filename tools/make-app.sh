@@ -1,8 +1,10 @@
 #!/bin/sh
 # Build SyncPlayer.app (double-click to start, no Terminal needed).
-# Usage: tools/make-app.sh [out-dir]   -> <out-dir>/SyncPlayer.app
+# Usage: tools/make-app.sh [out-dir]   -> <out-dir>/SyncPlayer <version>.app (the last line printed)
+#   The version is in the file name so a download says which one it is (Akira 2026-11-26).
 #   UNIVERSAL=1 tools/make-app.sh dist   builds for both Apple silicon and Intel (for releases)
-#   VERSION=0.3.0 sets the version shown in Finder (default 0.3)
+#   VERSION=0.3.0 sets the version shown in Finder and the window titles. Without it (PR builds):
+#   the newest released version in CHANGELOG.md plus "-dev", e.g. 0.3.4-dev; the commit follows it.
 set -e
 OUT=${1:-build}
 if [ -n "$UNIVERSAL" ]; then
@@ -12,8 +14,12 @@ else
   swift build -c release
   BIN=.build/release/SyncPlayer
 fi
-APP="$OUT/SyncPlayer.app"
-rm -rf "$APP"
+VER=$(git rev-parse --short HEAD 2>/dev/null || echo dev)
+LAST=$(grep -m1 '^## v[0-9]' "$(dirname "$0")/../CHANGELOG.md" 2>/dev/null | sed 's/^## v\([0-9.]*\).*/\1/')
+SHORT=${VERSION:-${LAST:-0.3}-dev}
+if [ -n "$VERSION" ]; then NAME="SyncPlayer $SHORT"; else NAME="SyncPlayer $SHORT $VER"; fi
+APP="$OUT/$NAME.app"
+rm -rf "$OUT"/SyncPlayer*.app
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN" "$APP/Contents/MacOS/SyncPlayer"
 # App icon (logo H, 2026-11-25): tools/icon/AppIcon.iconset -> AppIcon.icns
@@ -22,8 +28,6 @@ if [ -d "$ICONSET" ] && command -v iconutil >/dev/null; then
   mkdir -p "$APP/Contents/Resources"
   iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 fi
-VER=$(git rev-parse --short HEAD 2>/dev/null || echo dev)
-SHORT=${VERSION:-0.3}
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

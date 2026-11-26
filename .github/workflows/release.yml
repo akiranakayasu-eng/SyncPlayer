@@ -21,15 +21,18 @@ jobs:
         with:
           fetch-depth: 0
       - name: Build universal app
-        run: UNIVERSAL=1 VERSION="${{ inputs.version }}" sh tools/make-app.sh dist
+        run: |
+          UNIVERSAL=1 VERSION="${{ inputs.version }}" sh tools/make-app.sh dist
+          APP=$(ls -d dist/SyncPlayer*.app)
+          echo "APP=$APP" >> "$GITHUB_ENV"
       - name: Check the app
         run: |
-          lipo -info dist/SyncPlayer.app/Contents/MacOS/SyncPlayer
-          codesign --verify --verbose dist/SyncPlayer.app
+          lipo -info "$APP/Contents/MacOS/SyncPlayer"
+          codesign --verify --verbose "$APP"
       - name: Zip
         run: |
           ZIP="SyncPlayer-${{ inputs.version }}-macOS.zip"
-          ditto -c -k --keepParent dist/SyncPlayer.app "$ZIP"
+          ditto -c -k --keepParent "$APP" "$ZIP"
           shasum -a 256 "$ZIP" | tee "$ZIP.sha256"
           echo "ZIP=$ZIP" >> "$GITHUB_ENV"
       - name: Publish release

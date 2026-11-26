@@ -10,17 +10,26 @@ jobs:
   build:
     runs-on: macos-15
     steps:
+      # The branch's own commit (not GitHub's merge commit), so the title shows the commit that runs.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      # No VERSION: the title says "<last release>-dev (commit)" (tools/make-app.sh).
       - name: Build universal app
-        run: UNIVERSAL=1 VERSION="0.0.0-pr" sh tools/make-app.sh dist
+        run: |
+          UNIVERSAL=1 sh tools/make-app.sh dist
+          APP=$(ls -d dist/SyncPlayer*.app)
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          # The download is named after the app, e.g. "SyncPlayer 0.3.4-dev 0eac096".
+          echo "NAME=$(basename "$APP" .app)" >> "$GITHUB_ENV"
       - name: Check the app
         run: |
-          lipo -info dist/SyncPlayer.app/Contents/MacOS/SyncPlayer
-          codesign --verify --verbose dist/SyncPlayer.app
+          lipo -info "$APP/Contents/MacOS/SyncPlayer"
+          codesign --verify --verbose "$APP"
       - name: Zip
-        run: ditto -c -k --keepParent dist/SyncPlayer.app SyncPlayer-pr.zip
+        run: ditto -c -k --keepParent "$APP" "$NAME.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: SyncPlayer-pr
-          path: SyncPlayer-pr.zip
+          name: ${{ env.NAME }}
+          path: ${{ env.NAME }}.zip
           retention-days: 14
