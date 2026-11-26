@@ -865,7 +865,7 @@ final class AppModel: ObservableObject {
     }
 
     private func outputTitle(_ o: OutputConfig) -> String {
-        "SyncPlayer — \(o.name) — " + (isMaster ? L("マスター", "Master") : L("フォロワー", "Follower")) + " — \(opts.name)"
+        "SyncPlayer \(AppModel.version) — \(o.name) — " + (isMaster ? L("マスター", "Master") : L("フォロワー", "Follower")) + " — \(opts.name)"
     }
 
     /// One full-screen output per display (Akira 2026-11-26: people do things they did not mean to).
@@ -1473,7 +1473,8 @@ final class AppModel: ObservableObject {
 
     private func refreshTitles() {
         for (i, o) in show.outputs.enumerated() { outputs[o.id]?.apply(o, index: i, title: outputTitle(o)) }
-        control?.title = L("SyncPlayer — 操作 — ", "SyncPlayer — Control — ") + (isMaster ? L("マスター", "Master") : L("フォロワー", "Follower")) + " — \(opts.name)"
+        // The version and build (commit) in the title, so each Mac shows which one it runs (Akira 2026-11-26).
+        control?.title = L("SyncPlayer \(AppModel.version) — 操作 — ", "SyncPlayer \(AppModel.version) — Control — ") + (isMaster ? L("マスター", "Master") : L("フォロワー", "Follower")) + " — \(opts.name)"
     }
 
     func toggleRole() { setRoleByHand(master: master == nil) }
@@ -1602,7 +1603,7 @@ final class AppModel: ObservableObject {
         win.isReleasedWhenClosed = false
         win.minSize = NSSize(width: 960, height: 600)
         win.contentView = NSHostingView(rootView: ControlView(model: self, status: status))
-        win.title = L("SyncPlayer — 操作", "SyncPlayer — Control")
+        win.title = L("SyncPlayer \(AppModel.version) — 操作", "SyncPlayer \(AppModel.version) — Control")
         control = win
         updateRepresented()
         win.makeKeyAndOrderFront(nil)

@@ -2,7 +2,8 @@
 # Build SyncPlayer.app (double-click to start, no Terminal needed).
 # Usage: tools/make-app.sh [out-dir]   -> <out-dir>/SyncPlayer.app
 #   UNIVERSAL=1 tools/make-app.sh dist   builds for both Apple silicon and Intel (for releases)
-#   VERSION=0.3.0 sets the version shown in Finder (default 0.3)
+#   VERSION=0.3.0 sets the version shown in Finder and the window titles. Without it (PR builds):
+#   the newest released version in CHANGELOG.md plus "-dev", e.g. 0.3.4-dev; the commit follows it.
 set -e
 OUT=${1:-build}
 if [ -n "$UNIVERSAL" ]; then
@@ -23,7 +24,8 @@ if [ -d "$ICONSET" ] && command -v iconutil >/dev/null; then
   iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 fi
 VER=$(git rev-parse --short HEAD 2>/dev/null || echo dev)
-SHORT=${VERSION:-0.3}
+LAST=$(grep -m1 '^## v[0-9]' "$(dirname "$0")/../CHANGELOG.md" 2>/dev/null | sed 's/^## v\([0-9.]*\).*/\1/')
+SHORT=${VERSION:-${LAST:-0.3}-dev}
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
