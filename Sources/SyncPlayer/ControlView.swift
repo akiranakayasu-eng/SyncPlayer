@@ -33,6 +33,7 @@ struct ControlView: View {
     @AppStorage("ui.hideLeft") private var hideLeft = false
     @AppStorage("ui.hideRight") private var hideRight = false
     @AppStorage("ui.hideStatus") private var hideStatus = false
+    @AppStorage("ui.statusHeight") private var statusHeight: Double = 170
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,7 +47,10 @@ struct ControlView: View {
                     // Drag the line to widen or narrow the left column (kept per Mac).
                     WidthHandle(width: $sidebarWidth, range: 200...520)
                 }
-                VSplitView {
+                // Own line between the preview and Status (not VSplitView): it turns blue under the
+                // pointer like the other handles, and the height is kept per Mac (Akira 2026-11-26).
+                GeometryReader { geo in
+                VStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Preview: " + (model.selectedOutputConfig?.name ?? L("Screen がありません", "No screens")))
                             .font(.caption).foregroundColor(.secondary)
@@ -55,8 +59,9 @@ struct ControlView: View {
                         PreviewBar(model: model)
                     }
                     .padding(8)
-                    .frame(minHeight: 200)
+                    .frame(maxHeight: .infinity)
                     if !hideStatus {
+                    HeightHandle(height: $statusHeight, auto: 170, range: 70...max(71, Double(geo.size.height) - 209), below: true)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                         Text(L("Status（映像ごと）・緑はよい、橙は見ておく、赤は直す。→ のあとが対処。境の線を上へ動かすと広がる", "Status (per clip) · green OK, orange check, red fix. After → is what to do. Drag the line above to enlarge"))
@@ -70,8 +75,10 @@ struct ControlView: View {
                         StatusText(status: status)
                     }
                     .padding(.horizontal, 8).padding(.vertical, 4)
-                    .frame(minHeight: 70, idealHeight: 170)
+                    // The preview keeps at least 200 pt (the window is at least 600 tall).
+                    .frame(height: CGFloat(max(70, min(statusHeight > 0 ? statusHeight : 170, Double(geo.size.height) - 209))))
                     }
+                }
                 }
                 // Hidden by width, not removed, so its tabs and folds stay as they were (check 46 L1).
                 if !hideRight { Divider() }
@@ -1049,6 +1056,8 @@ struct HeightHandle: View {
     @Binding var height: Double
     let auto: CGFloat
     var range: ClosedRange<Double> = 40...900
+    /// The part that grows is under the line (Status): dragging up makes it taller.
+    var below = false
     @State private var start: Double?
     @State private var hover = false
     var body: some View {
@@ -1065,11 +1074,13 @@ struct HeightHandle: View {
                 .onChanged { g in
                     NSCursor.resizeUpDown.set()
                     if start == nil { start = height > 0 ? height : Double(auto) }
-                    height = min(max((start ?? height) + g.translation.height, range.lowerBound), range.upperBound)
+                    let d = below ? -g.translation.height : g.translation.height
+                    height = min(max((start ?? height) + d, range.lowerBound), range.upperBound)
                 }
                 .onEnded { _ in start = nil; cursorAfterDrag() })
             .onTapGesture(count: 2) { height = 0 }
-            .help(L("ドラッグして上の一覧の高さを変える（ダブルクリックで行の数に合わせた高さに戻る）", "Drag to change the height of the list above (double-click: fit to its rows)"))
+            .help(below ? L("ドラッグして下の Status の高さを変える（ダブルクリックで元の高さ）", "Drag to change the height of Status below (double-click: default height)")
+                        : L("ドラッグして上の一覧の高さを変える（ダブルクリックで行の数に合わせた高さに戻る）", "Drag to change the height of the list above (double-click: fit to its rows)"))
     }
 }
 
