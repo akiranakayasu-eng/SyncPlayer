@@ -1977,6 +1977,16 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
             }
+            Section("While Playing") {
+                Picker(L("操作の窓を休ませる", "Rest the control window"), selection: Binding(get: { model.restAfter }, set: { model.restAfter = $0 })) {
+                    Text(L("10 秒さわらないと", "After 10 s unused")).tag(10.0)
+                    Text(L("1 分さわらないと", "After 1 min unused")).tag(60.0)
+                    Text(L("休ませない", "Never")).tag(0.0)
+                }
+                Text(L("再生中に操作の窓を使っていないと、プレビューを止め、文字の更新を 1 秒に 1 回にする（Screen の映像は止まらない）。マウスかキーで戻る。操作の窓を隠す（S）と、すぐ休む。本番は S で隠しておくのがいちばん軽い。",
+                       "While playing and unused, the preview stops and the words update once a second (the screens keep playing). The mouse or a key wakes it. Hiding the control window (S) rests it at once; for a show, hiding it is the lightest."))
+                    .font(.caption).foregroundColor(.secondary)
+            }
             Section("Ask before (deletions can be undone with ⌘Z either way)") {
                 ForEach(AppModel.ConfirmKind.allCases) { k in
                     Toggle(k.label, isOn: model.asksBinding(k))

@@ -177,6 +177,8 @@ final class PictureView: NSView {
     let mtk: MTKView
     let renderer: OutputRenderer
     let overlay = EditOverlay()
+    /// Shown on the preview while it rests during playback (Akira 2026-11-26).
+    let restNote = PassThroughLabel(labelWithString: "")
 
     init?(fps: Int) {
         mtk = MTKView(frame: NSRect(x: 0, y: 0, width: 960, height: 540))
@@ -191,6 +193,24 @@ final class PictureView: NSView {
         overlay.frame = bounds
         overlay.autoresizingMask = [.width, .height]
         addSubview(overlay)
+        restNote.font = .systemFont(ofSize: 13, weight: .medium)
+        restNote.textColor = .white
+        restNote.drawsBackground = true
+        restNote.backgroundColor = NSColor.black.withAlphaComponent(0.65)
+        restNote.alignment = .center
+        restNote.isHidden = true
+        addSubview(restNote)
+    }
+
+    /// While resting the preview stops drawing (the last picture stays) and says so.
+    func setResting(_ on: Bool, text: String) {
+        mtk.isPaused = on
+        restNote.stringValue = text
+        restNote.sizeToFit()
+        let w = restNote.frame.width + 16, h = restNote.frame.height + 8
+        restNote.frame = NSRect(x: (bounds.width - w) / 2, y: bounds.height - h - 8, width: w, height: h)
+        restNote.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin]
+        restNote.isHidden = !on
     }
     required init?(coder: NSCoder) { fatalError() }
 }

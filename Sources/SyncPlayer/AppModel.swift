@@ -321,6 +321,7 @@ final class AppModel: ObservableObject {
         audioOn = opts.audio ?? show0.audioOn ?? startMaster
 
         buildControlWindow()
+        watchUse()
         applyTheme()
         show = show0
         selectedOutput = show.outputs.first?.id
@@ -2079,6 +2080,42 @@ final class AppModel: ObservableObject {
     // MARK: status
 
     private var tickCount = 0
+    /// While playing, the control window rests when nobody uses it: the preview stops drawing and
+    /// the words update once a second, so the outputs keep the Mac's time (Akira 2026-11-26:
+    /// "再生中は無駄な機能は停止して、操作が再開したら開始"). Any mouse or key use wakes it.
+    /// Hiding the control window (S) rests it as well.
+    @Published private(set) var resting = false
+    /// Seconds without use before resting (0 = never rest). Kept per Mac.
+    var restAfter: Double {
+        get { UserDefaults.standard.object(forKey: "ui.restAfter") as? Double ?? 10 }
+        set { UserDefaults.standard.set(newValue, forKey: "ui.restAfter"); objectWillChange.send() }
+    }
+    private var lastUse = hostNow()
+    private var useMonitor: Any?
+
+    private func watchUse() {
+        control?.acceptsMouseMovedEvents = true
+        useMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .leftMouseDragged,
+                                                                 .scrollWheel, .keyDown, .flagsChanged]) { [weak self] e in
+            guard let self else { return e }
+            if e.window === self.control || e.type == .keyDown {
+                self.lastUse = hostNow()
+                if self.resting { self.updateResting() }
+            }
+            return e
+        }
+    }
+
+    private func updateResting() {
+        let playing = transport.schedule?.playing ?? false
+        let hidden = !(control?.isVisible ?? false) || (control?.isMiniaturized ?? false)
+        let idle = restAfter > 0 && hostNow() - lastUse > restAfter
+        let on = playing && (hidden || idle) && editMode == .none
+        guard on != resting else { return }
+        resting = on
+        preview?.setResting(on, text: L("再生中は休んでいます（マウスかキーで戻る）", "Resting while playing (move the mouse or press a key)"))
+    }
+
     private func tick() {
         transport.tick()
         tickCount += 1
@@ -2090,7 +2127,9 @@ final class AppModel: ObservableObject {
         } else if !keepAwake, let a = awake {
             ProcessInfo.processInfo.endActivity(a); awake = nil
         }
-        guard tickCount % 4 == 0 else { return }
+        updateResting()
+        // Resting: the control window's words once a second instead of five times.
+        guard tickCount % (resting ? 20 : 4) == 0 else { return }
         status.position = transport.displayTime()
         status.duration = transport.duration
         status.playing = transport.schedule?.playing ?? false
