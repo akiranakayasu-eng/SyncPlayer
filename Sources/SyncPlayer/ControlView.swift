@@ -793,6 +793,7 @@ struct Sidebar: View {
                         }
                     }
                     .tag(Optional(l.id))
+                    .background(ListMark(kind: .layers))
                     .selectedRow(model.layerPicks.isEmpty ? model.selectedLayer == l.id : model.layerPicks.contains(l.id)) { clickLayer(l.id) }
                     .contextMenu { layerMenu(l) }
                     // Drop a movie from the movie list below onto a layer to show it there.
@@ -841,6 +842,7 @@ struct Sidebar: View {
                             // Replace and remove are in the right-click menu (Akira 2026-11-25, instead of icons).
                         }
                         .tag(Optional(c.id))
+                        .background(ListMark(kind: .clips))
                         .selectedRow(model.clipPicks.isEmpty ? model.selectedClip == c.id : model.clipPicks.contains(c.id)) { clickClip(c.id) }
                         .contextMenu { clipMenu(c) }
                         .help(L("\(c.name)\n右クリックで、選んだレイヤーに出す・差し替え・外すなど。⌘・⇧ クリックで複数選べる", "\(c.name)\nRight-click to use it in the selected layer, replace, remove and more. ⌘ / ⇧ click to pick several"))
@@ -1314,6 +1316,26 @@ struct FoldLabel: View {
         .onHover { hover = $0 }
         .onTapGesture { withAnimation { isOpen.toggle() } }
         .guideMenu(help)
+    }
+}
+
+/// Marks the rows of a left list, so ↑ ↓ can tell which list has the keyboard (the list's table
+/// is the first responder after a click) even when the row's click handler did not run
+/// (Akira 2026-11-26: ↑ ↓ did nothing in Layers or Footage).
+struct ListMark: NSViewRepresentable {
+    enum Kind { case layers, clips }
+    let kind: Kind
+    final class Mark: NSView {
+        var kind: Kind = .layers
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+    func makeNSView(context: Context) -> Mark { let m = Mark(); m.kind = kind; return m }
+    func updateNSView(_ m: Mark, context: Context) { m.kind = kind }
+    /// Which list this table shows, from the marks in its rows.
+    static func kind(of v: NSView) -> Kind? {
+        if let m = v as? Mark { return m.kind }
+        for s in v.subviews { if let k = kind(of: s) { return k } }
+        return nil
     }
 }
 

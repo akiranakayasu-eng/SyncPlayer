@@ -1788,6 +1788,18 @@ final class AppModel: ObservableObject {
                 step(e.keyCode == 125 ? 1 : -1)
                 return nil
             }
+            // The layer or footage list has the keyboard (clicked) but the row's click did not set
+            // the target: tell the list from its rows (Akira 2026-11-26).
+            if (e.keyCode == 125 || e.keyCode == 126), w === self.control, self.editMode == .none,
+               !e.modifierFlags.contains(.command), let t = w.firstResponder as? NSTableView, let k = ListMark.kind(of: t) {
+                let d = e.keyCode == 125 ? 1 : -1
+                if k == .layers {
+                    if self.selectedLayer == nil { self.selectedLayer = (self.selectedOutputConfig?.layers ?? []).last?.id } else { self.stepLayerRow(d) }
+                } else {
+                    if self.selectedClip == nil { self.selectedClip = self.show.clips.first?.id } else { self.stepClipRow(d) }
+                }
+                return nil
+            }
             if (e.keyCode == 125 || e.keyCode == 126) && w.firstResponder is NSTableView { return e }
             return self.key(e) ? nil : e
         }
