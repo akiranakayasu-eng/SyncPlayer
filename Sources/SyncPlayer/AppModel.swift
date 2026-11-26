@@ -1560,7 +1560,18 @@ final class AppModel: ObservableObject {
         applyAudio()
     }
 
-    func notify(_ m: String, seconds: Double = 3) { message = m; messageUntil = hostNow() + seconds }
+    func notify(_ m: String, seconds: Double = 3) {
+        // A long notice (an important one) is not replaced by a short one: that one waits (check 65 M1).
+        let now = hostNow()
+        if seconds < longNotice, now < longUntil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + (longUntil - now)) { [weak self] in self?.notify(m, seconds: seconds) }
+            return
+        }
+        if seconds >= longNotice { longUntil = now + seconds }
+        message = m; messageUntil = now + seconds
+    }
+    private let longNotice = 10.0
+    private var longUntil = 0.0
 
     /// A show opened (or read at start) from 0.3.4 or older whose layers in this seat used position,
     /// scale or rotation: they look different now. Told once per show on this Mac, for 15 s, after
@@ -1569,10 +1580,11 @@ final class AppModel: ObservableObject {
         let n = s.oldTransforms
         let key = "toldOldTransforms." + s.id
         guard n > 0, !UserDefaults.standard.bool(forKey: key) else { return }
-        UserDefaults.standard.set(true, forKey: key)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            self?.notify(L("⚠︎ 前の版のショー: 位置・大きさ・回転はレイヤーごと動く作りになり、レイヤー \(n) 枚の見え方が変わりました。Properties の Transform で合わせ直してください",
-                           "⚠︎ Show from an earlier version: position, scale and rotation now move the whole layer, so \(n) layer(s) look different. Adjust them under Transform in Properties"), seconds: 15)
+            // Remembered only once it is shown.
+            UserDefaults.standard.set(true, forKey: key)
+            self?.notify(L("⚠︎ 前の版のショー: レイヤー \(n) 枚の位置・大きさ・回転の見え方が変わりました。Transform で合わせ直す",
+                           "⚠︎ Earlier-version show: \(n) layer(s) look different (position, scale, rotation). Adjust under Transform"), seconds: 15)
         }
     }
 
