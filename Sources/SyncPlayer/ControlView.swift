@@ -63,7 +63,7 @@ struct ControlView: View {
                             .font(.caption).foregroundColor(.secondary)
                             .lineLimit(1).truncationMode(.tail)
                         Spacer(minLength: 4)
-                        Button { model.transport.resetCounts() } label: { Label(L("数を 0 に", "Clear"), systemImage: "eraser") }
+                        Button { model.clearCounts() } label: { Label(L("数を 0 に", "Clear"), systemImage: "eraser") }
                             .buttonStyle(.borderless).font(.caption)
                             .help(L("jumps・loops・dropped の数を 0 に戻す（再生には影響しない）。この画面は今の状態を毎回描き直すので、たまるのはこの数だけ", "Set jumps, loops and dropped back to 0 (playback is not affected). The rest is redrawn from the current state, so only these counts add up"))
                         }

@@ -2175,6 +2175,11 @@ final class AppModel: ObservableObject {
     private var droppedAtPlay = 0
     private var lowestDraw: Double?
     private var droppedMinute: (at: Double, base: Int, last: Int) = (0, 0, 0)
+    /// Clear in the status: the counts, and the play-time drop counts with them (check 69 L1).
+    func clearCounts() {
+        transport.resetCounts()
+        droppedAtPlay = 0; droppedMinute = (hostNow(), 0, 0)
+    }
     /// Frames skipped over all clips since the app started.
     var droppedTotal: Int { transport.frames.values.reduce(0) { $0 + $1.framesDropped } }
     /// One line for the status: time played, frames dropped since Play and in the last minute, lowest draw rate.
@@ -2239,7 +2244,7 @@ final class AppModel: ObservableObject {
         }
         if p {
             // Lowest draw rate since Play, skipping the first 5 s (clips loading), and drops in the last minute.
-            if let since = playingSince, hostNow() - since > 5, let r = outputs.values.map({ $0.picture.renderer.drawRate }).min(), r > 0 {
+            if let since = playingSince, hostNow() - since > 5, let r = outputs.values.map({ $0.picture.renderer.drawRate }).filter({ $0 > 0 }).min() {   // a Screen not drawing yet is left out (check 69 L3)
                 lowestDraw = min(lowestDraw ?? r, r)
             }
             if hostNow() - droppedMinute.at >= 60 { droppedMinute = (hostNow(), droppedTotal, max(0, droppedTotal - droppedMinute.base)) }
