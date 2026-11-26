@@ -496,7 +496,7 @@ final class AppModel: ObservableObject {
         undoing = true; show = m; undoing = false
         // Undo would bring the other seats back to before this (and write that): start undo again here.
         undoStack.removeAll(); redoStack.removeAll()
-        notify(L("ほかの Mac の変更（ほかの席）を取り込みました", "Took in changes made on another Mac (other seats)"))
+        notify(L("ほかの Mac の変更（ほかの Seat）を取り込みました", "Took in changes made on another Mac (other seats)"))
     }
 
     // MARK: seats
@@ -542,8 +542,8 @@ final class AppModel: ObservableObject {
     /// Makes this Mac another seat: its outputs, layers and sound change to that seat's.
     func switchSeat(_ id: String, ask: Bool = true) {
         guard id != show.seatID, let st = show.seats.first(where: { $0.id == id }) else { return }
-        if ask && !confirm(L("この Mac を席「\(st.name)」にしますか？", "Make this Mac seat “\(st.name)”?"),
-                           L("出力・レイヤー・音がその席のものに変わります。いまの席「\(show.seat.name)」の設定はファイルに残ります。",
+        if ask && !confirm(L("この Mac を Seat「\(st.name)」にしますか？", "Make this Mac seat “\(st.name)”?"),
+                           L("出力・レイヤー・音がその Seat のものに変わります。いまの Seat「\(show.seat.name)」の設定はファイルに残ります。",
                              "Outputs, layers and sound change to that seat's. The current seat “\(show.seat.name)” stays in the file as it is.")) { return }
         saveNow()
         var s = show
@@ -551,7 +551,7 @@ final class AppModel: ObservableObject {
         ShowStore.rememberSeat(id, for: s)
         applyShow(s)
         selectedOutput = show.outputs.first?.id
-        notify(L("この Mac は席「\(st.name)」", "This Mac is now seat “\(st.name)”"))
+        notify(L("この Mac は Seat「\(st.name)」", "This Mac is now seat “\(st.name)”"))
     }
 
     func addSeat() {
@@ -559,7 +559,7 @@ final class AppModel: ObservableObject {
         let n = s.newSeatName()
         s.seats.append(Seat(name: n, outputs: [OutputConfig(name: L("出力 1", "Output 1"))]))
         show = s
-        notify(L("席「\(n)」を足しました。その席の Mac で開き、席に選んでください", "Added seat “\(n)”. Open the show on that seat's Mac and choose it there"))
+        notify(L("Seat「\(n)」を足しました。その Seat の Mac で開き、Seat に選んでください", "Added seat “\(n)”. Open the show on that seat's Mac and choose it there"))
     }
 
     /// A copy of a seat (its outputs and layers), as a start for a similar place.
@@ -575,26 +575,26 @@ final class AppModel: ObservableObject {
         }
         s.seats.append(c)
         show = s
-        notify(L("席「\(st.name)」を「\(c.name)」に複製", "Duplicated seat “\(st.name)” as “\(c.name)”"))
+        notify(L("Seat「\(st.name)」を「\(c.name)」に複製", "Duplicated seat “\(st.name)” as “\(c.name)”"))
     }
 
     func renameSeat(_ id: String, _ name: String) {
         let n = name.trimmingCharacters(in: .whitespaces)
         guard !n.isEmpty, let i = show.seats.firstIndex(where: { $0.id == id }), show.seats[i].name != n else { return }
-        if show.seats.contains(where: { $0.name == n && $0.id != id }) { notify(L("席「\(n)」はもうあります", "There is already a seat “\(n)”")); return }
+        if show.seats.contains(where: { $0.name == n && $0.id != id }) { notify(L("Seat「\(n)」はもうあります", "There is already a seat “\(n)”")); return }
         show.seats[i].name = n
     }
 
     func deleteSeat(_ id: String) {
         guard show.seats.count > 1, let st = show.seats.first(where: { $0.id == id }) else { return }
-        guard confirm(L("席「\(st.name)」を消しますか？", "Delete seat “\(st.name)”?"),
-                      L("その席の出力とレイヤーがファイルから消えます（⌘Z で戻せます）。映像は消えません。",
+        guard confirm(L("Seat「\(st.name)」を消しますか？", "Delete seat “\(st.name)”?"),
+                      L("その Seat の出力とレイヤーがファイルから消えます（⌘Z で戻せます）。映像は消えません。",
                         "Its outputs and layers are removed from the file (⌘Z brings them back). Clips are kept."), skip: .seat) else { return }
         var s = show
         s.seats.removeAll { $0.id == id }
         if id == show.seatID { s.seatID = s.seats[0].id; ShowStore.rememberSeat(s.seatID, for: s) }
         show = s
-        notify(L("席「\(st.name)」を消しました", "Deleted seat “\(st.name)”"))
+        notify(L("Seat「\(st.name)」を消しました", "Deleted seat “\(st.name)”"))
     }
 
     // MARK: collect files
@@ -1247,7 +1247,7 @@ final class AppModel: ObservableObject {
         for st in show.seats {
             for o in st.outputs {
                 for (k, l) in o.layers.reversed().enumerated() where ids.contains(l.clipID) {
-                    let seat = show.seats.count > 1 ? L("席 \(st.name)・", "Seat \(st.name) · ") : ""
+                    let seat = show.seats.count > 1 ? L("Seat \(st.name)・", "Seat \(st.name) · ") : ""
                     let name = l.name.map { "（\($0)）" } ?? ""
                     places.append("・" + seat + "\(o.name)・" + L("レイヤー \(k + 1)", "Layer \(k + 1)") + name + (ids.count > 1 ? " — " + clipName(l.clipID) : ""))
                 }
@@ -1706,7 +1706,7 @@ final class AppModel: ObservableObject {
             case .layer: return L("レイヤーを消すとき", "Deleting layers")
             case .clip: return L("素材から外すとき", "Removing footage")
             case .output: return L("出力を消すとき", "Deleting outputs")
-            case .seat: return L("席を消すとき", "Deleting seats")
+            case .seat: return L("Seat を消すとき", "Deleting seats")
             case .quit: return L("SyncPlayer を終了するとき（⌘Q・Q）", "Quitting SyncPlayer (⌘Q, Q)")
             }
         }

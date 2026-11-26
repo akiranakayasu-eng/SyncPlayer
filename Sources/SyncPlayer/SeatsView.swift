@@ -29,14 +29,14 @@ struct SeatChip: View {
         Button { open = true } label: {
             HStack(spacing: 6) {
                 SeatBadge(index: model.show.seatIndex, on: true, size: 18)
-                Text(model.show.seats.count > 1 ? model.show.seat.name : L("席", "Seat")).font(.callout.bold()).lineLimit(1)
+                Text(model.show.seats.count > 1 ? model.show.seat.name : L("Seat", "Seat")).font(.callout.bold()).lineLimit(1)
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundColor(.secondary)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .fixedSize()
-        .help(L("この Mac の席（Mac とプロジェクターの組）。押すと、席を足す・複製・消す・名前・この Mac を別の席にする。出力・レイヤー・音はこの席のもの", "This Mac's seat (a Mac and its projectors). Click to add, duplicate, delete, rename or switch seats. Outputs, layers and sound are this seat's"))
+        .help(L("この Mac の Seat（Mac とプロジェクターの組）。押すと、Seat を足す・複製・消す・名前・この Mac を別の Seat にする。出力・レイヤー・音はこの Seat のもの", "This Mac's seat (a Mac and its projectors). Click to add, duplicate, delete, rename or switch seats. Outputs, layers and sound are this seat's"))
         .popover(isPresented: $open, arrowEdge: .bottom) { SeatsPanel(model: model) }
     }
 }
@@ -58,8 +58,8 @@ struct SeatChooserView: View {
     var body: some View {
         let sel = picked ?? current ?? show.seats.first?.id
         VStack(alignment: .leading, spacing: 12) {
-            Text(L("この Mac はどの席ですか", "Which seat is this Mac?")).font(.title2.bold())
-            Text(L("この展示には \(show.seats.count) つの席があります。席は Mac 1 台とそのプロジェクターの組です。選んだ席はこの Mac が覚え、次からは聞きません（あとから上の席の札で変えられます）。",
+            Text(L("この Mac はどの Seat ですか", "Which seat is this Mac?")).font(.title2.bold())
+            Text(L("この展示には \(show.seats.count) つの Seat があります。Seat は Mac 1 台とそのプロジェクターの組です。選んだ Seat はこの Mac が覚え、次からは聞きません（あとから上の Seat の札で変えられます）。",
                    "This show has \(show.seats.count) seats. A seat is one Mac and its projectors. This Mac remembers the seat you choose and won't ask again (change it later with the seat label at the top)."))
                 .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             ScrollView {
@@ -84,7 +84,7 @@ struct SeatChooserView: View {
             }
             HStack {
                 Spacer()
-                Button(L("あとで（最初の席にする）", "Later (use the first seat)")) { done(nil) }
+                Button(L("あとで（最初の Seat にする）", "Later (use the first seat)")) { done(nil) }
                     .keyboardShortcut(.cancelAction)
                 Button(L("\(show.seats.first { $0.id == sel }?.name ?? "") にする", "Use \(show.seats.first { $0.id == sel }?.name ?? "")")) { done(sel) }
                     .keyboardShortcut(.defaultAction)
@@ -122,10 +122,10 @@ struct CollectView: View {
                 }
                 if model.show.seats.count > 1 {
                     GridRow {
-                        Text(L("含める席", "Seats")).foregroundColor(.secondary)
+                        Text(L("含める Seat", "Seats")).foregroundColor(.secondary)
                         Picker("", selection: $seatOnly) {
-                            Text(L("全席", "All seats")).tag(false)
-                            Text(L("この Mac の席だけ（\(model.show.seat.name)）", "This Mac's seat only (\(model.show.seat.name))")).tag(true)
+                            Text(L("すべての Seat", "All seats")).tag(false)
+                            Text(L("この Mac の Seat だけ（\(model.show.seat.name)）", "This Mac's seat only (\(model.show.seat.name))")).tag(true)
                         }.pickerStyle(.segmented).labelsHidden().fixedSize()
                     }
                 }
@@ -141,7 +141,7 @@ struct CollectView: View {
                         if i.size == nil { Text(L("見つからない", "Missing")).foregroundColor(.orange).font(.caption.bold()) }
                     }
                 }
-                TableColumn(L("使う席", "Seats")) { i in
+                TableColumn(L("使う Seat", "Seats")) { i in
                     Text(i.seats.isEmpty ? "—" : i.seats.joined(separator: " · ")).foregroundColor(.secondary)
                 }.width(min: 60, ideal: 110)
                 TableColumn(L("大きさ", "Size")) { i in
@@ -151,7 +151,7 @@ struct CollectView: View {
             }
             .frame(minHeight: 200)
             HStack(alignment: .top, spacing: 16) {
-                Text(L("中身: ショー（.syncshow）、movies/、masks/、report.txt。ショーの中の場所は、このフォルダからの相対の場所になります。運んだ先の Mac では .syncshow を開いて席を選ぶだけです。",
+                Text(L("中身: ショー（.syncshow）、movies/、masks/、report.txt。ショーの中の場所は、このフォルダからの相対の場所になります。運んだ先の Mac では .syncshow を開いて Seat を選ぶだけです。",
                        "Inside: the show (.syncshow), movies/, masks/, report.txt. Paths in the show become relative to the folder. On the other Mac, just open the .syncshow and choose the seat."))
                     .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .trailing, spacing: 3) {

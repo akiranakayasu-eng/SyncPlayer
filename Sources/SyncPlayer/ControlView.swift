@@ -244,7 +244,7 @@ struct SelectedLayerHeader: View {
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.14)))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor.opacity(0.6), lineWidth: 1))
         } else {
-            SectionTitle(L("選んだレイヤー", "Selected Layer"))
+            SectionTitle("Selected Layer")
         }
     }
 }
@@ -519,7 +519,7 @@ struct SeatsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-        SectionTitle(L("席", "Seats"), help: "seats")
+        SectionTitle("Seats", help: "seats")
         List {
             ForEach(Array(model.show.seats.enumerated()), id: \.element.id) { k, st in
                 HStack(spacing: 6) {
@@ -552,10 +552,10 @@ struct SeatsPanel: View {
                 .contextMenu {
                     Button(L("名前を変える", "Rename")) { renameText = st.name; renamingSeat = st.id }
                     Button(L("複製", "Duplicate")) { model.duplicateSeat(st.id) }
-                    Button(L("この Mac をこの席にする", "Make This Mac This Seat")) { model.switchSeat(st.id) }
+                    Button(L("この Mac をこの Seat にする", "Make This Mac This Seat")) { model.switchSeat(st.id) }
                         .disabled(st.id == model.show.seatID)
                     Divider()
-                    Button(L("席を消す…", "Delete Seat…"), role: .destructive) { model.deleteSeat(st.id) }
+                    Button(L("Seat を消す…", "Delete Seat…"), role: .destructive) { model.deleteSeat(st.id) }
                         .disabled(model.show.seats.count < 2)
                 }
             }
@@ -565,12 +565,12 @@ struct SeatsPanel: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
         let sel: Seat = selectedSeat.flatMap { id in model.show.seats.first { $0.id == id } } ?? model.show.seat
         ListBar {
-            IconButton("plus", L("席を足す（Mac をもう 1 台使うとき）", "Add a seat (for another Mac)")) { model.addSeat() }
-            IconButton("plus.square.on.square", L("選んだ席を複製（出力とレイヤーごと）", "Duplicate the selected seat (with its outputs and layers)")) { model.duplicateSeat(sel.id) }
-            IconButton("minus", L("選んだ席を消す", "Delete the selected seat")) { model.deleteSeat(sel.id) }
+            IconButton("plus", L("Seat を足す（Mac をもう 1 台使うとき）", "Add a seat (for another Mac)")) { model.addSeat() }
+            IconButton("plus.square.on.square", L("選んだ Seat を複製（出力とレイヤーごと）", "Duplicate the selected seat (with its outputs and layers)")) { model.duplicateSeat(sel.id) }
+            IconButton("minus", L("選んだ Seat を消す", "Delete the selected seat")) { model.deleteSeat(sel.id) }
                 .disabled(model.show.seats.count < 2)
             Divider().frame(height: 14)
-            IconButton("desktopcomputer", L("この Mac を選んだ席にする（出力・レイヤー・音がその席のものになる）", "Make this Mac the selected seat (its outputs, layers and sound)")) { model.switchSeat(sel.id) }
+            IconButton("desktopcomputer", L("この Mac を選んだ Seat にする（出力・レイヤー・音がその Seat のものになる）", "Make this Mac the selected seat (its outputs, layers and sound)")) { model.switchSeat(sel.id) }
                 .disabled(sel.id == model.show.seatID)
         }
         }
@@ -616,7 +616,7 @@ struct Sidebar: View {
 
 
     @ViewBuilder private var outputSection: some View {
-        FoldSection(L("出力", "Outputs") + (model.show.seats.count > 1 ? " — " + model.show.seat.name : ""), key: "outputs", help: "outputs") {
+        FoldSection("Outputs" + (model.show.seats.count > 1 ? " — " + model.show.seat.name : ""), key: "outputs", help: "outputs") {
         List {
             ForEach(model.show.outputs) { o in
                 HStack {
@@ -753,7 +753,7 @@ struct Sidebar: View {
             if leftTab == 0 {
             outputSection
             ThinLine()
-            FoldSection(L("レイヤー", "Layers"), key: "layers", help: "layers") {
+            FoldSection("Layers", key: "layers", help: "layers") {
             ScrollViewReader { proxy in
             List {
                 // Numbered from the front (1 = frontmost, like After Effects). Drag a row to change
@@ -1053,7 +1053,7 @@ extension View {
 /// Settings ▸ the command port (Akira 2026-11-26: off by default, turned on here, with the risk written out).
 extension SettingsView {
     @ViewBuilder var controlSection: some View {
-        Section(L("ほかのソフトからの操作（Claude・Max・TouchDesigner）", "Control from other software (Claude, Max, TouchDesigner)")) {
+        Section("Control from other software (Claude, Max, TouchDesigner)") {
             Picker(L("命令を受ける", "Accept commands"), selection: Binding(
                 get: { model.controlMode.rawValue },
                 set: { UserDefaults.standard.set($0, forKey: AppModel.controlModeKey); model.applyControlPort() })) {
@@ -1604,22 +1604,22 @@ struct Inspector: View {
         }
         .help(L("音入りの映像と、そのまま開けるショーの一式（アプリとは別の zip、samples と付いたもの）を配っているページを開く。展開したら中の使い方.txt を見る", "Opens the page with clips with sound and ready-made shows (the zip named samples, separate from the app). Read the text file inside after unzipping"))
 
-        StepHeader(title: L("1. 1 台で動かす", "1. Play on one Mac"), anchor: "step1")
+        StepHeader(title: "1. Play on one Mac", anchor: "step1")
         StepLine(done: !model.show.clips.isEmpty, text: L("映像を開く（練習用でも自分の映像でも）", "Open clips (practice or your own)"))
         StepLine(done: model.learnedSet.contains("played"), text: L("再生・停止する（space か上の「再生」）", "Play and stop (space or ▶ at the top)"))
         StepLine(done: model.learnedSet.contains("fullscreen"), text: L("左の「全画面にする（F）」を入れ、S で操作の窓を出し入れする", "Turn on Full Screen (F) at the left; S shows and hides the control window"))
 
-        StepHeader(title: L("2. 画面を作る", "2. Build the picture"), anchor: "step2")
+        StepHeader(title: "2. Build the picture", anchor: "step2")
         StepLine(done: model.learnedSet.contains("added"), text: L("左の「素材」の ＋ か、右クリックの「差し替え」で自分の映像を入れる", "Add your clips with + or right-click › Replace Footage in Footage"))
         StepLine(done: model.learnedSet.contains("adjusted"), text: L("「画面の調整」で位置・大きさ・四隅などを変える（⌘Z で戻せる）", "Change position, scale, corners in the Layer tab (⌘Z undoes)"))
         StepLine(done: model.learnedSet.contains("mask"), text: L("自分のマスク画像を使う（なくてもよい）", "Use your own mask image (optional)"))
         StepLine(done: model.showFile != nil, text: L("上の「保存…」でショーを保存する", "Save the show with the save button at the top"))
 
-        StepHeader(title: L("3. 何台かでそろえる", "3. Sync several Macs"), anchor: "step3")
+        StepHeader(title: "3. Sync several Macs", anchor: "step3")
         StepLine(done: model.learnedSet.contains("ident"), text: L("N で Mac の名前とディスプレイの番号を出す", "Press N to show Mac names and display numbers"))
         StepLine(done: model.learnedSet.contains("synced"), text: L("同じネットワークの別の Mac をフォロワーにして、札が緑になる（フォロワーの Mac で ✓）", "Make another Mac on the same network a follower; its badge turns green (✓ on the follower)"))
 
-        StepHeader(title: L("4. 展示の形にする", "4. Set up the exhibition"), anchor: "step4")
+        StepHeader(title: "4. Set up the exhibition", anchor: "step4")
         StepLine(done: model.openAtLogin, text: L("「展示の設定」で「ログインしたら開く」を入れる（全台）", "In Exhibit, turn on Open at Login (all Macs)"))
         StepLine(done: model.exhibitMaster, text: L("「展示のマスター」を 1 台だけに入れる（マスターの Mac で ✓）", "Turn on Exhibition Master on one Mac only (✓ on the master)"))
         Toggle(L("電源を切って入れ直し、同じ状態に戻るのを見た", "Restarted and saw it come back the same"), isOn: $rebootChecked)
@@ -1633,7 +1633,7 @@ struct Inspector: View {
 
     /// Settings for an exhibition: after a restart the Mac comes back as it was.
     @ViewBuilder private var exhibitSection: some View {
-        FoldSection(L("展示の前の点検", "Pre-show Check"), key: "check", help: "check") {
+        FoldSection("Pre-show Check", key: "check", help: "check") {
         HStack(spacing: 6) {
             Button(L("点検する", "Check")) { model.runExhibitCheck() }
                 .help(L("展示に入る前に、この Mac の設定とつながりを一度に確かめる", "Check this Mac's settings and connections at once before the exhibition"))
@@ -1663,7 +1663,7 @@ struct Inspector: View {
 
         if model.isMaster {
             ThinLine()
-            FoldSection(L("つながっている Mac", "Connected Macs"), key: "macs", help: "macs") {
+            FoldSection("Connected Macs", key: "macs", help: "macs") {
             if model.peers.isEmpty {
                 Text(L("フォロワーはまだ見えない。ほかの Mac で SyncPlayer を開くと、ここに並ぶ。", "No followers yet. Open SyncPlayer on other Macs and they appear here."))
                     .font(.caption).foregroundColor(.secondary)
@@ -1671,7 +1671,7 @@ struct Inspector: View {
                 Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 3) {
                     GridRow {
                         Text(L("名前", "Name")).foregroundColor(.secondary)
-                        Text(L("席", "Seat")).foregroundColor(.secondary)
+                        Text(L("Seat", "Seat")).foregroundColor(.secondary)
                         Text(L("ずれ", "Error")).foregroundColor(.secondary)
                         Text(L("版・注意", "Version / Notes")).foregroundColor(.secondary)
                     }
@@ -1681,7 +1681,7 @@ struct Inspector: View {
                             let clash = model.seatClash(p.seat)
                             Text(p.seat.map { clash ? "⚠︎ " + $0 : $0 } ?? "—").lineLimit(1)
                                 .foregroundColor(clash ? .orange : .primary)
-                                .help(clash ? L("同じ席の Mac がほかにもあります。どちらかの席を変えてください", "Another Mac is the same seat. Change the seat on one of them") : "")
+                                .help(clash ? L("同じ Seat の Mac がほかにもあります。どちらかの Seat を変えてください", "Another Mac is the same seat. Change the seat on one of them") : "")
                             Text(p.err.map { String(format: "%.1f ms", abs($0)) } ?? "—")
                                 .font(.system(size: 11, design: .monospaced))
                             let other = p.ver != AppModel.version
@@ -1697,7 +1697,7 @@ struct Inspector: View {
         }
 
         ThinLine()
-        FoldSection(L("いまのこの Mac", "This Mac"), key: "thisMac", help: "exhibit") {
+        FoldSection("This Mac", key: "thisMac", help: "exhibit") {
         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
             GridRow { Text(L("操作の窓の色", "Appearance")).foregroundColor(.secondary)
                       Picker("", selection: Binding(get: { model.uiTheme }, set: { model.uiTheme = $0 })) {
@@ -1723,7 +1723,7 @@ struct Inspector: View {
         }
 
         ThinLine()
-        FoldSection(L("展示の設定（設営のとき 1 度だけ）", "Exhibition Setup (once, when installing)"), key: "setup") {
+        FoldSection("Exhibition Setup (once, when installing)", key: "setup") {
         Toggle(L("ログインしたら SyncPlayer を開く", "Open SyncPlayer at Login"), isOn: Binding(get: { model.openAtLogin }, set: { model.openAtLogin = $0 }))
         Text(L("全台で入れる。再起動のあとログインするだけで、前と同じ全画面・音・マスクに戻る。", "Turn on for all Macs. After a restart, logging in brings back the same full screen, sound and masks."))
             .font(.caption).foregroundColor(.secondary)
@@ -1733,7 +1733,7 @@ struct Inspector: View {
         }
 
         ThinLine()
-        FoldSection(L("確かめる・困ったとき", "Checks and Troubleshooting"), key: "trouble", help: "trouble") {
+        FoldSection("Checks and Troubleshooting", key: "trouble", help: "trouble") {
         if model.netBlocked {
             Text(L("⚠︎ この Mac からネットワークに届いていない。ローカルネットワークの許可が切れているか、ネットワークにつながっていない。", "⚠︎ This Mac can't reach the network. Local Network permission is off, or it isn't connected."))
                 .font(.caption).foregroundColor(.orange)
@@ -1774,7 +1774,7 @@ struct Inspector: View {
                 }
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: L("位置・大きさ・回転", "Transform"), isOpen: $openPlace, help: "place") }
+        } label: { FoldLabel(title: "Transform", isOpen: $openPlace, help: "place") }
 
         ThinLine()
         DisclosureGroup(isExpanded: $openCrop) {
@@ -1785,7 +1785,7 @@ struct Inspector: View {
                 SliderRow(label: L("下", "Bottom"), value: model.lookBinding(\.cropB, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: L("切り取り（映像の端を削る）", "Crop"), isOpen: $openCrop, help: "crop") }
+        } label: { FoldLabel(title: "Crop", isOpen: $openCrop, help: "crop") }
 
         ThinLine()
         DisclosureGroup(isExpanded: $openMask) {
@@ -1804,7 +1804,7 @@ struct Inspector: View {
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: L("マスク（白黒の画像で形を抜く）", "Mask"), isOpen: $openMask, warn: maskBroken, help: "mask") }
+        } label: { FoldLabel(title: "Mask", isOpen: $openMask, warn: maskBroken, help: "mask") }
 
         ThinLine()
         DisclosureGroup(isExpanded: $openBlend) {
@@ -1818,7 +1818,7 @@ struct Inspector: View {
                 Text(L("重なる幅を、画面の幅（高さ）に対する割合で。", "Overlap width as a fraction of the picture's width (height).")).font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: L("エッジブレンド（プロジェクターの重なり）", "Edge Blend"), isOpen: $openBlend, help: "blend") }
+        } label: { FoldLabel(title: "Edge Blend", isOpen: $openBlend, help: "blend") }
 
         ThinLine()
         DisclosureGroup(isExpanded: $openWarp) {
@@ -1838,7 +1838,7 @@ struct Inspector: View {
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
-        } label: { FoldLabel(title: L("四隅・曲面（台形や曲がりを直す）", "Corner Pin & Mesh"), isOpen: $openWarp, help: "warp") }
+        } label: { FoldLabel(title: "Corner Pin & Mesh", isOpen: $openWarp, help: "warp") }
         .id("warp")
     }
 
@@ -1869,7 +1869,7 @@ struct SettingsView: View {
     @State private var portText = ""
     var body: some View {
         Form {
-            Section(L("見た目", "Appearance")) {
+            Section("Appearance") {
                 Picker(L("操作の窓の色", "Appearance"), selection: Binding(get: { model.uiTheme }, set: { model.uiTheme = $0 })) {
                     ForEach(AppModel.UITheme.allCases) { Text($0.label).tag($0) }
                 }
@@ -1879,7 +1879,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
             }
-            Section(L("確かめの窓を出す（消すものは切っても ⌘Z で戻せます）", "Ask before (deletions can be undone with ⌘Z either way)")) {
+            Section("Ask before (deletions can be undone with ⌘Z either way)") {
                 ForEach(AppModel.ConfirmKind.allCases) { k in
                     Toggle(k.label, isOn: model.asksBinding(k))
                 }
