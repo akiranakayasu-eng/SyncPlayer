@@ -35,10 +35,21 @@ final class ControlPort {
     private var key = ""
     /// On the queue: wrong keys per sender, and until when a sender is refused.
     private var fails: [String: (count: Int, until: Double)] = [:]
-    private var open = 0
+    private var openCount = 0
+
+    /// Counts starts, so a retry of an older start does nothing.
+    private var generation = 0
 
     func start(mode: Mode, port: UInt16, key: String) {
         stop()
+        generation += 1
+        open(mode: mode, port: port, key: key, gen: generation, tries: 0)
+    }
+
+    /// Opens the port. The previous port (or a just-closed connection) may still hold it for a
+    /// moment after stop: try again every 2 s, and show the error only after 5 tries (check 58 M1).
+    private func open(mode: Mode, port: UInt16, key: String, gen: Int, tries: Int) {
+        guard gen == generation else { return }
         guard mode != .off, !key.isEmpty, let p = NWEndpoint.Port(rawValue: port) else { return }
         let params = NWParameters.tcp
         // No reuse: a port another program holds must fail here, not be shared (check 56 M3).
@@ -53,11 +64,19 @@ final class ControlPort {
                 switch st {
                 case .ready: DispatchQueue.main.async { self?.onState?(nil) }
                 case .waiting(let e), .failed(let e):   // .waiting: e.g. the port is taken (check 56 M3)
-                    DispatchQueue.main.async {
-                        self?.onState?(L("命令を受ける口を開けない（ポート \(port)）: \(e.localizedDescription)",
-                                         "Cannot open the command port (\(port)): \(e.localizedDescription)"))
-                    }
                     l.cancel()
+                    DispatchQueue.main.async {
+                        guard let self, gen == self.generation else { return }
+                        if self.listener === l { self.listener = nil }
+                        if tries < 4 {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                self.open(mode: mode, port: port, key: key, gen: gen, tries: tries + 1)
+                            }
+                        } else {
+                            self.onState?(L("命令を受ける口を開けない（ポート \(port)）: \(e.localizedDescription)",
+                                            "Cannot open the command port (\(port)): \(e.localizedDescription)"))
+                        }
+                    }
                 default: break
                 }
             }
@@ -71,6 +90,7 @@ final class ControlPort {
     }
 
     func stop() {
+        generation += 1
         listener?.cancel()
         listener = nil
     }
@@ -78,13 +98,13 @@ final class ControlPort {
     // MARK: on the queue
 
     private func accept(_ c: NWConnection) {
-        guard open < 8 else { c.cancel(); return }   // a few at a time is all a script needs
-        open += 1
+        guard openCount < 8 else { c.cancel(); return }   // a few at a time is all a script needs
+        openCount += 1
         var done = false
-        func finish() { if !done { done = true; open -= 1; c.cancel() } }
+        func finish() { if !done { done = true; openCount -= 1; c.cancel() } }
         c.stateUpdateHandler = { st in
             switch st {
-            case .failed, .cancelled: if !done { done = true; self.open -= 1 }
+            case .failed, .cancelled: if !done { done = true; self.openCount -= 1 }
             default: break
             }
         }

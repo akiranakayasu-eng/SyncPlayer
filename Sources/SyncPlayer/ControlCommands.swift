@@ -18,7 +18,8 @@ extension AppModel {
     }
     /// The key: from --control-key, else the one kept for this Mac (made the first time it is needed).
     var controlKey: String {
-        if let k = opts.controlKey, k.count >= 8 { return k }   // a short key is ignored (check 56)
+        // A short --control-key is ignored (check 56); said once in the log (check 58 L1).
+        if let k = opts.controlKey, k.count >= 8 { return k }
         if let k = UserDefaults.standard.string(forKey: AppModel.controlKeyKey), !k.isEmpty { return k }
         let k = ControlPort.newKey()
         UserDefaults.standard.set(k, forKey: AppModel.controlKeyKey)
@@ -34,6 +35,7 @@ extension AppModel {
             if let e { self.notify(e); print("control: \(e)"); fflush(stdout) }
         }
         let m = controlMode
+        if let k = opts.controlKey, k.count < 8, m != .off { print("control: --control-key is shorter than 8 characters; using the key in Settings"); fflush(stdout) }
         controlError = nil
         controlPort.start(mode: m, port: controlPortNumber, key: m == .off ? "" : controlKey)
         controlOn = m != .off
