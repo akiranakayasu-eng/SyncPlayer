@@ -63,7 +63,7 @@ struct ControlView: View {
                             .font(.caption).foregroundColor(.secondary)
                             .lineLimit(1).truncationMode(.tail)
                         Spacer(minLength: 4)
-                        Button { model.transport.resetCounts() } label: { Label(L("数を 0 に", "Clear"), systemImage: "eraser") }
+                        Button { model.clearCounts() } label: { Label(L("数を 0 に", "Clear"), systemImage: "eraser") }
                             .buttonStyle(.borderless).font(.caption)
                             .help(L("jumps・loops・dropped の数を 0 に戻す（再生には影響しない）。この画面は今の状態を毎回描き直すので、たまるのはこの数だけ", "Set jumps, loops and dropped back to 0 (playback is not affected). The rest is redrawn from the current state, so only these counts add up"))
                         }
@@ -315,6 +315,7 @@ struct TopBar: View {
         var s = model.show
         s.loopTogether = true
         s.loopLength = x
+        s.loopClip = nil   // a typed or dragged length no longer follows a clip
         if s != model.show { model.show = s }
         model.notify(x == 0 ? L("ループの長さ: いちばん長い映像に合わせる", "Loop length: the longest clip") : L("ループの長さ: \(timeString(x))", "Loop length: \(timeString(x))"))
         leaveField()
@@ -410,7 +411,9 @@ struct TopBar: View {
                 HStack(spacing: 0) {
                     Text(L("位置", "Current")).frame(width: 56, alignment: .trailing)
                     Text(" / ")
-                    Text(L("ループ", "Loop"))
+                    Text(L("ループ", "Loop") + (model.show.loopClip.map { " = " + model.clipName($0) } ?? ""))
+                        .lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: 140, alignment: .leading)   // a long name doesn't squeeze the bar (check 67 L5)
                 }
                 .font(.system(size: 9)).foregroundColor(.secondary)
                 HStack(spacing: 0) {
@@ -478,6 +481,30 @@ struct TopBar: View {
                                             }))
                             .help(status.isMaster ? L("ループの長さ。押すと打てる（200 で 2 秒、1:30 で 1 分 30 秒。0 でいちばん長い映像の長さ）。全部の Mac がこの長さで頭へ戻る", "Loop length. Click to type (200 = 2 s, 1:30 = 1 min 30 s, 0 = longest clip). All Macs go back to the start at this length") : L("ループの長さ（マスターの Mac で変える）", "Loop length (changed on the master)"))
                     }
+                    // What the loop length follows, switched in one place (Akira 2026-11-26: "ループ時間を
+                    // 特定のレイヤーかフッテージに合わせられるように。UI は単純で切り替えられるように").
+                    if status.isMaster {
+                        Menu {
+                            Button { model.loopToClip(nil) } label: {
+                                let on = model.show.loopClip == nil && model.show.loopLength == 0
+                                if on { Label(L("いちばん長い映像", "Longest Clip"), systemImage: "checkmark") } else { Text(L("いちばん長い映像", "Longest Clip")) }
+                            }
+                            Divider()
+                            ForEach(model.show.clips) { c in
+                                let len = model.clipLength(c.id)
+                                Button { model.loopToClip(c.id) } label: {
+                                    let t = "\(c.name)  " + (len > 0 ? timeString(len) : L("（長さが読めない）", "(length unknown)"))
+                                    if model.show.loopClip == c.id { Label(t, systemImage: "checkmark") } else { Text(t) }
+                                }
+                                .disabled(len <= 0)   // not on this Mac (another seat's) or not read yet (check 67 L1)
+                            }
+                        } label: { Image(systemName: "chevron.down") }
+                            .menuStyle(.borderlessButton)
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .padding(.leading, 2)
+                            .help(L("ループの長さを合わせる映像を選ぶ（数字を打つかドラッグすると、その長さに戻る）", "Choose the clip the loop length follows (typing or dragging the time sets a length instead)"))
+                    }
                 }
                 }
                 .frame(minWidth: 120)
@@ -492,7 +519,13 @@ struct TopBar: View {
                     .help(L("ドラッグして離すと、全部の Mac がその位置へ", "Drag and release to move all Macs there"))
                 // Next to the loop length it governs (Akira 2026-11-25: up here, not at the bottom of the left column).
                 Toggle(L("全部いっしょにループ", "Loop Together"), isOn: Binding(get: { model.show.loopTogether },
-                                                        set: { v in if model.show.loopTogether != v { model.show.loopTogether = v } }))
+                                                        set: { v in
+                                                            guard model.show.loopTogether != v else { return }
+                                                            var s = model.show
+                                                            s.loopTogether = v
+                                                            if !v { s.loopClip = nil }   // each clip's own length: nothing to follow (check 67 M1)
+                                                            model.show = s
+                                                        }))
                     .toggleStyle(.checkbox)
                     .fixedSize()
                     .help(L("入れると、すべての Mac の映像が同じ長さ（左の / のあとの時刻。押すと打てる）で頭へ戻る。短い映像は最後のコマで待つ。切ると映像ごとに自分の長さでループする（マスターの設定が使われる）", "On: every clip on every Mac goes back to the start at one length (the time after / at the left; click to type). Shorter clips hold their last frame. Off: each clip loops at its own length (the master's setting is used)"))
@@ -708,6 +741,8 @@ struct Sidebar: View {
                 Button(L("ファイルから選ぶ…", "Choose a File…")) { model.addClipsForLayer(l.id) }
             }
             Button(L("ソースの場所を Finder で開く", "Reveal Source in Finder")) { model.revealClip(l.clipID) }
+            Button(L("ループの長さをこの映像に合わせる", "Loop to This Clip's Length")) { model.loopToClip(l.clipID) }
+                .disabled(!model.isMaster)
             Button(l.visible ? L("隠す", "Hide") : L("見せる", "Show")) { model.visibleBinding(l.id).wrappedValue.toggle() }
             Button(L("複製", "Duplicate")) { layerTarget(l.id); model.duplicateLayer() }
             Divider()
@@ -728,6 +763,8 @@ struct Sidebar: View {
                 Button(L("選んだレイヤーに出す", "Use in Selected Layer")) { model.setLayerClip(lid, c.id) }
             }
             Button(L("この映像の音を出す", "Play This Clip's Sound")) { model.setAudioClip(c.id) }
+            Button(L("ループの長さをこの映像に合わせる", "Loop to This Clip's Length")) { model.loopToClip(c.id) }
+                .disabled(!model.isMaster)
             Button(L("ソースの場所を Finder で開く", "Reveal Source in Finder")) { model.revealClip(c.id) }
             Divider()
         }
@@ -795,6 +832,7 @@ struct Sidebar: View {
                             Text(model.clipName(l.clipID)).font(.caption).foregroundColor(.secondary)
                                 .lineLimit(1).truncationMode(.middle)
                         }
+                        LengthText(seconds: model.clipLength(l.clipID), loop: model.show.loopClip == l.clipID)
                     }
                     .tag(Optional(l.id))
                     .background(ListMark(kind: .layers))
@@ -825,6 +863,10 @@ struct Sidebar: View {
                 IconButton("arrow.down", L("選んだレイヤーを奥へ", "Send the selected layer backward")) { model.moveLayer(-1) }
                 Divider().frame(height: 14)
                 IconButton("square.grid.2x2", L("4 分割などに並べる: この Screen のレイヤーを、数に合わせて 2×2 などの格子に並べる", "Tile: arrange this screen's layers in a grid such as 2×2")) { model.arrangeGrid() }
+                SortMenu(help: L("並べ替え（上が手前になるので、手前・奥も変わる。同じものをもう一度選ぶと逆順。⌘Z で戻せる）", "Sort (the top is the front, so front and back change too; choose again to reverse; ⌘Z to undo)"),
+                         items: [(L("レイヤー名順", "By Layer Name"), { model.sortLayers(by: .layerName) }),
+                                 (L("ファイル名順", "By File Name"), { model.sortLayers(by: .fileName) }),
+                                 (L("長さ順", "By Duration"), { model.sortLayers(by: .length) })])
             }
 
             HeightHandle(height: $hLayers, auto: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 12))
@@ -847,6 +889,7 @@ struct Sidebar: View {
                             }
                             Text(c.name).lineLimit(1).truncationMode(.middle)
                             Spacer(minLength: 4)
+                            LengthText(seconds: model.clipLength(c.id), loop: model.show.loopClip == c.id)
                             // Replace and remove are in the right-click menu (Akira 2026-11-25, instead of icons).
                         }
                         .tag(Optional(c.id))
@@ -864,6 +907,9 @@ struct Sidebar: View {
                 }
                 ListBar {
                     IconButton("plus", L("映像を足す…（ファイルを選ぶ）", "Add clips… (choose files)")) { model.addClips() }
+                    SortMenu(help: L("並べ替え（同じものをもう一度選ぶと逆順。⌘Z で戻せる）", "Sort (choose again to reverse; ⌘Z to undo)"),
+                             items: [(L("名前順", "By Name"), { model.sortClips(by: .fileName) }),
+                                     (L("長さ順", "By Duration"), { model.sortClips(by: .length) })])
                     HelpButton(anchor: "clips")
                 }
                 HeightHandle(height: $hClips, auto: listHeight(model.show.clips.count, max: 6))
@@ -885,8 +931,11 @@ struct Sidebar: View {
             let info = model.clipInfo(id)
             VStack(alignment: .leading, spacing: 4) {
                 Text(c.name).font(.caption.bold()).lineLimit(1).truncationMode(.middle)
-                ClipPreview(path: c.path, sound: clipPreviewSound)
-                    .id(c.path)   // a new player for each clip, so the last one stops
+                Group {
+                    if model.showPlaying { ClipStill(path: c.path) }
+                    else { ClipPreview(path: c.path, sound: clipPreviewSound) }
+                }
+                    .id(c.path + (model.showPlaying ? "#still" : ""))   // a new player for each clip, so the last one stops
                     // A fixed height: the player fits the picture inside (black bars), so tall
                     // movies and a wide column never push its controls out (check 61 M3).
                     .frame(maxWidth: .infinity)
@@ -1977,6 +2026,16 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
             }
+            Section("While Playing") {
+                Picker(L("操作の窓を休ませる", "Rest the control window"), selection: Binding(get: { model.restAfter }, set: { model.restAfter = $0 })) {
+                    Text(L("10 秒さわらないと", "After 10 s unused")).tag(10.0)
+                    Text(L("1 分さわらないと", "After 1 min unused")).tag(60.0)
+                    Text(L("休ませない", "Never")).tag(0.0)
+                }
+                Text(L("再生中に操作の窓を使っていないと、プレビューを止め、文字の更新を 1 秒に 1 回にする（Screen の映像は止まらない）。マウスかキーで戻る。操作の窓を隠す（S）と、すぐ休む。本番は S で隠しておくのがいちばん軽い。",
+                       "While playing and unused, the preview stops and the words update once a second (the screens keep playing). The mouse or a key wakes it. Hiding the control window (S) rests it at once; for a show, hiding it is the lightest."))
+                    .font(.caption).foregroundColor(.secondary)
+            }
             Section("Ask before (deletions can be undone with ⌘Z either way)") {
                 ForEach(AppModel.ConfirmKind.allCases) { k in
                     Toggle(k.label, isOn: model.asksBinding(k))
@@ -1987,5 +2046,36 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// A clip's length at the right of a list row (Akira 2026-11-26). The clip the loop follows is
+/// marked with a loop sign.
+struct LengthText: View {
+    let seconds: Double
+    let loop: Bool
+    var body: some View {
+        HStack(spacing: 2) {
+            if loop { Image(systemName: "repeat").font(.system(size: 9)) }
+            Text(seconds > 0 ? timeString(seconds) : "–:––.–")
+        }
+        .font(.system(size: 10, design: .monospaced))
+        .foregroundColor(.secondary)
+        .help(loop ? L("長さ（ループはこの長さ）", "Duration (the loop follows it)") : L("長さ", "Duration"))
+    }
+}
+
+/// The sort button under a list: one icon, a short menu.
+struct SortMenu: View {
+    let help: String
+    let items: [(String, () -> Void)]
+    var body: some View {
+        Menu {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, it in Button(it.0, action: it.1) }
+        } label: { Image(systemName: "arrow.up.arrow.down").frame(width: 18, height: 14) }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help(help)
     }
 }

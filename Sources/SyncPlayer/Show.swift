@@ -166,6 +166,9 @@ struct Show: Codable, Equatable {
     var loopTogether = true
     /// Loop length in seconds when looping together; 0 = the longest clip on any Mac.
     var loopLength = 0.0
+    /// The clip the loop length follows (nil = the typed length, or the longest clip when 0).
+    /// loopLength holds that clip's length too, so older versions and followers loop the same.
+    var loopClip: String? = nil
 
     var seatIndex: Int {
         seats.firstIndex(where: { $0.id == seatID }) ?? 0
@@ -205,7 +208,7 @@ struct Show: Codable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case version, id, clips, seats, loopTogether, loopLength
+        case version, id, clips, seats, loopTogether, loopLength, loopClip
         case outputs, audioClip, audioOn   // this seat's, also written so older versions can open the file
     }
 
@@ -230,6 +233,8 @@ struct Show: Codable, Equatable {
         loopTogether = try c.decodeIfPresent(Bool.self, forKey: .loopTogether) ?? true
         loopLength = max(0, try c.decodeIfPresent(Double.self, forKey: .loopLength) ?? 0)
         if loopLength > 0 && loopLength < Show.minLoop { loopLength = Show.minLoop }
+        loopClip = try c.decodeIfPresent(String.self, forKey: .loopClip)
+        if let l = loopClip, !clips.contains(where: { $0.id == l }) { loopClip = nil }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -240,6 +245,7 @@ struct Show: Codable, Equatable {
         try c.encode(seats, forKey: .seats)
         try c.encode(loopTogether, forKey: .loopTogether)
         try c.encode(loopLength, forKey: .loopLength)
+        try c.encodeIfPresent(loopClip, forKey: .loopClip)
         try c.encode(outputs, forKey: .outputs)
         try c.encodeIfPresent(audioClip, forKey: .audioClip)
         try c.encodeIfPresent(audioOn, forKey: .audioOn)
@@ -266,7 +272,8 @@ struct Show: Codable, Equatable {
     /// Kept under ~400 bytes so the announcement fits one packet; long lists become a count,
     /// the start of the names and a short hash (the same on every Mac with the same clips).
     var fileLabel: String {
-        let full = clips.map(\.name).joined(separator: " + ").precomposedStringWithCanonicalMapping
+        // In name order, so sorting Footage on one Mac doesn't look like another show (check 67 M2).
+        let full = clips.map(\.name).sorted().joined(separator: " + ").precomposedStringWithCanonicalMapping
         guard full.utf8.count > 400 else { return full }
         var h: UInt32 = 2_166_136_261
         for b in full.utf8 { h = (h ^ UInt32(b)) &* 16_777_619 }

@@ -59,7 +59,7 @@ swift build -c release
 
 テスト映像（60fps・20 秒・フレーム番号入り）は `tools/make-test-video.sh` で作る。drawtext の入った ffmpeg が要る（Homebrew の `ffmpeg` には入っていないことがある）。長さは `DUR=150 tools/make-test-video.sh` のように変えられる。
 
-オプション: `--show ファイル`、`--name 名前`（状態とログに出す名前。標準は Mac の名前）、`--seat 名前`（その Seat で開く）、`--fullscreen`、`--screen 1`、`--audio` / `--mute`、`--to 192.168.1.23`（ブロードキャストが通らない LAN で、マスターから知らせを送る先を足す。何度でも）、`--broadcast 192.168.1.255`、`--log`（ずれ・予約し直しの回数・表示したコマ数・飛んだコマ数・描画の fps を 1 行ずつ出す）、`--log-interval 0.1`、`--autoplay 2`、`--quit-after 60`、`--switch-after 30`（試験用: 30 秒後に役を切り替える）。`--bgra`（試験用: コマを以前の BGRA の形で受け取る。標準は YUV のまま GPU に渡して色をシェーダーで変える）。`--frames 420v`（試験用: コマの形を 1 つに決める。`420v`・`422v`・`x422`・`BGRA`）。
+オプション: `--show ファイル`、`--name 名前`（状態とログに出す名前。標準は Mac の名前）、`--seat 名前`（その Seat で開く）、`--fullscreen`、`--screen 1`、`--audio` / `--mute`、`--to 192.168.1.23`（ブロードキャストが通らない LAN で、マスターから知らせを送る先を足す。何度でも）、`--broadcast 192.168.1.255`、`--log`（ずれ・予約し直しの回数・表示したコマ数・飛んだコマ数・描画の fps を 1 行ずつ出す）、`--log-interval 0.1`、`--autoplay 2`、`--quit-after 60`、`--select-clip 1`（試験用: Footage のタブで 1 本目を選んだ状態で開き、素材のプレビューを出す）、`--switch-after 30`（試験用: 30 秒後に役を切り替える）。`--bgra`（試験用: コマを以前の BGRA の形で受け取る。標準は YUV のまま GPU に渡して色をシェーダーで変える）。`--frames 420v`（試験用: コマの形を 1 つに決める。`420v`・`422v`・`x422`・`BGRA`）。
 
 ## キー
 

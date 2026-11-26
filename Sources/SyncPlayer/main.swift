@@ -26,6 +26,8 @@ struct Options {
     var logInterval = 1.0
     var autoplay: Double? = nil
     var quitAfter: Double? = nil
+    /// Test: open Footage with clip N (1 = first) picked, so its preview shows without clicking (2026-11-26).
+    var selectClip: Int?
     var preset: String?
     /// The seat this Mac is, by name (else the one it remembers, else it asks).
     var seat: String?
@@ -53,11 +55,12 @@ struct Options {
             case "--help", "-h":
                 // Print the options and stop, before any window opens or the show is saved
                 // (2026-11-25: --help used to start the app and rewrite current.syncshow).
-                print("usage: SyncPlayer [movies…] [--show file] [--master|--follower] [--name n] [--fullscreen] [--screen i] [--audio|--mute] [--broadcast a] [--to host] [--log] [--log-interval s] [--autoplay s] [--quit-after s] [--switch-after s] [--seat name] [--control off|local|lan] [--control-port 9310] [--control-key k] [--bgra] [--frames 420v|422v|x422|BGRA]")
+                print("usage: SyncPlayer [movies…] [--show file] [--master|--follower] [--name n] [--fullscreen] [--screen i] [--audio|--mute] [--broadcast a] [--to host] [--log] [--log-interval s] [--autoplay s] [--quit-after s] [--select-clip n] [--switch-after s] [--seat name] [--control off|local|lan] [--control-port 9310] [--control-key k] [--bgra] [--frames 420v|422v|x422|BGRA]")
                 exit(0)
             case "--log-interval": log = true; logInterval = Double(next()) ?? 1
             case "--autoplay": autoplay = Double(next()) ?? 2
             case "--quit-after": quitAfter = Double(next())
+            case "--select-clip": selectClip = Int(next())
             case "--preset": preset = next()
             case "--seat": seat = next()
             case "--switch-after": switchAfter = Double(next())

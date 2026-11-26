@@ -321,6 +321,7 @@ final class AppModel: ObservableObject {
         audioOn = opts.audio ?? show0.audioOn ?? startMaster
 
         buildControlWindow()
+        watchUse()
         applyTheme()
         show = show0
         selectedOutput = show.outputs.first?.id
@@ -370,6 +371,11 @@ final class AppModel: ObservableObject {
         }
         if let sw = opts.switchAfter {
             DispatchQueue.main.asyncAfter(deadline: .now() + sw) { [weak self] in self?.toggleRole() }
+        }
+        if let n = opts.selectClip, n >= 1 {
+            // Footage tab with that clip picked (its preview under the list), for tests run without the screen.
+            UserDefaults.standard.set(1, forKey: "ui.leftTab")
+            if n <= show.clips.count { selectedClip = show.clips[n - 1].id }
         }
         if let q = opts.quitAfter {
             DispatchQueue.main.asyncAfter(deadline: .now() + q) { [weak self] in self?.quitWithoutAsking = true; NSApp.terminate(nil) }
@@ -518,6 +524,7 @@ final class AppModel: ObservableObject {
         // Loop settings: the file's, unless this Mac changed them since.
         if m.loopTogether == mine.loopTogether { m.loopTogether = disk.loopTogether }
         if m.loopLength == mine.loopLength { m.loopLength = disk.loopLength }
+        if m.loopClip == mine.loopClip { m.loopClip = disk.loopClip }
         guard m != show else { return }
         undoing = true; show = m; undoing = false
         // Undo would bring the other seats back to before this (and write that): start undo again here.
@@ -1204,6 +1211,78 @@ final class AppModel: ObservableObject {
         if layers.map(\.id) != show.outputs[o].layers.map(\.id) { show.outputs[o].layers = layers }
     }
 
+    enum SortKey { case layerName, fileName, length }
+
+    /// Sorts the selected Screen's layers as the list shows them (front first). Sorting the same way
+    /// twice turns it round. The order is the picture's front and back, so it is one ⌘Z step
+    /// (Akira 2026-11-26: "名前順や duration 順に並べ替え", "レイヤー名順にも").
+    func sortLayers(by key: SortKey) {
+        guard let o = selectedOutputIndex, show.outputs[o].layers.count > 1 else { return }
+        let shown = Array(show.outputs[o].layers.reversed())
+        func name(_ l: Layer) -> String { key == .layerName ? (l.name ?? clipName(l.clipID)) : clipName(l.clipID) }
+        let up: (Layer, Layer) -> Bool = { a, b in
+            if key == .length {
+                let x = self.clipLength(a.clipID), y = self.clipLength(b.clipID)
+                if x != y { return x < y }
+            }
+            return name(a).localizedStandardCompare(name(b)) == .orderedAscending
+        }
+        var sorted = shown.sorted(by: up)
+        if sorted.map(\.id) == shown.map(\.id) { sorted = shown.sorted { up($1, $0) } }
+        guard sorted.map(\.id) != shown.map(\.id) else { return }
+        show.outputs[o].layers = Array(sorted.reversed())
+        notify(L("レイヤーを並べ替えました（上が手前。⌘Z で戻せる）", "Layers sorted (top = front; ⌘Z to undo)"))
+    }
+
+    /// Sorts Footage by name or length; the same way twice turns it round.
+    func sortClips(by key: SortKey) {
+        guard show.clips.count > 1 else { return }
+        let up: (Clip, Clip) -> Bool = { a, b in
+            if key == .length {
+                let x = self.clipLength(a.id), y = self.clipLength(b.id)
+                if x != y { return x < y }
+            }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+        var sorted = show.clips.sorted(by: up)
+        if sorted.map(\.id) == show.clips.map(\.id) { sorted = show.clips.sorted { up($1, $0) } }
+        guard sorted.map(\.id) != show.clips.map(\.id) else { return }
+        show.clips = sorted
+    }
+
+    /// Loops every Mac together at this clip's length, and keeps following it (a replaced movie
+    /// with another length moves the loop too). nil goes back to the longest clip
+    /// (Akira 2026-11-26: "ループ時間を特定のレイヤーかフッテージに合わせられるように").
+    func loopToClip(_ id: String?) {
+        var s = show
+        s.loopTogether = true
+        s.loopClip = id
+        if let id {
+            let t = clipLength(id)
+            if t > 0 { s.loopLength = max(t, Show.minLoop) }
+        } else {
+            s.loopLength = 0
+        }
+        if s != show { show = s }
+        notify(id == nil ? L("ループの長さ: いちばん長い映像に合わせる", "Loop length: the longest clip")
+                         : L("ループの長さ: 「\(clipName(id!))」に合わせる", "Loop length: follows “\(clipName(id!))”"))
+    }
+
+    /// Keeps loopLength equal to the followed clip's length once that is known.
+    func followLoopClip() {
+        guard isMaster, let id = show.loopClip else { return }   // the master's loop is the one used
+        // Kept out of undo: ⌘Z of a replace brings the old movie back, and this follows it again
+        // (check 67 L1). Never turns Loop Together back on (check 67 M1).
+        guard show.clip(id) != nil else { undoing = true; show.loopClip = nil; undoing = false; return }
+        let t = clipLength(id)
+        guard t > 0 else { return }
+        let want = max(t, Show.minLoop)
+        if abs(show.loopLength - want) > 0.0005 { undoing = true; show.loopLength = want; undoing = false }
+    }
+
+    /// The clip's length in seconds (0 while it is still being read or cannot be opened).
+    func clipLength(_ id: String) -> Double { clipInfo(id)?.seconds ?? 0 }
+
     func selectNextLayer() {
         guard let o = selectedOutputConfig, !o.layers.isEmpty else { return }
         let ids = o.layers.reversed().map(\.id)   // the order the list shows
@@ -1273,6 +1352,7 @@ final class AppModel: ObservableObject {
         guard let i = show.clips.firstIndex(where: { $0.id == id }),
               let u = pickMovies(message: L("「\(show.clips[i].name)」と入れ替える映像", "Movie to replace “\(show.clips[i].name)”"), multiple: false).first else { return }
         show.clips[i].path = u.path
+        if show.loopClip == id { followLoopClip() }
         learned("added")
         notify(L("映像: \(u.lastPathComponent)", "Clip: \(u.lastPathComponent)"))
     }
@@ -1314,6 +1394,8 @@ final class AppModel: ObservableObject {
             for o in s.seats[k].outputs.indices { s.seats[k].outputs[o].layers.removeAll { ids.contains($0.clipID) } }
             if let a = s.seats[k].audioClip, ids.contains(a) { s.seats[k].audioClip = nil }
         }
+        // The loop followed a removed clip: keep its length as a typed one.
+        if let l = s.loopClip, ids.contains(l) { s.loopClip = nil }
         show = s
         clipPicks = []
         if let c = selectedClip, ids.contains(c) { selectedClip = nil }
@@ -1367,6 +1449,7 @@ final class AppModel: ObservableObject {
                 i.bytes = ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.int64Value ?? 0
                 self.clipInfos[path] = i
                 self.clipInfoLoading.remove(path)
+                self.followLoopClip()
             }
         }
         return nil
@@ -2079,6 +2162,70 @@ final class AppModel: ObservableObject {
     // MARK: status
 
     private var tickCount = 0
+    /// While playing, the control window rests when nobody uses it: the preview stops drawing and
+    /// the words update once a second, so the outputs keep the Mac's time (Akira 2026-11-26:
+    /// "再生中は無駄な機能は停止して、操作が再開したら開始"). Any mouse or key use wakes it.
+    /// Hiding the control window (S) rests it as well.
+    @Published private(set) var resting = false
+    /// The show is playing (for views that should be lighter then, such as the footage preview).
+    @Published private(set) var showPlaying = false
+    /// When the show started playing (nil while stopped), for the time played in the status and log
+    /// (Akira 2026-11-26: "再生してからの累積時間を debug でも").
+    private var playingSince: Double?
+    private var droppedAtPlay = 0
+    private var lowestDraw: Double?
+    private var droppedMinute: (at: Double, base: Int, last: Int) = (0, 0, 0)
+    /// Clear in the status: the counts, and the play-time drop counts with them (check 69 L1).
+    func clearCounts() {
+        transport.resetCounts()
+        droppedAtPlay = 0; droppedMinute = (hostNow(), 0, 0)
+    }
+    /// Frames skipped over all clips since the app started.
+    var droppedTotal: Int { transport.frames.values.reduce(0) { $0 + $1.framesDropped } }
+    /// One line for the status: time played, frames dropped since Play and in the last minute, lowest draw rate.
+    var playLoadText: String {
+        guard playingSince != nil else { return L("停止中", "stopped") }
+        return String(format: L("再生 %@  落ちたコマ %d（直前の 1 分 %d）  描画の最低 %@", "played %@  dropped %d (last minute %d)  lowest draw %@"),
+                      playedText, max(0, droppedTotal - droppedAtPlay), droppedMinute.last,
+                      lowestDraw.map { String(format: "%.0f fps", $0) } ?? "–")
+    }
+    /// Time played since Play, as 1:23:45 (0:00:00 while stopped).
+    var playedText: String {
+        let t = Int(playingSince.map { max(0, hostNow() - $0) } ?? 0)
+        return String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60)
+    }
+    /// Seconds without use before resting (0 = never rest). Kept per Mac.
+    var restAfter: Double {
+        get { UserDefaults.standard.object(forKey: "ui.restAfter") as? Double ?? 10 }
+        set { UserDefaults.standard.set(newValue, forKey: "ui.restAfter"); objectWillChange.send() }
+    }
+    private var lastUse = hostNow()
+    private var useMonitor: Any?
+
+    private func watchUse() {
+        control?.acceptsMouseMovedEvents = true
+        useMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseDragged,
+                                                                 .rightMouseDragged, .otherMouseDragged, .scrollWheel, .magnify,
+                                                                 .keyDown, .flagsChanged]) { [weak self] e in
+            guard let self else { return e }
+            if e.window === self.control || e.type == .keyDown {
+                self.lastUse = hostNow()
+                if self.resting { self.updateResting() }
+            }
+            return e
+        }
+    }
+
+    private func updateResting() {
+        let playing = transport.schedule?.playing ?? false
+        let hidden = !(control?.isVisible ?? false) || (control?.isMiniaturized ?? false)
+        let idle = restAfter > 0 && hostNow() - lastUse > restAfter
+        let on = playing && (hidden || idle) && editMode == .none
+        guard on != resting else { return }
+        resting = on
+        preview?.setResting(on, text: L("再生中は休んでいます（マウスかキーで戻る）", "Resting while playing (move the mouse or press a key)"))
+    }
+
     private func tick() {
         transport.tick()
         tickCount += 1
@@ -2090,7 +2237,21 @@ final class AppModel: ObservableObject {
         } else if !keepAwake, let a = awake {
             ProcessInfo.processInfo.endActivity(a); awake = nil
         }
-        guard tickCount % 4 == 0 else { return }
+        let p = transport.schedule?.playing ?? false
+        if p != showPlaying {
+            showPlaying = p; playingSince = p ? hostNow() : nil
+            droppedAtPlay = droppedTotal; lowestDraw = nil; droppedMinute = (hostNow(), droppedTotal, 0)
+        }
+        if p {
+            // Lowest draw rate since Play, skipping the first 5 s (clips loading), and drops in the last minute.
+            if let since = playingSince, hostNow() - since > 5, let r = outputs.values.map({ $0.picture.renderer.drawRate }).filter({ $0 > 0 }).min() {   // a Screen not drawing yet is left out (check 69 L3)
+                lowestDraw = min(lowestDraw ?? r, r)
+            }
+            if hostNow() - droppedMinute.at >= 60 { droppedMinute = (hostNow(), droppedTotal, max(0, droppedTotal - droppedMinute.base)) }
+        }
+        updateResting()
+        // Resting: the control window's words once a second instead of five times.
+        guard tickCount % (resting ? 20 : 4) == 0 else { return }
         status.position = transport.displayTime()
         status.duration = transport.duration
         status.playing = transport.schedule?.playing ?? false
@@ -2107,7 +2268,9 @@ final class AppModel: ObservableObject {
             if shape(ps) != shape(peers) || now - peersAt >= 1 { peers = ps; peersAt = now }
         }
         if master != nil && !ps.isEmpty { learned("synced") }
-        if tickCount % 100 == 4 { probeNetwork() }
+        // On a multiple of 20 so it still runs while resting (check 67 L2).
+        if tickCount % 100 == 0 { probeNetwork() }
+        if tickCount % 20 == 0 { followLoopClip() }   // once a second: a new master, a replaced or undone movie (check 67 L1)
         // Just made full screen by hand (not the exhibition starting): how to get back, for a few seconds.
         let fullNow = Set(outputs.filter { $0.value.isFull }.map(\.key))
         if hostNow() - started > 10 {
@@ -2155,6 +2318,13 @@ final class AppModel: ObservableObject {
             // The state word stays first (a narrow window cuts the end), the problem right after it.
             var parts = line.components(separatedBy: " ・ ")
             parts.insert("⚠︎ \(p)", at: 1)
+            line = parts.joined(separator: " ・ "); tone = 2
+        }
+        // A long (important) notice, e.g. an earlier-version show, also goes here while it lasts:
+        // the detailed status may be hidden (Pro test 2026-11-26: it was only seen on the screens).
+        if hostNow() < longUntil, hostNow() < messageUntil {
+            var parts = line.components(separatedBy: " ・ ")
+            parts.insert(message, at: 1)
             line = parts.joined(separator: " ・ "); tone = 2
         }
         // Each Mac may play its own movies on purpose, so a different name is only noted, not orange.
@@ -2372,7 +2542,13 @@ final class AppModel: ObservableObject {
             out.append(StatusLine(id: out.count, text: t, level: level, fix: fix))
         }
         let maxErr = transport.maxError * 1000
+        // An important (long) message first and in orange, so it is seen without scrolling; short ones
+        // at the end as before, so the rows don't jump each time (check 67 L3).
+        let longNow = hostNow() < messageUntil && hostNow() < longUntil
+        if longNow { add(message, 2) }
         add(String(format: "%@ %@  %@", isMaster ? "MASTER" : "follower", opts.name, show.fileLabel))
+        add(playLoadText, (droppedMinute.last > 300 && playingSince != nil) ? 2 : 0,
+            droppedMinute.last > 300 && playingSince != nil ? L("コマ落ちが多い。素材のプレビューを閉じる、操作の窓を隠す（S）、映像の本数か大きさを減らす", "Many dropped frames. Close the footage preview, hide the control window (S), or use fewer or smaller clips") : nil)
         add(String(format: "pos %.3f s  error %+.1f ms  jumps %d", transport.displayTime(), maxErr, transport.resyncCount),
             abs(maxErr) > 40 ? 3 : abs(maxErr) > 8 ? 2 : 0,
             abs(maxErr) > 8 ? L("ずれが大きい。数秒で戻らないときは、映像の本数か大きさを減らす（目安 1080p 以下、H.264/HEVC）", "Large error. If it doesn't settle in a few seconds, use fewer or smaller clips (about 1080p or less, H.264/HEVC)") : nil)
@@ -2453,7 +2629,7 @@ final class AppModel: ObservableObject {
             add(String(format: L("描画 %@ %.0f fps", "Draw %@ %.0f fps"), o.name, r), r > 0 && r < 50 ? 2 : 0,
                 r > 0 && r < 50 ? L("描画が遅い。Screen・レイヤーの数か映像の大きさを減らす", "Drawing is slow. Use fewer screens or layers, or smaller clips") : nil)
         }
-        if hostNow() < messageUntil { add(message) }
+        if hostNow() < messageUntil && !longNow { add(message) }
         return out
     }
 
@@ -2470,6 +2646,7 @@ final class AppModel: ObservableObject {
         // Load check: frames shown / skipped over all clips, and the slowest output's draw rate.
         let fs = Array(transport.frames.values)
         let rates = outputs.values.map { $0.picture.renderer.drawRate }
+        line += "\tplayed=" + playedText + String(format: "\tdropped_since_play=%d\tdropped_last_min=%d", max(0, droppedTotal - droppedAtPlay), droppedMinute.last)
         line += String(format: "\tshown=%d\tdropped=%d\tdraw_fps=%.1f\tformats=%@",
                        fs.reduce(0) { $0 + $1.framesShown }, fs.reduce(0) { $0 + $1.framesDropped }, rates.min() ?? 0,
                        Set(fs.map(\.format)).sorted().joined(separator: ","))
