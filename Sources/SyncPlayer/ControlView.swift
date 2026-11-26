@@ -1548,10 +1548,10 @@ struct Inspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Picker("", selection: $tab) {
-                // Layer at the left, Steps at the right (Akira 2026-11-26).
+                // Layer at the left, Guide at the right; English names Setup and Guide (Akira 2026-11-26).
                 Text(L("画面の調整", "Layer")).tag(0)
-                Text(L("展示の設定", "Exhibit")).tag(1)
-                Text(L("手順", "Steps")).tag(3)
+                Text(L("展示の設定", "Setup")).tag(1)
+                Text(L("手順", "Guide")).tag(3)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -1621,7 +1621,7 @@ struct Inspector: View {
         StepLine(done: model.learnedSet.contains("synced"), text: L("同じネットワークの別の Mac をフォロワーにして、札が緑になる（フォロワーの Mac で ✓）", "Make another Mac on the same network a follower; its badge turns green (✓ on the follower)"))
 
         StepHeader(title: "4. Set up the exhibition", anchor: "step4")
-        StepLine(done: model.openAtLogin, text: L("「展示の設定」で「ログインしたら開く」を入れる（全台）", "In Exhibit, turn on Open at Login (all Macs)"))
+        StepLine(done: model.openAtLogin, text: L("「展示の設定」で「ログインしたら開く」を入れる（全台）", "In Setup, turn on Open at Login (all Macs)"))
         StepLine(done: model.exhibitMaster, text: L("「展示のマスター」を 1 台だけに入れる（マスターの Mac で ✓）", "Turn on Exhibition Master on one Mac only (✓ on the master)"))
         Toggle(L("電源を切って入れ直し、同じ状態に戻るのを見た", "Restarted and saw it come back the same"), isOn: $rebootChecked)
             .font(.callout)
@@ -1864,7 +1864,7 @@ extension Text {
 }
 
 /// SyncPlayer ▸ Settings… (⌘,): this Mac's own preferences. The same look and language are also in
-/// Exhibit › This Mac.
+/// Setup › This Mac.
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @State private var portText = ""
