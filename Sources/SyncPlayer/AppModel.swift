@@ -76,6 +76,22 @@ final class AppModel: ObservableObject {
     /// The preview's zoom (nil = fit), shown and chosen under the preview.
     @Published var previewZoom: Double?
     func setPreviewZoom(_ z: Double?) { previewBox?.setZoom(z) }
+    /// Zoom the preview to the selected layer (its corners and mesh), at about 90 % so the other
+    /// layers show around it (Akira 2026-11-26).
+    func fitPreviewToLayer() {
+        guard let i = selectedLayerIndex, let box = previewBox else { notify(L("レイヤーを選んでください", "Select a layer")); return }
+        let s = show.outputs[i.o].layers[i.l].look
+        var video = 16.0 / 9.0
+        if let a = transport.frames[show.outputs[i.o].layers[i.l].clipID]?.aspect, a > 0 { video = a }
+        let q = Warp.corners(s, viewAspect: box.aspect, videoAspect: video)
+        let H = Warp.Homography(q), m = s.meshOffsets
+        var lo = SIMD2<Double>(.infinity, .infinity), hi = -lo
+        for j in 0...s.meshRows {
+            for k in 0...s.meshCols { let p = Warp.meshNode(s, H, m, k, j); lo = pointwiseMin(lo, p); hi = pointwiseMax(hi, p) }
+        }
+        guard lo.x.isFinite, hi.x > lo.x, hi.y > lo.y else { return }
+        box.focus(CGRect(x: lo.x, y: lo.y, width: hi.x - lo.x, height: hi.y - lo.y))
+    }
     var showHelp = false
     /// Info text on windowed outputs (shown unless I hides it).
     var infoHidden = false
@@ -140,6 +156,7 @@ final class AppModel: ObservableObject {
             KeyItem(key: "⇧⌘Y", what: L("詳しい状態を隠す／出す", "Hide / show the status panel")),
             KeyItem(key: "I", what: L("動作確認の文字", "Info text")),
             KeyItem(key: "N", what: L("Mac 名とディスプレイの番号", "Mac names and display numbers")),
+            KeyItem(key: "⇧Z", what: L("プレビューを選んだレイヤーに合わせる", "Fit the preview to the selected layer")),
             KeyItem(key: "H  ?", what: L("キー一覧（出力の画面に）", "Key list (on the outputs)")),
             KeyItem(key: "F", what: L("全画面", "Full screen")),
             KeyItem(key: "D", what: L("次のディスプレイへ", "Next display")),
@@ -1927,6 +1944,7 @@ final class AppModel: ObservableObject {
         case "l": selectNextLayer()
         case "a": setAudio(!audioOn)
         case "n": showIdent.toggle()
+        case "z": if shift { fitPreviewToLayer() } else { return false }
         case "q": NSApp.terminate(nil)
         case "g", "e", "w", "+", "=", "-", "_", "[", "]", "0":
             guard hasLayer else { notify(L("レイヤーを選んでください", "Select a layer")); return true }

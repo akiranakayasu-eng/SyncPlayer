@@ -131,6 +131,22 @@ final class AspectBox: NSView {
         onZoom?(nz)
     }
 
+    /// Zoom and move so the part `r` of the picture (normalized, 0,0 bottom-left) fills `fill` of
+    /// the view, centred, with the rest of the picture around it (Akira 2026-11-26: fit the
+    /// selected layer at about 90 % so the other clips show too).
+    func focus(_ r: CGRect, fill: CGFloat = 0.9) {
+        let px = outputPixels(), b = bounds
+        guard px.width > 0, b.width > 0, b.height > 0, aspect > 0, r.width > 0.001, r.height > 0.001 else { return }
+        let zw = Double(fill * b.width * scale / (r.width * px.width))
+        let zh = Double(fill * b.height * scale * CGFloat(aspect) / (r.height * px.width))
+        let z = min(max(min(zw, zh), AspectBox.zoomRange.lowerBound), maxZoom)
+        let w = px.width * CGFloat(z) / scale, h = w / CGFloat(aspect)
+        zoom = z
+        pan = CGPoint(x: w * (0.5 - r.midX), y: h * (0.5 - r.midY))
+        needsLayout = true
+        onZoom?(z)
+    }
+
     func panBy(_ dx: CGFloat, _ dy: CGFloat) {
         if zoom == nil { zoom = fitZoom; onZoom?(zoom) }
         pan.x += dx; pan.y += dy

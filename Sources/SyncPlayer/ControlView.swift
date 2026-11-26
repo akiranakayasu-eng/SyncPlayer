@@ -1140,6 +1140,8 @@ struct PreviewBar: View {
         HStack(spacing: 2) {
             Menu {
                 Button(L("全体（画面に合わせる）", "Fit")) { model.setPreviewZoom(nil) }
+                Button(L("選んだレイヤーに合わせる（⇧Z）", "Fit Selected Layer (⇧Z)")) { model.fitPreviewToLayer() }
+                    .disabled(model.selectedLook == nil)
                 Divider()
                 ForEach(PreviewBar.zooms, id: \.self) { z in
                     Button("\(Int(z * 100)) %") { model.setPreviewZoom(z) }
@@ -1153,6 +1155,10 @@ struct PreviewBar: View {
             .help(L("拡大率。ホイールで拡大・縮小、ドラッグかホイールのボタンを押したままのドラッグで動かす。100 % は出力の画素そのまま", "Zoom. The wheel zooms; drag (or drag with the wheel button) to move. 100 % is the output's own pixels"))
             BarIcon("arrow.up.left.and.down.right.and.arrow.up.right.and.down.left", on: model.previewZoom == nil,
                     L("全体を表示（画面に合わせる）", "Fit")) { model.setPreviewZoom(nil) }
+            BarIcon("viewfinder", on: false, L("選んだレイヤーに合わせる（⇧Z）。まわりのレイヤーも少し見える", "Fit the selected layer (⇧Z), with a little of the others around it")) {
+                model.fitPreviewToLayer()
+            }
+            .disabled(model.selectedLook == nil)
             Divider().frame(height: 14)
             BarIcon("grid", on: model.selectedLook?.showGrid == true, L("確認用の格子（G）", "Grid (G)")) {
                 model.lookBinding(\.showGrid, false).wrappedValue.toggle()
