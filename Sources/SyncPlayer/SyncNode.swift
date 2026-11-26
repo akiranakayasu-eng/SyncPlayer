@@ -46,17 +46,32 @@ final class SyncNode {
     private(set) var errorEMA: Double = 0
     private(set) var resyncCount = 0
     private(set) var loopCount = 0
+    /// Start jumps and loops again from 0 (the Clear button over the detailed status).
+    func resetCounts() { resyncCount = 0; loopCount = 0 }
     private(set) var lastError: Double = 0
     private var endObservers: [NSObjectProtocol] = []
+    /// Muted players get their audio tracks disabled, not just isMuted: a muted AVPlayer still runs
+    /// an AudioQueue and starts/stops it at every loop. With many clips ending together, those
+    /// stops and the main thread reading currentTime deadlocked inside MediaToolbox (Pro, 2026-11-25).
+    private(set) var muted: Bool
+    private var audioApplied = false
+    /// Item timebases, taken once when ready (reading item.timebase each tick is avoidable).
+    private var timebases: [CMTimebase?] = []
+    /// A player to pause a little after a loop handover (local host time), so the audible clip's
+    /// audio stop does not land in the same moment as the new player's start.
+    private var pendingPause: (index: Int, at: Double)?
 
     init(url: URL, muted: Bool) {
         self.url = url
+        self.muted = muted
         var ps: [AVPlayer] = [], its: [AVPlayerItem] = []
         for _ in 0..<2 {
             let it = AVPlayerItem(url: url)
             let p = AVPlayer(playerItem: it)
             p.automaticallyWaitsToMinimizeStalling = false
-            p.actionAtItemEnd = .pause
+            // Not .pause: a player stopping by itself at its end stops its audio in the same moment
+            // the other player starts at the loop point. tick() pauses it 0.3 s after the handover.
+            p.actionAtItemEnd = .none
             p.isMuted = muted
             // Run playback on the host clock (the same clock the schedule uses), not the audio
             // device clock. Otherwise every player slowly drifts from the schedule (~1 ms / 90 s on Air).
@@ -169,6 +184,7 @@ final class SyncNode {
 
     /// Schedule the idle player to start at 0 at the loop point (local host time).
     private func arm(loopAt at: Double) {
+        if pendingPause?.index == 1 - active { pendingPause = nil }
         players[1 - active].setRate(1.0, time: .zero,
                                     atHostTime: CMTime(seconds: at, preferredTimescale: 1_000_000_000))
         armedAt = at
@@ -186,10 +202,45 @@ final class SyncNode {
         endObservers = []
     }
 
-    func setMuted(_ m: Bool) { players.forEach { $0.isMuted = m } }
+    func setMuted(_ m: Bool) {
+        muted = m
+        players.forEach { $0.isMuted = m }
+        applyAudio()
+    }
+
+    /// Enable the audio tracks only on the clip that plays sound. Item tracks exist once the item
+    /// is ready, so tick() calls this once then.
+    private func applyAudio() {
+        guard items.allSatisfy({ $0.status == .readyToPlay }) else { return }
+        // Tracks can still be empty right after ready: try again on the next tick then.
+        guard items.allSatisfy({ !$0.tracks.isEmpty }) else { return }
+        audioApplied = true
+        for it in items {
+            for t in it.tracks where t.assetTrack?.mediaType == .audio && t.isEnabled == muted {
+                t.isEnabled = !muted
+            }
+        }
+    }
+
+    /// Media time of the active player (s).
+    var position: Double { mediaTime(active) }
+
+    /// Media time of a player read from its item's timebase. AVPlayer.currentTime() takes the
+    /// player's internal lock, which audio stops at the clip's end also hold; the timebase does not.
+    private func mediaTime(_ i: Int) -> Double {
+        if timebases.count != items.count || timebases[i] == nil { timebases = items.map(\.timebase) }
+        if let tb = timebases[i] { return CMTimebaseGetTime(tb).seconds }
+        return players[i].currentTime().seconds
+    }
 
     func tick() {
         guard ready, let s = schedule, clockOffset() != nil else { return }
+        if !audioApplied { applyAudio() }
+        // The delayed stop after a loop handover runs whatever the state (stopped, resync...).
+        if let pp = pendingPause, hostNow() >= pp.at {
+            pendingPause = nil
+            if pp.index != active && players[pp.index].rate != 0 { players[pp.index].pause() }
+        }
         if s.epoch != activeEpoch { activeEpoch = s.epoch; needsResync = true }
 
         if !s.playing {
@@ -211,7 +262,9 @@ final class SyncNode {
         if let at = armedAt, now >= at + 0.005 {
             let old = active
             active = 1 - active
-            players[old].pause()
+            // Do not stop the old player in the same moment the new one starts (with sound, both
+            // touch the audio queue together). A clip that reached its end has stopped by itself.
+            pendingPause = (old, now + 0.3)
             armedAt = nil
             loopCount += 1
             settleUntil = now + 0.1
@@ -236,7 +289,7 @@ final class SyncNode {
         // Compare with where the media should be at the moment it was read (reading takes time;
         // comparing with the tick's start would bias the error positive).
         let t0 = hostNow()
-        let actual = player.currentTime().seconds
+        let actual = mediaTime(active)
         let t1 = hostNow()
         guard let want = loopPosition(atLocal: (t0 + t1) / 2), !holding(want) else { return }
         var err = actual - want

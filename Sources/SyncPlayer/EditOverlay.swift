@@ -14,13 +14,24 @@ final class EditOverlay: NSView {
     var settings: () -> DisplaySettings? = { nil }
     var aspects: () -> (view: Double, video: Double) = { (16.0 / 9.0, 16.0 / 9.0) }
     var onChange: ((DisplaySettings) -> Void)?
+    /// When not editing: a click picks the layer under it (normalized window point). Preview only.
+    var pick: ((SIMD2<Double>) -> Void)?
+    /// When not editing: a left drag moves the picture (preview only, Akira 2026-11-26).
+    var panBy: ((CGFloat, CGFloat) -> Void)?
+    /// Layer and file names drawn on each visible layer (T): name, file, box (normalized).
+    var showLabels: () -> Bool = { false }
+    var labels: () -> [(name: String, file: String, box: CGRect)] = { [] }
     private var dragging: Int?
+    private var downAt: NSPoint?
+    private var panning = false
 
     var mode: EditMode { settings() == nil ? .none : modeOf() }
     var selected: Int { selectedOf() }
 
     override var isFlipped: Bool { false }
-    override func hitTest(_ point: NSPoint) -> NSView? { mode == .none ? nil : super.hitTest(point) }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        mode == .none && pick == nil ? nil : super.hitTest(point)
+    }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     private func toView(_ p: SIMD2<Double>) -> NSPoint {
@@ -80,6 +91,15 @@ final class EditOverlay: NSView {
 
     override func mouseDown(with e: NSEvent) {
         let p = convert(e.locationInWindow, from: nil)
+        if mode == .none {
+            // A click picks the layer (on release, so a drag can move the picture instead).
+            if panBy == nil {
+                if bounds.width > 0, bounds.height > 0 { pick?(SIMD2(Double(p.x / bounds.width), Double(p.y / bounds.height))) }
+            } else {
+                downAt = e.locationInWindow; panning = false
+            }
+            return
+        }
         var best = -1, bestD = 18.0
         for (k, h) in handles().enumerated() {
             let v = toView(h)
@@ -90,13 +110,29 @@ final class EditOverlay: NSView {
     }
 
     override func mouseDragged(with e: NSEvent) {
+        if mode == .none, let d = downAt, let pan = panBy {
+            if !panning && hypot(e.locationInWindow.x - d.x, e.locationInWindow.y - d.y) > 3 { panning = true }
+            if panning { pan(e.deltaX, -e.deltaY) }
+            return
+        }
         guard let k = dragging, bounds.width > 0, bounds.height > 0 else { return }
         move(k, by: SIMD2(Double(e.deltaX) / bounds.width, Double(-e.deltaY) / bounds.height))
     }
 
-    override func mouseUp(with e: NSEvent) { dragging = nil }
+    override func mouseUp(with e: NSEvent) {
+        if let d = downAt {
+            downAt = nil
+            if !panning, mode == .none {
+                let p = convert(d, from: nil)
+                if bounds.width > 0, bounds.height > 0 { pick?(SIMD2(Double(p.x / bounds.width), Double(p.y / bounds.height))) }
+            }
+            panning = false
+        }
+        dragging = nil
+    }
 
     override func draw(_ dirtyRect: NSRect) {
+        if showLabels() { drawLabels() }
         guard mode != .none, let s = settings() else { return }
         let a = aspects()
         let q = Warp.corners(s, viewAspect: a.view, videoAspect: a.video)
@@ -133,6 +169,32 @@ final class EditOverlay: NSView {
             NSColor.black.setStroke()
             o.lineWidth = 1
             o.stroke()
+        }
+    }
+
+    /// Name (large, bold) and file (smaller) in a dark box at the middle of each layer, sized to the
+    /// layer so small layers stay readable and large ones read from a distance.
+    private func drawLabels() {
+        for l in labels() {
+            let r = NSRect(x: l.box.minX * bounds.width, y: l.box.minY * bounds.height,
+                           width: l.box.width * bounds.width, height: l.box.height * bounds.height)
+            guard r.width > 8, r.height > 8 else { continue }
+            let big = max(10, min(r.height * 0.16, r.width * 0.09, 72))
+            let name = NSAttributedString(string: l.name, attributes: [.font: NSFont.boldSystemFont(ofSize: big), .foregroundColor: NSColor.white])
+            let file = NSAttributedString(string: l.file, attributes: [.font: NSFont.systemFont(ofSize: max(9, big * 0.5)), .foregroundColor: NSColor.white.withAlphaComponent(0.85)])
+            let showFile = l.file != l.name
+            let ns = name.size(), fs = showFile ? file.size() : .zero
+            let pad = big * 0.25
+            let w = min(max(ns.width, fs.width) + pad * 2, r.width - 4)
+            let h = ns.height + fs.height + pad * 2
+            let box = NSRect(x: r.midX - w / 2, y: r.midY - h / 2, width: w, height: h)
+            NSColor.black.withAlphaComponent(0.6).setFill()
+            NSBezierPath(roundedRect: box, xRadius: big * 0.2, yRadius: big * 0.2).fill()
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(rect: box).addClip()
+            name.draw(at: NSPoint(x: box.midX - min(ns.width, w - pad * 2) / 2 , y: box.maxY - pad - ns.height))
+            if showFile { file.draw(at: NSPoint(x: box.midX - min(fs.width, w - pad * 2) / 2, y: box.minY + pad)) }
+            NSGraphicsContext.restoreGraphicsState()
         }
     }
 }

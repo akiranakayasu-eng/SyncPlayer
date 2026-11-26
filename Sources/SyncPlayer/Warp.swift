@@ -36,6 +36,14 @@ enum Warp {
                 d = y1 - y0 + g * y1; e = y3 - y0 + h * y3; f = y0
             }
         }
+        /// Inverse: the unit-square point that maps to (x, y), nil when there is none.
+        func unmap(_ x: Double, _ y: Double) -> SIMD2<Double>? {
+            let a11 = a - g * x, a12 = b - h * x, b1 = x - c
+            let a21 = d - g * y, a22 = e - h * y, b2 = y - f
+            let det = a11 * a22 - a12 * a21
+            guard abs(det) > 1e-12 else { return nil }
+            return SIMD2((b1 * a22 - a12 * b2) / det, (a11 * b2 - a21 * b1) / det)
+        }
         func map(_ u: Double, _ v: Double) -> SIMD2<Double> {
             let w = g * u + h * v + 1
             return SIMD2((a * u + b * v + c) / w, (d * u + e * v + f) / w)

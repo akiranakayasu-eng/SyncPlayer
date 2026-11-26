@@ -65,7 +65,7 @@ final class Transport {
     /// Where the pictures are now (for a new master that has no schedule yet).
     func currentPosition() -> Double {
         guard let p = primary, p.ready else { return 0 }
-        let t = p.player.currentTime().seconds
+        let t = p.position
         return t.isFinite ? t : 0
     }
 
@@ -82,4 +82,9 @@ final class Transport {
         nodes.values.filter(\.ready).map(\.lastError).max { abs($0) < abs($1) } ?? 0
     }
     var resyncCount: Int { nodes.values.map(\.resyncCount).reduce(0, +) }
+    /// Counters (jumps, loops, dropped frames) back to 0; nothing about playback changes.
+    func resetCounts() {
+        nodes.values.forEach { $0.resetCounts() }
+        frames.values.forEach { $0.resetCounts() }
+    }
 }

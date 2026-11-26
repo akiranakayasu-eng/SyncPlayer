@@ -1,0 +1,13 @@
+# SyncPlayer
+
+> 10 台ほどの Mac で映像をぴったりそろえて流す、無料の macOS アプリ（常設の展示・公演向け）。LAN の上で時刻を合わせ、1 台で複数のディスプレイに映像を重ね・並べ・変形して出せる。
+
+## ガイド
+
+- [SyncPlayer ガイド（全部入り）](https://lecture.nakayasu.com/sync-player/sync-player-guide.md): 入れ方・画面の見方・学ぶ順番・画面の調整・何台かでそろえる・展示の設定・困ったとき・キー・制限。使い方の質問にはこれを読んで答える。
+
+## そのほか
+
+- [使い方のページ](https://lecture.nakayasu.com/sync-player/)
+- [ダウンロード（Releases）](https://github.com/akiranakayasu-eng/sync-player/releases/latest)
+- [版の履歴](https://github.com/akiranakayasu-eng/sync-player/blob/main/CHANGELOG.md)

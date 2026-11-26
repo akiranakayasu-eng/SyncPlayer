@@ -260,6 +260,8 @@ final class FrameSource {
     // Load check: frames shown and frames skipped (a gap larger than one frame in the movie's time).
     private(set) var framesShown = 0
     private(set) var framesDropped = 0
+    /// Start the shown / dropped counts again (the Clear button over the detailed status).
+    func resetCounts() { framesShown = 0; framesDropped = 0 }
     private var lastShown = -1.0
 
     private func count(_ t: Double) {

@@ -33,7 +33,7 @@ final class Master {
     var name = ""
     var ver = ""
     /// What each follower last told in its pings (by address and port), for the list of all Macs.
-    struct Peer: Equatable { var name: String; var ver: String; var err: Double?; var warn: String?; var file: String?; var at: Double }
+    struct Peer: Equatable { var name: String; var ver: String; var err: Double?; var warn: String?; var file: String?; var seat: String? = nil; var at: Double }
     private var peerTable: [String: Peer] = [:]   // guarded by lock
     /// Followers heard in the last 3 s, by name.
     var peers: [Peer] {
@@ -82,7 +82,7 @@ final class Master {
                 let n = m.name ?? UDPSocket.hostString(from)
                 let p = Peer(name: String(n.prefix(40)), ver: String((m.ver ?? "?").prefix(30)),
                              err: m.err.flatMap { $0.isFinite ? $0 : nil }, warn: m.warn.map { String($0.prefix(60)) },
-                             file: m.file, at: t2)
+                             file: m.file, seat: m.seat.map { String($0.prefix(40)) }, at: t2)
                 self.lock.lock(); self.peerTable[key] = p; self.lock.unlock()
             }
             var reply = Message(k: "q")
@@ -231,7 +231,7 @@ final class Follower {
     /// The master's app version (nil from a master older than v0.3.3).
     private(set) var masterVer: String?
     /// What this Mac tells the master in each ping (main thread): name, version, offset, problem, movies.
-    var report: () -> (name: String, ver: String, err: Double?, warn: String?, file: String) = { ("", "", nil, nil, "") }
+    var report: () -> (name: String, ver: String, err: Double?, warn: String?, file: String, seat: String?) = { ("", "", nil, nil, "", nil) }
     private var lastBeacon: Double = 0
     private var pingID = 0              // guarded by lock
     /// Pongs with an id at or below this belong to an earlier master (guarded by lock).
@@ -348,7 +348,7 @@ final class Follower {
             var m = Message(k: "p")
             m.id = id
             m.dur = dur > 0 ? dur : nil
-            if !rep.name.isEmpty { m.name = rep.name; m.ver = rep.ver; m.err = rep.err; m.warn = rep.warn; m.file = rep.file }
+            if !rep.name.isEmpty { m.name = rep.name; m.ver = rep.ver; m.err = rep.err; m.warn = rep.warn; m.file = rep.file; m.seat = rep.seat }
             m.t1 = hostNow()
             sock.send(m.encoded(), to: addr)
         }
