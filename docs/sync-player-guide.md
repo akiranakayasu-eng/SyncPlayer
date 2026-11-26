@@ -339,7 +339,7 @@ Setup のタブで、Mac ごとに決める。
 - `--master` / `--follower`: 役を決めて起動。映像のパスを続けると、前のショーの配置のまま映像だけ入れ替える（試験用。ショーのファイルには書かない）。
 - `--show ファイル`、`--seat 名前`（その Seat で開く）、`--name 名前`、`--fullscreen`、`--screen 1`、`--audio` / `--mute`
 - `--to 192.168.1.23`（知らせを送る先を足す。何度でも。ブロードキャストが通らない LAN では全台に同じ一覧を渡す）、`--broadcast 192.168.1.255`
-- `--log`、`--log-interval 0.1`、`--autoplay 2`、`--quit-after 60`、`--switch-after 30`
+- `--log`、`--log-interval 0.1`、`--autoplay 2`、`--quit-after 60`、`--select-clip 1`（試験用: Footage で 1 本目を選んで開く）、`--switch-after 30`
 - `--control local|lan|off`、`--control-port 9310`、`--control-key 鍵`: ほかのソフトからの操作（次の節）をその起動だけ決める。
 
 ### ほかのソフトからの操作（Claude・Max・TouchDesigner）

@@ -372,6 +372,11 @@ final class AppModel: ObservableObject {
         if let sw = opts.switchAfter {
             DispatchQueue.main.asyncAfter(deadline: .now() + sw) { [weak self] in self?.toggleRole() }
         }
+        if let n = opts.selectClip, n >= 1 {
+            // Footage tab with that clip picked (its preview under the list), for tests run without the screen.
+            UserDefaults.standard.set(1, forKey: "ui.leftTab")
+            if n <= show.clips.count { selectedClip = show.clips[n - 1].id }
+        }
         if let q = opts.quitAfter {
             DispatchQueue.main.asyncAfter(deadline: .now() + q) { [weak self] in self?.quitWithoutAsking = true; NSApp.terminate(nil) }
         }
