@@ -64,7 +64,7 @@ final class AppModel: ObservableObject {
     /// What showFile holds now (so opening a file does not rewrite it unchanged).
     private var fileShow: Show?
     @Published var screenNames: [String] = []
-    /// "ディスプレイ 1（1920×1080）" for the picker (the full names are too long for the side column).
+    /// "Display 1 (1920×1080)" for the picker, in English for both languages (the full names are too long for the side column).
     @Published var screenShort: [String] = []
 
     var master: Master?
@@ -1023,7 +1023,8 @@ final class AppModel: ObservableObject {
             "\(i + 1): \(s.localizedName)  \(Int(s.frame.width))×\(Int(s.frame.height))"
         }
         screenShort = NSScreen.screens.enumerated().map { i, s in
-            L("ディスプレイ \(i + 1)（\(Int(s.frame.width))×\(Int(s.frame.height))）", "Display \(i + 1) (\(Int(s.frame.width))×\(Int(s.frame.height)))")
+            // English in both languages (Akira 2026-11-26), so it also follows a language change.
+            "Display \(i + 1) (\(Int(s.frame.width))×\(Int(s.frame.height)))"
         }
     }
 

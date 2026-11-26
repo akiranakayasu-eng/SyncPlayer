@@ -635,7 +635,7 @@ struct Sidebar: View {
                             .help(L("ダブルクリックで名前を変える", "Double-click to rename"))
                     }
                     Spacer()
-                    Text(L("ディスプレイ", "Display") + " \(o.screen + 1)" + (o.fullscreen ? L("・全画面", " · full screen") : "")).foregroundColor(.secondary).font(.caption)
+                    Text("Display \(o.screen + 1)" + (o.fullscreen ? L("・全画面", " · full screen") : "")).foregroundColor(.secondary).font(.caption)
                 }
                 .tag(Optional(o.id))
                 // An output row is not a layer row: delete and ↑ ↓ stop acting on the layers (check 46 L5).
@@ -658,7 +658,7 @@ struct Sidebar: View {
         if model.selectedOutputConfig != nil {
             Picker("", selection: model.outputBinding(\.screen, 0)) {
                 ForEach(screenChoices, id: \.self) { i in
-                    Text(i < model.screenShort.count ? model.screenShort[i] : L("ディスプレイ \(i + 1)（つながっていない）", "Display \(i + 1) (not connected)")).tag(i)
+                    Text(i < model.screenShort.count ? model.screenShort[i] : "Display \(i + 1)" + L("（つながっていない）", " (not connected)")).tag(i)
                 }
             }
             .labelsHidden()
