@@ -124,7 +124,7 @@ extension AppModel {
             log("open \(name)")
             return ControlPort.Reply(body: ["ok": true, "opening": name])
         case "/reset-counts":
-            transport.resetCounts()
+            clearCounts()   // the same as Clear in the status, play-time drop counts too (check 71 L5)
             log("reset counts")
         default:
             return .error(404, "unknown command \(r.path). Commands: /status /play /pause /toggle /home /seek?t= /role?master= /audio?on= /layer?o=&n=&visible=&opacity= /overlay?grid=&names=&info=&labels= /open?show= /reset-counts")

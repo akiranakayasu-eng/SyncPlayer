@@ -82,6 +82,9 @@ final class Transport {
         nodes.values.filter(\.ready).map(\.lastError).max { abs($0) < abs($1) } ?? 0
     }
     var resyncCount: Int { nodes.values.map(\.resyncCount).reduce(0, +) }
+    /// Loop starts over all clips that used the early-read player, and ones that did not (check 71 L1).
+    var warmStarts: Int { nodes.values.map(\.warmStarts).reduce(0, +) }
+    var coldStarts: Int { nodes.values.map(\.coldStarts).reduce(0, +) }
     /// Counters (jumps, loops, dropped frames) back to 0; nothing about playback changes.
     func resetCounts() {
         nodes.values.forEach { $0.resetCounts() }

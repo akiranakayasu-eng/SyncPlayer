@@ -46,8 +46,11 @@ final class SyncNode {
     private(set) var errorEMA: Double = 0
     private(set) var resyncCount = 0
     private(set) var loopCount = 0
+    /// Loop starts that used the early-read player (warm) and ones that had to seek at the loop point (cold).
+    private(set) var warmStarts = 0
+    private(set) var coldStarts = 0
     /// Start jumps and loops again from 0 (the Clear button over the detailed status).
-    func resetCounts() { resyncCount = 0; loopCount = 0 }
+    func resetCounts() { resyncCount = 0; loopCount = 0; warmStarts = 0; coldStarts = 0 }
     private(set) var lastError: Double = 0
     private var endObservers: [NSObjectProtocol] = []
     /// Muted players get their audio tracks disabled, not just isMuted: a muted AVPlayer still runs
@@ -66,7 +69,12 @@ final class SyncNode {
     /// Bumped whenever a player is moved, so a late seek / preroll answer is ignored.
     private var idleGen = [0, 0]
     /// Delay before preparing, spread over clips so they don't all read at the same moment.
-    private lazy var prepareSpread: Double = Double(abs(url.path.hashValue) % 1000) / 1000 * 0.4
+    /// A fixed hash of the path (FNV-1a), the same on every launch and Mac (check 71 L4).
+    private lazy var prepareSpread: Double = {
+        var h: UInt64 = 0xcbf29ce484222325
+        for b in url.path.utf8 { h = (h ^ UInt64(b)) &* 0x100000001b3 }
+        return Double(h % 1000) / 1000 * 0.4
+    }()
 
     init(url: URL, muted: Bool) {
         self.url = url
@@ -193,8 +201,12 @@ final class SyncNode {
     private func arm(loopAt at: Double) {
         if pendingPause?.index == 1 - active { pendingPause = nil }
         let i = 1 - active
-        // Already at 0 with its first frames read: start where it is, without seeking again.
-        let from: CMTime = idleReady[i] && players[i].currentTime() == .zero ? .invalid : .zero
+        // Already at 0 with its first frames read: start where it is, without seeking again. Only the
+        // flag is used: any move of the player bumps idleGen and clears it, and currentTime() on the
+        // main thread is what froze playback on 11/25 (check 71 M1).
+        let warm = idleReady[i]
+        let from: CMTime = warm ? .invalid : .zero
+        if warm { warmStarts += 1 } else { coldStarts += 1 }
         idleReady[i] = false; idleGen[i] += 1
         players[i].setRate(1.0, time: from,
                            atHostTime: CMTime(seconds: at, preferredTimescale: 1_000_000_000))

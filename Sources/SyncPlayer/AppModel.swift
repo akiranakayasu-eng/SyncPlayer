@@ -2647,6 +2647,7 @@ final class AppModel: ObservableObject {
         let fs = Array(transport.frames.values)
         let rates = outputs.values.map { $0.picture.renderer.drawRate }
         line += "\tplayed=" + playedText + String(format: "\tdropped_since_play=%d\tdropped_last_min=%d", max(0, droppedTotal - droppedAtPlay), droppedMinute.last)
+        line += String(format: "\tloop_warm=%d\tloop_cold=%d", transport.warmStarts, transport.coldStarts)
         line += String(format: "\tshown=%d\tdropped=%d\tdraw_fps=%.1f\tformats=%@",
                        fs.reduce(0) { $0 + $1.framesShown }, fs.reduce(0) { $0 + $1.framesDropped }, rates.min() ?? 0,
                        Set(fs.map(\.format)).sorted().joined(separator: ","))
