@@ -519,6 +519,7 @@ final class AppModel: ObservableObject {
         // Loop settings: the file's, unless this Mac changed them since.
         if m.loopTogether == mine.loopTogether { m.loopTogether = disk.loopTogether }
         if m.loopLength == mine.loopLength { m.loopLength = disk.loopLength }
+        if m.loopClip == mine.loopClip { m.loopClip = disk.loopClip }
         guard m != show else { return }
         undoing = true; show = m; undoing = false
         // Undo would bring the other seats back to before this (and write that): start undo again here.
@@ -1205,6 +1206,76 @@ final class AppModel: ObservableObject {
         if layers.map(\.id) != show.outputs[o].layers.map(\.id) { show.outputs[o].layers = layers }
     }
 
+    enum SortKey { case layerName, fileName, length }
+
+    /// Sorts the selected Screen's layers as the list shows them (front first). Sorting the same way
+    /// twice turns it round. The order is the picture's front and back, so it is one ⌘Z step
+    /// (Akira 2026-11-26: "名前順や duration 順に並べ替え", "レイヤー名順にも").
+    func sortLayers(by key: SortKey) {
+        guard let o = selectedOutputIndex, show.outputs[o].layers.count > 1 else { return }
+        let shown = Array(show.outputs[o].layers.reversed())
+        func name(_ l: Layer) -> String { key == .layerName ? (l.name ?? clipName(l.clipID)) : clipName(l.clipID) }
+        let up: (Layer, Layer) -> Bool = { a, b in
+            if key == .length {
+                let x = self.clipLength(a.clipID), y = self.clipLength(b.clipID)
+                if x != y { return x < y }
+            }
+            return name(a).localizedStandardCompare(name(b)) == .orderedAscending
+        }
+        var sorted = shown.sorted(by: up)
+        if sorted.map(\.id) == shown.map(\.id) { sorted = shown.sorted { up($1, $0) } }
+        guard sorted.map(\.id) != shown.map(\.id) else { return }
+        show.outputs[o].layers = Array(sorted.reversed())
+        notify(L("レイヤーを並べ替えました（上が手前。⌘Z で戻せる）", "Layers sorted (top = front; ⌘Z to undo)"))
+    }
+
+    /// Sorts Footage by name or length; the same way twice turns it round.
+    func sortClips(by key: SortKey) {
+        guard show.clips.count > 1 else { return }
+        let up: (Clip, Clip) -> Bool = { a, b in
+            if key == .length {
+                let x = self.clipLength(a.id), y = self.clipLength(b.id)
+                if x != y { return x < y }
+            }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+        var sorted = show.clips.sorted(by: up)
+        if sorted.map(\.id) == show.clips.map(\.id) { sorted = show.clips.sorted { up($1, $0) } }
+        guard sorted.map(\.id) != show.clips.map(\.id) else { return }
+        show.clips = sorted
+    }
+
+    /// Loops every Mac together at this clip's length, and keeps following it (a replaced movie
+    /// with another length moves the loop too). nil goes back to the longest clip
+    /// (Akira 2026-11-26: "ループ時間を特定のレイヤーかフッテージに合わせられるように").
+    func loopToClip(_ id: String?) {
+        var s = show
+        s.loopTogether = true
+        s.loopClip = id
+        if let id {
+            let t = clipLength(id)
+            if t > 0 { s.loopLength = max(t, Show.minLoop) }
+        } else {
+            s.loopLength = 0
+        }
+        if s != show { show = s }
+        notify(id == nil ? L("ループの長さ: いちばん長い映像に合わせる", "Loop length: the longest clip")
+                         : L("ループの長さ: 「\(clipName(id!))」に合わせる", "Loop length: follows “\(clipName(id!))”"))
+    }
+
+    /// Keeps loopLength equal to the followed clip's length once that is known.
+    func followLoopClip() {
+        guard isMaster, let id = show.loopClip else { return }   // the master's loop is the one used
+        guard show.clip(id) != nil else { show.loopClip = nil; return }
+        let t = clipLength(id)
+        guard t > 0 else { return }
+        let want = max(t, Show.minLoop)
+        if abs(show.loopLength - want) > 0.0005 || !show.loopTogether { show.loopLength = want; show.loopTogether = true }
+    }
+
+    /// The clip's length in seconds (0 while it is still being read or cannot be opened).
+    func clipLength(_ id: String) -> Double { clipInfo(id)?.seconds ?? 0 }
+
     func selectNextLayer() {
         guard let o = selectedOutputConfig, !o.layers.isEmpty else { return }
         let ids = o.layers.reversed().map(\.id)   // the order the list shows
@@ -1274,6 +1345,7 @@ final class AppModel: ObservableObject {
         guard let i = show.clips.firstIndex(where: { $0.id == id }),
               let u = pickMovies(message: L("「\(show.clips[i].name)」と入れ替える映像", "Movie to replace “\(show.clips[i].name)”"), multiple: false).first else { return }
         show.clips[i].path = u.path
+        if show.loopClip == id { followLoopClip() }
         learned("added")
         notify(L("映像: \(u.lastPathComponent)", "Clip: \(u.lastPathComponent)"))
     }
@@ -1315,6 +1387,8 @@ final class AppModel: ObservableObject {
             for o in s.seats[k].outputs.indices { s.seats[k].outputs[o].layers.removeAll { ids.contains($0.clipID) } }
             if let a = s.seats[k].audioClip, ids.contains(a) { s.seats[k].audioClip = nil }
         }
+        // The loop followed a removed clip: keep its length as a typed one.
+        if let l = s.loopClip, ids.contains(l) { s.loopClip = nil }
         show = s
         clipPicks = []
         if let c = selectedClip, ids.contains(c) { selectedClip = nil }
@@ -1368,6 +1442,7 @@ final class AppModel: ObservableObject {
                 i.bytes = ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.int64Value ?? 0
                 self.clipInfos[path] = i
                 self.clipInfoLoading.remove(path)
+                self.followLoopClip()
             }
         }
         return nil
@@ -2085,6 +2160,8 @@ final class AppModel: ObservableObject {
     /// "再生中は無駄な機能は停止して、操作が再開したら開始"). Any mouse or key use wakes it.
     /// Hiding the control window (S) rests it as well.
     @Published private(set) var resting = false
+    /// The show is playing (for views that should be lighter then, such as the footage preview).
+    @Published private(set) var showPlaying = false
     /// Seconds without use before resting (0 = never rest). Kept per Mac.
     var restAfter: Double {
         get { UserDefaults.standard.object(forKey: "ui.restAfter") as? Double ?? 10 }
@@ -2127,6 +2204,8 @@ final class AppModel: ObservableObject {
         } else if !keepAwake, let a = awake {
             ProcessInfo.processInfo.endActivity(a); awake = nil
         }
+        let p = transport.schedule?.playing ?? false
+        if p != showPlaying { showPlaying = p }
         updateResting()
         // Resting: the control window's words once a second instead of five times.
         guard tickCount % (resting ? 20 : 4) == 0 else { return }

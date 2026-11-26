@@ -63,3 +63,34 @@ struct ClipPreview: NSViewRepresentable {
         coordinator.stop()
     }
 }
+
+/// While the show plays, the footage preview is one still picture instead of a player: a player
+/// beside the show cost about 1000 dropped frames a minute in the Pro test (2026-11-26, 16 clips:
+/// 4089 vs 2000 in 4 min, draw 38 vs 55 fps at the lowest). The picture is read once, in the background.
+struct ClipStill: View {
+    let path: String
+    @State private var image: NSImage?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let image { Image(nsImage: image).resizable().aspectRatio(contentMode: .fit) }
+            VStack {
+                Spacer()
+                Text(L("再生中は静止画（止めるとプレビューできる）", "Still while playing (stop to preview)"))
+                    .font(.caption2).foregroundColor(.white.opacity(0.8))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
+                    .padding(4)
+            }
+        }
+        .task(id: path) {
+            let g = AVAssetImageGenerator(asset: AVURLAsset(url: URL(fileURLWithPath: path)))
+            g.appliesPreferredTrackTransform = true
+            g.maximumSize = CGSize(width: 640, height: 640)
+            if let cg = try? await g.image(at: CMTime(seconds: 0.5, preferredTimescale: 600)).image {
+                image = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+            }
+        }
+    }
+}
