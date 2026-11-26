@@ -1029,6 +1029,7 @@ struct HelpButton: View {
             .help(L("使い方のページのこの部分を開く", "Open this part of the guide"))
             .opacity(shown ? 1 : 0)
             .allowsHitTesting(shown)
+            .disabled(!shown)   // also out of the Tab order with full keyboard access (check 53 L2)
             .accessibilityHidden(!shown)
     }
 }
