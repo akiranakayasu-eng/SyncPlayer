@@ -911,7 +911,6 @@ struct Sidebar: View {
                     .contextMenu { Button(L("ソースの場所を Finder で開く", "Reveal Source in Finder")) { model.revealClip(id) } }
                 }
                 }
-                }
             }
         }
         .padding(8)
