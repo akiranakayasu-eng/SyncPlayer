@@ -1798,6 +1798,15 @@ final class AppModel: ObservableObject {
         show.outputs[o].layers[l].mask = u.path
     }
 
+    /// A button under the preview asks the right column to show where it is set (Akira 2026-11-26):
+    /// the tab, the section opened and scrolled into view.
+    struct Reveal: Equatable { var n = 0; var place = "" }
+    @Published var inspectorReveal = Reveal()
+    func reveal(_ place: String) {
+        UserDefaults.standard.set(false, forKey: "ui.hideRight")
+        inspectorReveal = Reveal(n: inspectorReveal.n + 1, place: place)
+    }
+
     func toggleEdit(_ m: EditMode) {
         editMode = editMode == m ? .none : m
         // Editing shows its controls on the right: bring the right column back if hidden (check 46 L1).

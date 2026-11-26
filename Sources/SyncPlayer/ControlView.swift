@@ -1198,6 +1198,7 @@ struct PreviewBar: View {
             Divider().frame(height: 14)
             BarIcon("grid", on: model.selectedLook?.showGrid == true, L("確認用の格子（G）", "Grid (G)")) {
                 model.lookBinding(\.showGrid, false).wrappedValue.toggle()
+                model.reveal("warp")
             }
             .disabled(model.selectedLook == nil)
             BarIcon("square.dashed", on: model.showSelection, L("選んだレイヤーの枠（B）。プレビューだけに出る", "Selected layer outline (B). Preview only")) {
@@ -1208,9 +1209,11 @@ struct PreviewBar: View {
             }
             BarIcon("number.square", on: model.showIdent, L("Mac 名とディスプレイの番号（N）", "Mac names and display numbers (N)")) {
                 model.showIdent.toggle()
+                model.reveal("thisMac")
             }
             BarIcon("info.circle", on: model.infoShownNow, L("動作確認の文字（I）", "Info text (I)")) {
                 model.setInfoShown(!model.infoShownNow)
+                model.reveal("thisMac")
             }
             Divider().frame(height: 14)
             BarIcon("perspective", on: model.editMode == .corners, L("四隅を動かす（E）", "Corner pin (E)")) { model.toggleEdit(.corners) }
@@ -1618,6 +1621,17 @@ struct Inspector: View {
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // A button under the preview: show where the same thing is set (Akira 2026-11-26).
+            .onChange(of: model.inspectorReveal) { r in
+                switch r.place {
+                case "warp": tab = 0; openWarp = true
+                case "thisMac": tab = 1; UserDefaults.standard.set(true, forKey: "ui.fold.thisMac")
+                default: return
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation { proxy.scrollTo(r.place, anchor: .top) }
+                }
+            }
             // Editing corners or the mesh: show where it is controlled.
             .onChange(of: model.editMode) { m in
                 guard m != .none else { return }
@@ -1740,6 +1754,7 @@ struct Inspector: View {
         }
 
         ThinLine()
+            .id("thisMac")   // scrolled to by the I and N buttons under the preview
         FoldSection("This Mac", key: "thisMac", help: "exhibit") {
         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
             GridRow { Text(L("操作の窓の色", "Appearance")).foregroundColor(.secondary)
