@@ -21,6 +21,8 @@ final class EditOverlay: NSView {
     /// Layer and file names drawn on each visible layer (T): name, file, box (normalized).
     var showLabels: () -> Bool = { false }
     var labels: () -> [(name: String, file: String, box: CGRect)] = { [] }
+    /// The selected layer's outline (preview only, B; Akira 2026-11-26): its look and the aspects.
+    var outline: () -> (look: DisplaySettings, view: Double, video: Double)? = { nil }
     private var dragging: Int?
     private var downAt: NSPoint?
     private var panning = false
@@ -133,6 +135,7 @@ final class EditOverlay: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         if showLabels() { drawLabels() }
+        if mode == .none, let o = outline() { drawOutline(o.look, view: o.view, video: o.video) }
         guard mode != .none, let s = settings() else { return }
         let a = aspects()
         let q = Warp.corners(s, viewAspect: a.view, videoAspect: a.video)
@@ -169,6 +172,39 @@ final class EditOverlay: NSView {
             NSColor.black.setStroke()
             o.lineWidth = 1
             o.stroke()
+        }
+    }
+
+    /// The selected layer's edge as it is drawn (corners and mesh included), with small squares at
+    /// the corners, like the layer bounds in After Effects. Cyan, so it is not the yellow of editing.
+    private func drawOutline(_ s: DisplaySettings, view: Double, video: Double) {
+        let q = Warp.corners(s, viewAspect: view, videoAspect: video)
+        let H = Warp.Homography(q), m = s.meshOffsets
+        let path = NSBezierPath()
+        path.lineWidth = 1.5
+        let steps = 32
+        for e in 0..<4 {
+            for t in 0...steps {
+                let f = Double(t) / Double(steps)
+                let (u, v): (Double, Double) = e == 0 ? (f, 0) : e == 1 ? (1, f) : e == 2 ? (1 - f, 1) : (0, 1 - f)
+                let pt = toView(Warp.output(s, H, m, u, v))
+                e == 0 && t == 0 ? path.move(to: pt) : path.line(to: pt)
+            }
+        }
+        path.close()
+        NSColor.black.withAlphaComponent(0.6).setStroke()
+        path.lineWidth = 3.5
+        path.stroke()
+        NSColor.systemCyan.setStroke()
+        path.lineWidth = 1.5
+        path.stroke()
+        for (u, v) in [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)] {
+            let c = toView(Warp.output(s, H, m, u, v))
+            let r = NSRect(x: c.x - 3, y: c.y - 3, width: 6, height: 6)
+            NSColor.systemCyan.setFill()
+            r.fill()
+            NSColor.black.setStroke()
+            NSBezierPath(rect: r).stroke()
         }
     }
 

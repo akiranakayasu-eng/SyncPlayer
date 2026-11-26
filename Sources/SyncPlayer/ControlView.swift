@@ -1199,6 +1199,9 @@ struct PreviewBar: View {
                 model.lookBinding(\.showGrid, false).wrappedValue.toggle()
             }
             .disabled(model.selectedLook == nil)
+            BarIcon("square.dashed", on: model.showSelection, L("選んだレイヤーの枠（B）。プレビューだけに出る", "Selected layer outline (B). Preview only")) {
+                model.showSelection.toggle()
+            }
             BarIcon("tag", on: model.showLabels, L("レイヤー名とファイル名（T）", "Layer and file names (T)")) {
                 model.showLabels.toggle()
             }

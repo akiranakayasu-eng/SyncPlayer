@@ -102,6 +102,11 @@ final class AppModel: ObservableObject {
     /// Layer name and file name, large, on every visible layer of the preview and the outputs
     /// (T, or the tag under the preview; this Mac only. Akira 2026-11-26).
     @Published var showLabels = false { didSet { redrawOverlays() } }
+    /// The selected layer's outline on the preview (B, on by default, kept per Mac; Akira 2026-11-26).
+    /// Only on the preview, so it never reaches the projectors.
+    @Published var showSelection = UserDefaults.standard.object(forKey: "ui.showSelection") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showSelection, forKey: "ui.showSelection"); redrawOverlays() }
+    }
     var showHelp = false
     /// Info text on windowed outputs (shown unless I hides it).
     var infoHidden = false
@@ -167,6 +172,7 @@ final class AppModel: ObservableObject {
             KeyItem(key: "I", what: L("動作確認の文字", "Info text")),
             KeyItem(key: "N", what: L("Mac 名とディスプレイの番号", "Mac names and display numbers")),
             KeyItem(key: "T", what: L("レイヤー名とファイル名", "Layer and file names")),
+            KeyItem(key: "B", what: L("選んだレイヤーの枠（プレビュー）", "Selected layer outline (preview)")),
             KeyItem(key: "⇧Z", what: L("プレビューを選んだレイヤーに合わせる", "Fit the preview to the selected layer")),
             KeyItem(key: "H  ?", what: L("キー一覧（出力の画面に）", "Key list (on the outputs)")),
             KeyItem(key: "F", what: L("全画面", "Full screen")),
@@ -967,7 +973,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func setupOverlay(_ ov: EditOverlay, outputID: @escaping () -> String?, viewAspect: @escaping () -> Double) {
+    private func setupOverlay(_ ov: EditOverlay, outputID: @escaping () -> String?, viewAspect: @escaping () -> Double, preview: Bool = false) {
         ov.modeOf = { [weak self] in self?.editMode ?? .none }
         ov.selectedOf = { [weak self] in self?.selectedHandle ?? 0 }
         ov.select = { [weak self] k in self?.selectedHandle = k }
@@ -983,6 +989,14 @@ final class AppModel: ObservableObject {
         }
         ov.onChange = { [weak self] s in self?.updateLook(s) }
         ov.showLabels = { [weak self] in self?.showLabels ?? false }
+        if preview {
+            ov.outline = { [weak self, weak ov] in
+                guard let self, let ov, self.showSelection, let id = outputID(), id == self.selectedOutput,
+                      let i = self.selectedLayerIndex, self.show.outputs[i.o].id == id else { return nil }
+                let a = ov.aspects()
+                return (self.show.outputs[i.o].layers[i.l].look, a.view, a.video)
+            }
+        }
         ov.labels = { [weak self] in
             guard let self, let id = outputID(), let o = self.show.outputs.first(where: { $0.id == id }) else { return [] }
             let va = viewAspect()
@@ -1580,7 +1594,7 @@ final class AppModel: ObservableObject {
         pv.renderer.layers = { [weak self] in self?.selectedOutputConfig?.layers ?? [] }
         pv.renderer.frames = { [weak self] clip in self?.transport.frames[clip] }
         setupOverlay(pv.overlay, outputID: { [weak self] in self?.selectedOutput },
-                     viewAspect: { [weak self] in self?.selectedOutputAspect ?? 16.0 / 9.0 })
+                     viewAspect: { [weak self] in self?.selectedOutputAspect ?? 16.0 / 9.0 }, preview: true)
         // Click the preview to select the layer under the pointer (frontmost first, like Adobe).
         pv.overlay.pick = { [weak self] p in self?.pickLayer(at: p) }
         let box = AspectBox(child: pv)
@@ -1987,6 +2001,7 @@ final class AppModel: ObservableObject {
         case "a": setAudio(!audioOn)
         case "n": showIdent.toggle()
         case "t": showLabels.toggle()
+        case "b": showSelection.toggle()
         case "z": if shift { fitPreviewToLayer() } else { return false }
         case "q": NSApp.terminate(nil)
         case "g", "e", "w", "+", "=", "-", "_", "[", "]", "0":
@@ -2073,7 +2088,8 @@ final class AppModel: ObservableObject {
             w.layoutIdent("\(opts.name)\n\(disp)\n\(o.name)")
         }
         previewBox?.aspect = selectedOutputAspect
-        if editMode != .none && tickCount % 20 == 0 { redrawOverlays() }
+        // Also while the outline is on: the clip's aspect arrives after it loads.
+        if (editMode != .none || showSelection) && tickCount % 20 == 0 { redrawOverlays() }
     }
 
     /// The state in plain words for the top of the control window. The state word comes first,
