@@ -46,8 +46,11 @@ final class SyncNode {
     private(set) var errorEMA: Double = 0
     private(set) var resyncCount = 0
     private(set) var loopCount = 0
+    /// Loop starts that used the early-read player (warm) and ones that had to seek at the loop point (cold).
+    private(set) var warmStarts = 0
+    private(set) var coldStarts = 0
     /// Start jumps and loops again from 0 (the Clear button over the detailed status).
-    func resetCounts() { resyncCount = 0; loopCount = 0 }
+    func resetCounts() { resyncCount = 0; loopCount = 0; warmStarts = 0; coldStarts = 0 }
     private(set) var lastError: Double = 0
     private var endObservers: [NSObjectProtocol] = []
     /// Muted players get their audio tracks disabled, not just isMuted: a muted AVPlayer still runs
@@ -60,6 +63,18 @@ final class SyncNode {
     /// A player to pause a little after a loop handover (local host time), so the audible clip's
     /// audio stop does not land in the same moment as the new player's start.
     private var pendingPause: (index: Int, at: Double)?
+    /// The idle player already waits at 0 with its first frames read (prepareIdle), so the loop
+    /// point only starts it (Akira 2026-11-26: "ループの変わり目をキャッシュするのは？").
+    private var idleReady = [false, false]
+    /// Bumped whenever a player is moved, so a late seek / preroll answer is ignored.
+    private var idleGen = [0, 0]
+    /// Delay before preparing, spread over clips so they don't all read at the same moment.
+    /// A fixed hash of the path (FNV-1a), the same on every launch and Mac (check 71 L4).
+    private lazy var prepareSpread: Double = {
+        var h: UInt64 = 0xcbf29ce484222325
+        for b in url.path.utf8 { h = (h ^ UInt64(b)) &* 0x100000001b3 }
+        return Double(h % 1000) / 1000 * 0.4
+    }()
 
     init(url: URL, muted: Bool) {
         self.url = url
@@ -185,14 +200,44 @@ final class SyncNode {
     /// Schedule the idle player to start at 0 at the loop point (local host time).
     private func arm(loopAt at: Double) {
         if pendingPause?.index == 1 - active { pendingPause = nil }
-        players[1 - active].setRate(1.0, time: .zero,
-                                    atHostTime: CMTime(seconds: at, preferredTimescale: 1_000_000_000))
+        let i = 1 - active
+        // Already at 0 with its first frames read: start where it is, without seeking again. Only the
+        // flag is used: any move of the player bumps idleGen and clears it, and currentTime() on the
+        // main thread is what froze playback on 11/25 (check 71 M1).
+        let warm = idleReady[i]
+        let from: CMTime = warm ? .invalid : .zero
+        if warm { warmStarts += 1 } else { coldStarts += 1 }
+        idleReady[i] = false; idleGen[i] += 1
+        players[i].setRate(1.0, time: from,
+                           atHostTime: CMTime(seconds: at, preferredTimescale: 1_000_000_000))
         armedAt = at
+    }
+
+    /// Seek the idle player back to 0 and read its first frames now, well before the next loop point.
+    private func prepareIdle(_ i: Int) {
+        idleReady[i] = false; idleGen[i] += 1
+        let gen = idleGen[i], p = players[i]
+        DispatchQueue.main.asyncAfter(deadline: .now() + prepareSpread) { [weak self] in
+            guard let self, self.idleGen[i] == gen, i != self.active, self.armedAt == nil, p.rate == 0 else { return }
+            p.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] done in
+                guard done else { return }
+                DispatchQueue.main.async {
+                    guard let self, self.idleGen[i] == gen, p.rate == 0, p.status == .readyToPlay else { return }
+                    p.preroll(atRate: 1.0) { ok in
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, self.idleGen[i] == gen else { return }
+                            self.idleReady[i] = ok
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func disarm() {
         if armedAt != nil { players[1 - active].pause() }
         armedAt = nil
+        idleReady = [false, false]; idleGen[0] += 1; idleGen[1] += 1
     }
 
     func stop() {
@@ -240,6 +285,7 @@ final class SyncNode {
         if let pp = pendingPause, hostNow() >= pp.at {
             pendingPause = nil
             if pp.index != active && players[pp.index].rate != 0 { players[pp.index].pause() }
+            if pp.index != active { prepareIdle(pp.index) }
         }
         if s.epoch != activeEpoch { activeEpoch = s.epoch; needsResync = true }
 
@@ -309,6 +355,7 @@ final class SyncNode {
     /// the schedule says for that moment.
     func resync() {
         disarm()
+        prepareIdle(1 - active)   // read the next loop's first frames early here too
         var startLocal = hostNow() + lead
         // If the schedule starts later than that (play / jump announce ~0.3 s ahead),
         // start exactly at the scheduled moment instead of playing early.
