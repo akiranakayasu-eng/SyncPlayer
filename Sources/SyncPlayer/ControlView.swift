@@ -570,7 +570,7 @@ struct SeatsPanel: View {
             IconButton("minus", L("選んだ Seat を消す", "Delete the selected seat")) { model.deleteSeat(sel.id) }
                 .disabled(model.show.seats.count < 2)
             Divider().frame(height: 14)
-            IconButton("desktopcomputer", L("この Mac を選んだ Seat にする（出力・レイヤー・音がその Seat のものになる）", "Make this Mac the selected seat (its outputs, layers and sound)")) { model.switchSeat(sel.id) }
+            IconButton("arrow.left.arrow.right", L("この Mac を選んだ Seat にする（出力・レイヤー・音がその Seat のものになる）", "Make this Mac the selected seat (its outputs, layers and sound)")) { model.switchSeat(sel.id) }
                 .disabled(sel.id == model.show.seatID)
         }
         }
