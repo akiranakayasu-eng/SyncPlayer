@@ -828,6 +828,10 @@ struct Sidebar: View {
             }
 
             HeightHandle(height: $hLayers, auto: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 12))
+            // The selected layer's movie, as under Footage (Akira 2026-11-26).
+            if let i = model.selectedLayerIndex, model.show.clip(model.show.outputs[i.o].layers[i.l].clipID) != nil {
+                clipDetails(model.show.outputs[i.o].layers[i.l].clipID)
+            }
             }
             } else {
                 // Footage: added once, then rarely touched, so in its own tab (kept per Mac).
@@ -863,60 +867,66 @@ struct Sidebar: View {
                     HelpButton(anchor: "clips")
                 }
                 HeightHandle(height: $hClips, auto: listHeight(model.show.clips.count, max: 6))
-                // The selected footage's details, like the top of After Effects' Project panel: its
-                // picture with a preview player, then one property a line (Akira 2026-11-26).
-                if let id = model.selectedClip, let c = model.show.clip(id) {
-                    let info = model.clipInfo(id)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(c.name).font(.caption.bold()).lineLimit(1).truncationMode(.middle)
-                        ClipPreview(path: c.path, sound: clipPreviewSound)
-                            .id(c.path)   // a new player for each clip, so the last one stops
-                            // A fixed height: the player fits the picture inside (black bars), so tall
-                            // movies and a wide column never push its controls out (check 61 M3).
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 200)
-                            .background(Color.black)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                        HStack(spacing: 6) {
-                            Toggle(isOn: $clipPreviewSound) { Image(systemName: clipPreviewSound ? "speaker.wave.2" : "speaker.slash") }
-                                .toggleStyle(.button).controlSize(.small)
-                                .help(L("プレビューの音（既定は切。入れると展示のスピーカーからも出る）", "Preview sound (off by default; when on it plays through the show's speakers)"))
-                            Spacer()
-                            IconButton("folder", L("ソースの場所を Finder で開く", "Reveal Source in Finder")) { model.revealClip(id) }
-                        }
-                        if let info {
-                            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 1) {
-                                ForEach(Array(info.rows.enumerated()), id: \.offset) { _, r in
-                                    GridRow {
-                                        Text(r.0).foregroundColor(.secondary)
-                                        Text(r.1).monospacedDigit().textSelection(.enabled)
-                                    }
-                                }
-                            }
-                            .font(.caption)
-                        } else {
-                            Text(L("読み込み中…", "Reading…")).font(.caption).foregroundColor(.secondary)
-                        }
-                        // The source's folder, shortened; the full path on hover; a click opens it in Finder.
-                        Button { model.revealClip(id) } label: {
-                            Text(c.path).font(.caption2).foregroundColor(.secondary)
-                                .lineLimit(1).truncationMode(.head)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        .help(c.path)
-                    }
-                    .padding(6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
-                    .contextMenu { Button(L("ソースの場所を Finder で開く", "Reveal Source in Finder")) { model.revealClip(id) } }
-                }
+                if let id = model.selectedClip { clipDetails(id) }
                 }
             }
         }
         .padding(8)
         }
         .scrollIndicators(.visible)
+    }
+
+    /// The selected footage's details: under Footage for the picked clip, and under Layers for the
+    /// selected layer's clip (Akira 2026-11-26), so the movie can be checked without switching tabs.
+    @ViewBuilder private func clipDetails(_ id: String) -> some View {
+        // The selected footage's details, like the top of After Effects' Project panel: its
+        // picture with a preview player, then one property a line (Akira 2026-11-26).
+        if let c = model.show.clip(id) {
+            let info = model.clipInfo(id)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(c.name).font(.caption.bold()).lineLimit(1).truncationMode(.middle)
+                ClipPreview(path: c.path, sound: clipPreviewSound)
+                    .id(c.path)   // a new player for each clip, so the last one stops
+                    // A fixed height: the player fits the picture inside (black bars), so tall
+                    // movies and a wide column never push its controls out (check 61 M3).
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 200)
+                    .background(Color.black)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                HStack(spacing: 6) {
+                    Toggle(isOn: $clipPreviewSound) { Image(systemName: clipPreviewSound ? "speaker.wave.2" : "speaker.slash") }
+                        .toggleStyle(.button).controlSize(.small)
+                        .help(L("プレビューの音（既定は切。入れると展示のスピーカーからも出る）", "Preview sound (off by default; when on it plays through the show's speakers)"))
+                    Spacer()
+                    IconButton("folder", L("ソースの場所を Finder で開く", "Reveal Source in Finder")) { model.revealClip(id) }
+                }
+                if let info {
+                    Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 1) {
+                        ForEach(Array(info.rows.enumerated()), id: \.offset) { _, r in
+                            GridRow {
+                                Text(r.0).foregroundColor(.secondary)
+                                Text(r.1).monospacedDigit().textSelection(.enabled)
+                            }
+                        }
+                    }
+                    .font(.caption)
+                } else {
+                    Text(L("読み込み中…", "Reading…")).font(.caption).foregroundColor(.secondary)
+                }
+                // The source's folder, shortened; the full path on hover; a click opens it in Finder.
+                Button { model.revealClip(id) } label: {
+                    Text(c.path).font(.caption2).foregroundColor(.secondary)
+                        .lineLimit(1).truncationMode(.head)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .help(c.path)
+            }
+            .padding(6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
+            .contextMenu { Button(L("ソースの場所を Finder で開く", "Reveal Source in Finder")) { model.revealClip(id) } }
+        }
     }
 
     /// The height dragged for a list, or (0) just tall enough for its rows.
