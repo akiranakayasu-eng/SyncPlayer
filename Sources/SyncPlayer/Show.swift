@@ -147,9 +147,15 @@ struct Seat: Codable, Equatable, Identifiable {
 struct Show: Codable, Equatable {
     /// 3 since 0.3.5: position / scale / rotation move the whole layer (before: the picture inside it).
     var version = 3
-    /// Layers with a moved, scaled or turned picture in the last file of version 2 or older that was
-    /// read; they now look different. The app tells once and clears it (check 63 M2).
-    static var oldTransforms = 0
+    /// Layers of this Mac's seat that moved, scaled or turned their picture in a file of version 2 or
+    /// older: they look different since 0.3.5 (check 63 M2). 0 for a file of this version.
+    var oldTransforms: Int {
+        guard version < 3 else { return 0 }
+        let d = DisplaySettings()
+        return outputs.flatMap(\.layers).filter {
+            $0.look.posX != d.posX || $0.look.posY != d.posY || $0.look.scale != d.scale || $0.look.rotation != d.rotation
+        }.count
+    }
     /// Identifies the exhibition, so each Mac can remember its seat in it (also after copying the file).
     var id = UUID().uuidString
     var clips: [Clip] = []
@@ -221,12 +227,6 @@ struct Show: Codable, Equatable {
         var seen = Set<String>()
         for i in seats.indices { if !seen.insert(seats[i].id).inserted { seats[i].id = UUID().uuidString } }
         seatID = seats[0].id
-        if version < 3 {
-            let d = DisplaySettings()
-            Show.oldTransforms += seats.flatMap { $0.outputs.flatMap(\.layers) }.filter {
-                $0.look.posX != d.posX || $0.look.posY != d.posY || $0.look.scale != d.scale || $0.look.rotation != d.rotation
-            }.count
-        }
         loopTogether = try c.decodeIfPresent(Bool.self, forKey: .loopTogether) ?? true
         loopLength = max(0, try c.decodeIfPresent(Double.self, forKey: .loopLength) ?? 0)
         if loopLength > 0 && loopLength < Show.minLoop { loopLength = Show.minLoop }

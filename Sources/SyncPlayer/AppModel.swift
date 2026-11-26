@@ -324,6 +324,7 @@ final class AppModel: ObservableObject {
         applyTheme()
         show = show0
         selectedOutput = show.outputs.first?.id
+        tellOldTransforms(show0)
         setRole(master: startMaster)
         installKeys()
         undoStack.removeAll(); redoStack.removeAll()
@@ -455,12 +456,6 @@ final class AppModel: ObservableObject {
 
     private func showDidChange(_ old: Show) {
         recordUndo(old)
-        if Show.oldTransforms > 0 {
-            let n = Show.oldTransforms
-            Show.oldTransforms = 0
-            notify(L("前の版のショーです。位置・大きさ・回転はレイヤーごと動かす作りになったので、それを変えていたレイヤー \(n) 枚は見え方が変わります。Properties の Transform で合わせ直してください",
-                     "A show from an earlier version: position, scale and rotation now move the whole layer, so \(n) layer(s) that used them look different. Adjust them again under Transform in Properties"))
-        }
         if show.seatClips != old.seatClips { transport.setClips(show.seatClips) }
         // A show opened or another seat brings this Mac's sound setting with it.
         var soundChanged = show.seatClips != old.seatClips || show.audioClip != old.audioClip
@@ -1424,6 +1419,7 @@ final class AppModel: ObservableObject {
         applyShow(chooseSeat(s, asking: true))
         selectedOutput = show.outputs.first?.id
         notify(L("ショー: \(u.lastPathComponent)", "Show: \(u.lastPathComponent)"))
+        tellOldTransforms(show)
     }
 
     func saveShowAs() {
@@ -1564,7 +1560,21 @@ final class AppModel: ObservableObject {
         applyAudio()
     }
 
-    func notify(_ m: String) { message = m; messageUntil = hostNow() + 3 }
+    func notify(_ m: String, seconds: Double = 3) { message = m; messageUntil = hostNow() + seconds }
+
+    /// A show opened (or read at start) from 0.3.4 or older whose layers in this seat used position,
+    /// scale or rotation: they look different now. Told once per show on this Mac, for 15 s, after
+    /// the other messages of opening (check 64 M1).
+    func tellOldTransforms(_ s: Show) {
+        let n = s.oldTransforms
+        let key = "toldOldTransforms." + s.id
+        guard n > 0, !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.notify(L("⚠︎ 前の版のショー: 位置・大きさ・回転はレイヤーごと動く作りになり、レイヤー \(n) 枚の見え方が変わりました。Properties の Transform で合わせ直してください",
+                           "⚠︎ Show from an earlier version: position, scale and rotation now move the whole layer, so \(n) layer(s) look different. Adjust them under Transform in Properties"), seconds: 15)
+        }
+    }
 
     // MARK: control window
 
