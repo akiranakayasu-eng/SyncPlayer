@@ -545,7 +545,7 @@ final class AppModel: ObservableObject {
         if ask && !confirm(L("この Mac を Seat「\(st.name)」にしますか？", "Make this Mac seat “\(st.name)”?"),
                            L("出力・レイヤー・音がその Seat のものに変わります。いまの Seat「\(show.seat.name)」の設定はファイルに残ります。",
                              "Outputs, layers and sound change to that seat's. The current seat “\(show.seat.name)” stays in the file as it is."),
-                           ok: L("切り替える", "Switch")) { return }
+                           ok: L("切り替える", "Switch"), icon: AlertPicture.switching(from: show.seat.name, to: st.name)) { return }
         saveNow()
         var s = show
         s.seatID = id
@@ -1678,11 +1678,14 @@ final class AppModel: ObservableObject {
     /// With `skip` (deleting seats, outputs, layers, clips: all undone with ⌘Z) the window has
     /// "Don't ask again" for that kind; turned back on in Settings (⌘,).
     /// `ok` has no default: each question names its own button (a switch said 消す, Akira 2026-11-26).
+    /// `icon`: a small picture of what happens, shown instead of the app's logo (Akira 2026-11-26:
+    /// the logo says nothing here). Default: a symbol for the kind of question.
     func confirm(_ title: String, _ detail: String, ok: String, skip: ConfirmKind? = nil,
-                 suppressTitle: String? = nil) -> Bool {
+                 suppressTitle: String? = nil, icon: NSImage? = nil) -> Bool {
         if let k = skip, !asks(k) { return true }
         let skippable = skip != nil
         let a = NSAlert()
+        a.icon = icon ?? AlertPicture.symbol(skip == .quit ? "power" : skip == nil ? "questionmark.circle" : "trash")
         a.messageText = title
         a.informativeText = detail
         a.addButton(withTitle: ok)
@@ -2409,4 +2412,47 @@ enum FieldEsc {
     static var at = -10.0
     /// esc was pressed just now (the focus change that follows comes within a moment).
     static var recent: Bool { ProcessInfo.processInfo.systemUptime - at < 0.5 }
+}
+
+
+/// Small pictures for the confirm windows (instead of the app's logo).
+enum AlertPicture {
+    /// An SF Symbol at the alert's icon size.
+    static func symbol(_ name: String) -> NSImage? {
+        let cfg = NSImage.SymbolConfiguration(pointSize: 40, weight: .regular)
+        return NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(cfg.applying(NSImage.SymbolConfiguration(paletteColors: [.secondaryLabelColor])))
+    }
+
+    /// "This Mac: A → B": a Mac, then the seat it leaves (grey) and the one it becomes (blue).
+    static func switching(from a: String, to b: String) -> NSImage {
+        NSImage(size: NSSize(width: 64, height: 64), flipped: false) { r in
+            func box(_ x: CGFloat, _ name: String, _ fill: NSColor) {
+                let rect = NSRect(x: x, y: 14, width: 24, height: 24)
+                fill.setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5).fill()
+                let t = String(name.prefix(2)) as NSString
+                let attr: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: t.length > 1 ? 10 : 13),
+                                                           .foregroundColor: NSColor.white]
+                let sz = t.size(withAttributes: attr)
+                t.draw(at: NSPoint(x: rect.midX - sz.width / 2, y: rect.midY - sz.height / 2), withAttributes: attr)
+            }
+            box(1, a, .systemGray)
+            box(39, b, .controlAccentColor)
+            // The arrow between them.
+            let p = NSBezierPath()
+            p.move(to: NSPoint(x: 27, y: 26)); p.line(to: NSPoint(x: 37, y: 26))
+            p.move(to: NSPoint(x: 33, y: 30)); p.line(to: NSPoint(x: 37, y: 26)); p.line(to: NSPoint(x: 33, y: 22))
+            p.lineWidth = 2; p.lineCapStyle = .round; p.lineJoinStyle = .round
+            NSColor.labelColor.setStroke(); p.stroke()
+            // "Mac" above.
+            if let m = NSImage(systemSymbolName: "desktopcomputer", accessibilityDescription: nil)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+                    .applying(NSImage.SymbolConfiguration(paletteColors: [.labelColor]))) {
+                let s = m.size
+                m.draw(in: NSRect(x: r.midX - s.width / 2, y: 44, width: s.width, height: s.height))
+            }
+            return true
+        }
+    }
 }
