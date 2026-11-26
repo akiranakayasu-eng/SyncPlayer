@@ -584,6 +584,8 @@ struct Sidebar: View {
     // List heights set by dragging the line under each list (0 = as tall as its rows; kept per Mac).
     // Left tabs (Akira 2026-11-26): 0 = outputs and layers (the default), 1 = footage. Kept per Mac.
     @AppStorage("ui.leftTab") private var leftTab = 0
+    /// Preview sound for the selected footage: off by default (the operator Mac drives the show speakers).
+    @State private var clipPreviewSound = false
     @AppStorage("ui.h.layers") private var hLayers: Double = 0
     @AppStorage("ui.h.clips") private var hClips: Double = 0
 
@@ -705,6 +707,7 @@ struct Sidebar: View {
                 Divider()
                 Button(L("ファイルから選ぶ…", "Choose a File…")) { model.addClipsForLayer(l.id) }
             }
+            Button(L("ソースの場所を Finder で開く", "Reveal Source in Finder")) { model.revealClip(l.clipID) }
             Button(l.visible ? L("隠す", "Hide") : L("見せる", "Show")) { model.visibleBinding(l.id).wrappedValue.toggle() }
             Button(L("複製", "Duplicate")) { layerTarget(l.id); model.duplicateLayer() }
             Divider()
@@ -725,7 +728,7 @@ struct Sidebar: View {
                 Button(L("選んだレイヤーに出す", "Use in Selected Layer")) { model.setLayerClip(lid, c.id) }
             }
             Button(L("この映像の音を出す", "Play This Clip's Sound")) { model.setAudioClip(c.id) }
-            Button(L("Finder で表示", "Reveal in Finder")) { model.revealClip(c.id) }
+            Button(L("ソースの場所を Finder で開く", "Reveal Source in Finder")) { model.revealClip(c.id) }
             Divider()
         }
         Button(many ? L("映像 \(model.clipPicks.count) 本をショーから外す…", "Remove \(model.clipPicks.count) Clips from Show…") : L("ショーから外す…", "Remove from Show…"), role: .destructive) {
@@ -860,20 +863,53 @@ struct Sidebar: View {
                     HelpButton(anchor: "clips")
                 }
                 HeightHandle(height: $hClips, auto: listHeight(model.show.clips.count, max: 6))
-                // The selected footage's details, like the top of After Effects' Project panel.
+                // The selected footage's details, like the top of After Effects' Project panel: its
+                // picture with a preview player, then one property a line (Akira 2026-11-26).
                 if let id = model.selectedClip, let c = model.show.clip(id) {
-                    VStack(alignment: .leading, spacing: 2) {
+                    let info = model.clipInfo(id)
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(c.name).font(.caption.bold()).lineLimit(1).truncationMode(.middle)
-                        Text(model.clipInfo(id)?.line ?? L("読み込み中…", "Reading…"))
-                            .font(.caption.monospacedDigit()).foregroundColor(.secondary)
-                        Text(c.path).font(.caption2).foregroundColor(.secondary)
-                            .lineLimit(1).truncationMode(.head)
-                            .help(c.path)
+                        ClipPreview(path: c.path, sound: clipPreviewSound)
+                            .id(c.path)   // a new player for each clip, so the last one stops
+                            .aspectRatio(info.map { $0.width > 0 && $0.height > 0 ? Double($0.width) / Double($0.height) : 16.0 / 9 } ?? 16.0 / 9,
+                                         contentMode: .fit)
+                            .frame(maxWidth: .infinity, maxHeight: 240)
+                            .background(Color.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                        HStack(spacing: 6) {
+                            Toggle(isOn: $clipPreviewSound) { Image(systemName: clipPreviewSound ? "speaker.wave.2" : "speaker.slash") }
+                                .toggleStyle(.button).controlSize(.small)
+                                .help(L("プレビューの音（既定は切。入れると展示のスピーカーからも出る）", "Preview sound (off by default; when on it plays through the show's speakers)"))
+                            Spacer()
+                            IconButton("folder", L("ソースの場所を Finder で開く", "Reveal Source in Finder")) { model.revealClip(id) }
+                        }
+                        if let info {
+                            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 1) {
+                                ForEach(Array(info.rows.enumerated()), id: \.offset) { _, r in
+                                    GridRow {
+                                        Text(r.0).foregroundColor(.secondary)
+                                        Text(r.1).monospacedDigit().textSelection(.enabled)
+                                    }
+                                }
+                            }
+                            .font(.caption)
+                        } else {
+                            Text(L("読み込み中…", "Reading…")).font(.caption).foregroundColor(.secondary)
+                        }
+                        // The source's folder, shortened; the full path on hover; a click opens it in Finder.
+                        Button { model.revealClip(id) } label: {
+                            Text(c.path).font(.caption2).foregroundColor(.secondary)
+                                .lineLimit(1).truncationMode(.head)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .help(c.path)
                     }
                     .padding(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
-                    .contextMenu { Button(L("Finder で表示", "Reveal in Finder")) { model.revealClip(id) } }
+                    .contextMenu { Button(L("ソースの場所を Finder で開く", "Reveal Source in Finder")) { model.revealClip(id) } }
+                }
                 }
                 }
             }

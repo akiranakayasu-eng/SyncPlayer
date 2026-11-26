@@ -1301,22 +1301,23 @@ final class AppModel: ObservableObject {
         var width = 0, height = 0
         var fps = 0.0, seconds = 0.0
         var codec = "", audio = false, bytes: Int64 = 0
-        var line: String {
-            if width == 0 && seconds == 0 { return L("読めない（形式かファイルを確かめる）", "Can't read (check the format or file)") }
-            var p: [String] = []
-            if width > 0 { p.append("\(width)×\(height)") }
+        /// One property a line, name and value (Akira 2026-11-26: "改行してわかりやすく").
+        var rows: [(String, String)] {
+            if width == 0 && seconds == 0 { return [(L("状態", "Status"), L("読めない（形式かファイルを確かめる）", "Can't read (check the format or file)"))] }
+            var p: [(String, String)] = []
+            if width > 0 { p.append((L("大きさ", "Size"), "\(width) × \(height)")) }
             // 29.97 and 23.976 as they are (not rounded to 30 / 24, check 43).
             if fps > 0 {
                 var f = String(format: "%.3f", fps)
                 while f.hasSuffix("0") { f.removeLast() }
                 if f.hasSuffix(".") { f.removeLast() }
-                p.append(f + " fps")
+                p.append((L("コマ数", "Frame Rate"), f + " fps"))
             }
-            if seconds > 0 { p.append(timeString(seconds)) }
-            if !codec.isEmpty { p.append(codec) }
-            p.append(audio ? L("音あり", "audio") : L("音なし", "no audio"))
-            if bytes > 0 { p.append(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) }
-            return p.joined(separator: " · ")
+            if seconds > 0 { p.append((L("長さ", "Duration"), timeString(seconds))) }
+            if !codec.isEmpty { p.append((L("形式", "Codec"), codec)) }
+            p.append((L("音", "Audio"), audio ? L("あり", "Yes") : L("なし", "No")))
+            if bytes > 0 { p.append((L("ファイルの大きさ", "File Size"), ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))) }
+            return p
         }
     }
     @Published private(set) var clipInfos: [String: ClipInfo] = [:]
