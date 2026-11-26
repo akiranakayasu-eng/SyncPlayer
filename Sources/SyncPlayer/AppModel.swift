@@ -544,7 +544,8 @@ final class AppModel: ObservableObject {
         guard id != show.seatID, let st = show.seats.first(where: { $0.id == id }) else { return }
         if ask && !confirm(L("この Mac を Seat「\(st.name)」にしますか？", "Make this Mac seat “\(st.name)”?"),
                            L("出力・レイヤー・音がその Seat のものに変わります。いまの Seat「\(show.seat.name)」の設定はファイルに残ります。",
-                             "Outputs, layers and sound change to that seat's. The current seat “\(show.seat.name)” stays in the file as it is.")) { return }
+                             "Outputs, layers and sound change to that seat's. The current seat “\(show.seat.name)” stays in the file as it is."),
+                           ok: L("切り替える", "Switch")) { return }
         saveNow()
         var s = show
         s.seatID = id
@@ -589,7 +590,7 @@ final class AppModel: ObservableObject {
         guard show.seats.count > 1, let st = show.seats.first(where: { $0.id == id }) else { return }
         guard confirm(L("Seat「\(st.name)」を消しますか？", "Delete seat “\(st.name)”?"),
                       L("その Seat の出力とレイヤーがファイルから消えます（⌘Z で戻せます）。映像は消えません。",
-                        "Its outputs and layers are removed from the file (⌘Z brings them back). Clips are kept."), skip: .seat) else { return }
+                        "Its outputs and layers are removed from the file (⌘Z brings them back). Clips are kept."), ok: L("消す", "Delete"), skip: .seat) else { return }
         var s = show
         s.seats.removeAll { $0.id == id }
         if id == show.seatID { s.seatID = s.seats[0].id; ShowStore.rememberSeat(s.seatID, for: s) }
@@ -1046,7 +1047,7 @@ final class AppModel: ObservableObject {
     func removeOutput() {
         guard show.outputs.count > 1, let o = selectedOutputIndex else { notify(L("出力は 1 つ以上要ります", "At least one output is needed")); return }
         let name = show.outputs[o].name, oid = show.outputs[o].id
-        guard confirm(L("出力「\(name)」を消しますか？", "Delete output “\(name)”?"), L("この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます（⌘Z で戻せます）。", "Its layers and their adjustments (corners, mesh…) are deleted too (⌘Z brings them back)."), skip: .output),
+        guard confirm(L("出力「\(name)」を消しますか？", "Delete output “\(name)”?"), L("この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます（⌘Z で戻せます）。", "Its layers and their adjustments (corners, mesh…) are deleted too (⌘Z brings them back)."), ok: L("消す", "Delete"), skip: .output),
               show.outputs.count > 1, let o2 = show.outputs.firstIndex(where: { $0.id == oid }) else { return }
         show.outputs.remove(at: o2)
         notify(L("出力「\(name)」を消しました", "Deleted output “\(name)”"))
@@ -1091,7 +1092,7 @@ final class AppModel: ObservableObject {
         let title = gone.count == 1
             ? L("レイヤー「\(gone[0].name ?? clipName(gone[0].clipID))」を消しますか？", "Delete layer “\(gone[0].name ?? clipName(gone[0].clipID))”?")
             : L("レイヤー \(gone.count) つを消しますか？", "Delete \(gone.count) layers?")
-        guard confirm(title, L("調整（位置・四隅・メッシュ・マスクなど）も消えます（⌘Z で戻せます）。映像のファイルは消えません。", "Their adjustments (transform, corners, mesh, mask…) go too (⌘Z brings them back). Movie files are kept."), skip: .layer),
+        guard confirm(title, L("調整（位置・四隅・メッシュ・マスクなど）も消えます（⌘Z で戻せます）。映像のファイルは消えません。", "Their adjustments (transform, corners, mesh, mask…) go too (⌘Z brings them back). Movie files are kept."), ok: L("消す", "Delete"), skip: .layer),
               let o2 = show.outputs.firstIndex(where: { $0.id == oid }) else { return }
         show.outputs[o2].layers.removeAll { ids.contains($0.id) }
         layerPicks = []
@@ -1676,7 +1677,8 @@ final class AppModel: ObservableObject {
     /// Ask before something that cannot be undone (lowers full-screen outputs while the alert is up).
     /// With `skip` (deleting seats, outputs, layers, clips: all undone with ⌘Z) the window has
     /// "Don't ask again" for that kind; turned back on in Settings (⌘,).
-    func confirm(_ title: String, _ detail: String, ok: String = L("消す", "Delete"), skip: ConfirmKind? = nil,
+    /// `ok` has no default: each question names its own button (a switch said 消す, Akira 2026-11-26).
+    func confirm(_ title: String, _ detail: String, ok: String, skip: ConfirmKind? = nil,
                  suppressTitle: String? = nil) -> Bool {
         if let k = skip, !asks(k) { return true }
         let skippable = skip != nil
