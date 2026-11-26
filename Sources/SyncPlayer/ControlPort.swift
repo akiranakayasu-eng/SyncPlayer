@@ -68,13 +68,14 @@ final class ControlPort {
                     DispatchQueue.main.async {
                         guard let self, gen == self.generation else { return }
                         if self.listener === l { self.listener = nil }
-                        if tries < 4 {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                self.open(mode: mode, port: port, key: key, gen: gen, tries: tries + 1)
-                            }
-                        } else {
-                            self.onState?(L("命令を受ける口を開けない（ポート \(port)）: \(e.localizedDescription)",
-                                            "Cannot open the command port (\(port)): \(e.localizedDescription)"))
+                        // After 5 tries show the error, but keep trying every 10 s: a port that was busy
+                        // just before can stay held for about 30 s; .ready clears the error (check 59 M1).
+                        if tries == 4 {
+                            self.onState?(L("命令を受ける口を開けない（ポート \(port)）: \(e.localizedDescription)。10 秒おきに開け直します",
+                                            "Cannot open the command port (\(port)): \(e.localizedDescription). Retrying every 10 s"))
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + (tries < 4 ? 2 : 10)) {
+                            self.open(mode: mode, port: port, key: key, gen: gen, tries: tries + 1)
                         }
                     }
                 default: break

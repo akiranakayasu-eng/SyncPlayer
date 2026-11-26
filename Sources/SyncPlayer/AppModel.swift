@@ -1041,7 +1041,7 @@ final class AppModel: ObservableObject {
         if let c = show.clips.first { o.layers = [Layer(clipID: c.id)] }
         show.outputs.append(o)
         selectedOutput = o.id
-        notify(L("出力「\(o.name)」を足しました（ディスプレイ \(screen + 1)）", "Added output “\(o.name)” (display \(screen + 1))"))
+        notify(L("出力「\(o.name)」を足しました（Display \(screen + 1)）", "Added output “\(o.name)” (display \(screen + 1))"))
     }
 
     func removeOutput() {
@@ -1070,7 +1070,7 @@ final class AppModel: ObservableObject {
         guard let o = selectedOutputIndex else { return }
         let n = max(1, NSScreen.screens.count)
         show.outputs[o].screen = (show.outputs[o].screen + 1) % n
-        notify(L("\(show.outputs[o].name) をディスプレイ \(show.outputs[o].screen + 1) へ", "\(show.outputs[o].name) to display \(show.outputs[o].screen + 1)"))
+        notify(L("\(show.outputs[o].name) を Display \(show.outputs[o].screen + 1) へ", "\(show.outputs[o].name) to display \(show.outputs[o].screen + 1)"))
     }
 
     // MARK: layers
@@ -2042,7 +2042,7 @@ final class AppModel: ObservableObject {
             // when that differs from the setting (not plugged in, moved by hand), both are shown.
             let real = w.window.screen.flatMap { NSScreen.screens.firstIndex(of: $0) }.map { $0 + 1 }
             let set = o.screen + 1
-            let disp = real == nil || real == set ? L("ディスプレイ \(set)", "Display \(set)") : L("ディスプレイ \(real!)（設定は \(set)）", "Display \(real!) (set to \(set))")
+            let disp = real == nil || real == set ? "Display \(set)" : L("Display \(real!)（設定は \(set)）", "Display \(real!) (set to \(set))")
             w.layoutIdent("\(opts.name)\n\(disp)\n\(o.name)")
         }
         previewBox?.aspect = selectedOutputAspect
