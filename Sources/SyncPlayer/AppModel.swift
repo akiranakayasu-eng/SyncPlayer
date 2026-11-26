@@ -173,7 +173,7 @@ final class AppModel: ObservableObject {
             KeyItem(key: "E", what: L("四隅の変形", "Corner pin")),
             KeyItem(key: "W", what: L("曲面メッシュ", "Mesh")),
             KeyItem(key: "Tab", what: L("次の点", "Next point")),
-            KeyItem(key: "↑ ↓ ← →", what: L("点を 1 px 動かす", "Move the point 1 px")),
+            KeyItem(key: "↑ ↓ ← →", what: L("点を 1 px 動かす（左の一覧を押したあとは ↑ ↓ は一覧の行。プレビューを押すと点に戻る）", "Move the point 1 px (after a click in a left list, ↑ ↓ move its rows; click the preview to move points again)")),
             KeyItem(key: "⇧ + ↑ ↓ ← →", what: L("点を 10 px 動かす", "Move the point 10 px"))]),
         KeyGroup(title: L("展示のファイル", "Show file"), keys: [
             KeyItem(key: "⌘O", what: L("展示のファイルを開く", "Open a show")),
@@ -1845,7 +1845,8 @@ final class AppModel: ObservableObject {
             }
             // A click outside the layer / footage list also takes the keyboard from it (the preview and
             // the icons take no keys, so the list kept it and ↑ ↓ kept moving rows; check 55 M2).
-            if let c = self?.control, let t = c.firstResponder as? NSTableView, ListMark.kind(of: t) != nil {
+            // Any list in the control window (outputs too, check 57 L4).
+            if let c = self?.control, let t = c.firstResponder as? NSTableView {
                 var v: NSView? = nil
                 if e.window === c, let cv = c.contentView { v = cv.hitTest(cv.superview?.convert(e.locationInWindow, from: nil) ?? e.locationInWindow) }
                 var inside = false
