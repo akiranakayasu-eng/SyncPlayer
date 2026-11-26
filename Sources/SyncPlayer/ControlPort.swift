@@ -41,7 +41,8 @@ final class ControlPort {
         stop()
         guard mode != .off, !key.isEmpty, let p = NWEndpoint.Port(rawValue: port) else { return }
         let params = NWParameters.tcp
-        params.allowLocalEndpointReuse = true
+        // No reuse: a port another program holds must fail here, not be shared (check 56 M3).
+        params.allowLocalEndpointReuse = false
         // "This Mac only": listen on the loopback interface, so nothing from the network reaches it.
         if mode == .local { params.requiredInterfaceType = .loopback }
         let k = key
@@ -51,7 +52,7 @@ final class ControlPort {
             l.stateUpdateHandler = { [weak self] st in
                 switch st {
                 case .ready: DispatchQueue.main.async { self?.onState?(nil) }
-                case .failed(let e):
+                case .waiting(let e), .failed(let e):   // .waiting: e.g. the port is taken (check 56 M3)
                     DispatchQueue.main.async {
                         self?.onState?(L("命令を受ける口を開けない（ポート \(port)）: \(e.localizedDescription)",
                                          "Cannot open the command port (\(port)): \(e.localizedDescription)"))

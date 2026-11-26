@@ -18,7 +18,7 @@ extension AppModel {
     }
     /// The key: from --control-key, else the one kept for this Mac (made the first time it is needed).
     var controlKey: String {
-        if let k = opts.controlKey, !k.isEmpty { return k }
+        if let k = opts.controlKey, k.count >= 8 { return k }   // a short key is ignored (check 56)
         if let k = UserDefaults.standard.string(forKey: AppModel.controlKeyKey), !k.isEmpty { return k }
         let k = ControlPort.newKey()
         UserDefaults.standard.set(k, forKey: AppModel.controlKeyKey)
@@ -90,11 +90,14 @@ extension AppModel {
             // n: 1 = front, as numbered in the layer list. o: output number (default the first).
             let o = (q["o"].flatMap(Int.init) ?? 1) - 1
             guard show.outputs.indices.contains(o) else { return .error(404, "no output \(o + 1)") }
-            guard let n = q["n"].flatMap(Int.init), show.outputs[o].layers.indices.contains(n - 1) else { return .error(404, "no layer n in output \(o + 1)") }
-            var l = show.outputs[o].layers[n - 1]
+            // The list numbers the layers from the front, which is the end of the array (check 56 M1).
+            let count = show.outputs[o].layers.count
+            guard let n = q["n"].flatMap(Int.init), (1...max(1, count)).contains(n), count > 0 else { return .error(404, "no layer n in output \(o + 1)") }
+            let li = count - n
+            var l = show.outputs[o].layers[li]
             if let v = flag("visible") { l.visible = v }
             if let a = q["opacity"].flatMap(Double.init), a.isFinite { l.opacity = min(1, max(0, a)) }
-            if l != show.outputs[o].layers[n - 1] { show.outputs[o].layers[n - 1] = l }   // one ⌘Z
+            if l != show.outputs[o].layers[li] { show.outputs[o].layers[li] = l }   // one ⌘Z; saved like a change on screen
             log("layer \(o + 1)/\(n) visible=\(l.visible) opacity=\(l.opacity)")
         case "/overlay":
             if let b = flag("names") { showIdent = b }
@@ -155,8 +158,8 @@ extension AppModel {
             [
                 "number": i + 1, "name": o.name, "display": o.screen + 1, "fullscreen": o.fullscreen,
                 "drawFps": outputs[o.id]?.picture.renderer.drawRate ?? 0,
-                "layers": o.layers.enumerated().map { (j, l) -> [String: Any] in
-                    ["number": j + 1, "name": l.name ?? clipName(l.clipID), "visible": l.visible, "opacity": l.opacity]
+                "layers": o.layers.reversed().enumerated().map { (j, l) -> [String: Any] in
+                    ["number": j + 1,   // 1 = front, as in the layer list "name": l.name ?? clipName(l.clipID), "visible": l.visible, "opacity": l.opacity]
                 },
             ]
         }
