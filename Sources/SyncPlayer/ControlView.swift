@@ -1004,22 +1004,45 @@ struct IconButton: View {
 struct SectionTitle: View {
     let text: String
     let help: String?
+    @State private var hover = false
     init(_ t: String, help: String? = nil) { text = t; self.help = help }
     var body: some View {
         HStack(spacing: 4) {
             Text(text).font(.headline)
-            if let h = help { HelpButton(anchor: h) }
+            if let h = help { HelpButton(anchor: h, shown: hover) }
         }
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .guideMenu(help)
     }
 }
 
-/// "?" next to a title: opens that part of the manual in the browser.
+/// "?" next to a title: opens that part of the manual in the browser. Beside a heading it shows only
+/// while the pointer is over the heading (Akira 2026-11-26, card: 乗せたときだけ出す); it keeps its
+/// place so the heading does not move. The heading's right-click menu opens the same page.
 struct HelpButton: View {
     let anchor: String
+    var shown = true
     var body: some View {
         Button { AppModel.openManual(anchor) } label: { Image(systemName: "questionmark.circle") }
             .buttonStyle(.borderless)
             .help(L("使い方のページのこの部分を開く", "Open this part of the guide"))
+            .opacity(shown ? 1 : 0)
+            .allowsHitTesting(shown)
+            .accessibilityHidden(!shown)
+    }
+}
+
+extension View {
+    /// Right-click on a heading: "Open the guide" for that part (with the hover-only "?").
+    @ViewBuilder func guideMenu(_ anchor: String?) -> some View {
+        if let a = anchor {
+            contextMenu {
+                Button { AppModel.openManual(a) } label: {
+                    Label(L("使い方を開く", "Open the guide"), systemImage: "questionmark.circle")
+                }
+            }
+        } else { self }
     }
 }
 
@@ -1278,15 +1301,18 @@ struct FoldLabel: View {
     @Binding var isOpen: Bool
     var warn = false
     var help: String? = nil
+    @State private var hover = false
     var body: some View {
         HStack(spacing: 4) {
             Text(title).font(.subheadline).bold()
             if warn { Text(L("⚠︎ 読めない", "⚠︎ can't read")).font(.caption).foregroundColor(.red) }
             Spacer()
-            if let h = help { HelpButton(anchor: h) }
+            if let h = help { HelpButton(anchor: h, shown: hover) }
         }
         .contentShape(Rectangle())
+        .onHover { hover = $0 }
         .onTapGesture { withAnimation { isOpen.toggle() } }
+        .guideMenu(help)
     }
 }
 
@@ -1296,6 +1322,7 @@ struct FoldSection<Content: View>: View {
     let title: String
     var help: String?
     @AppStorage private var open: Bool
+    @State private var hover = false
     @ViewBuilder let content: () -> Content
     init(_ title: String, key: String, help: String? = nil, @ViewBuilder content: @escaping () -> Content) {
         self.title = title; self.help = help; self.content = content
@@ -1309,11 +1336,13 @@ struct FoldSection<Content: View>: View {
                     .rotationEffect(.degrees(open ? 90 : 0))
                     .frame(width: 10)
                 Text(title).font(.headline).lineLimit(1).truncationMode(.middle)
-                if let h = help { HelpButton(anchor: h) }
+                if let h = help { HelpButton(anchor: h, shown: hover) }
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
+            .onHover { hover = $0 }
             .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { open.toggle() } }
+            .guideMenu(help)
             .help(open ? L("見出しを押すと閉じる", "Click the title to close") : L("見出しを押すと開く", "Click the title to open"))
             if open { content() }
         }
@@ -1377,11 +1406,15 @@ struct ThinLine: View {
 struct StepHeader: View {
     let title: String
     let anchor: String
+    @State private var hover = false
     var body: some View {
         HStack(spacing: 4) {
             Text(title).font(.headline)
-            HelpButton(anchor: anchor)
+            HelpButton(anchor: anchor, shown: hover)
         }
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .guideMenu(anchor)
         .padding(.top, 6)
     }
 }
