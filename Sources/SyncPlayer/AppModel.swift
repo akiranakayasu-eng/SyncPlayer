@@ -2157,6 +2157,13 @@ final class AppModel: ObservableObject {
             parts.insert("⚠︎ \(p)", at: 1)
             line = parts.joined(separator: " ・ "); tone = 2
         }
+        // A long (important) notice, e.g. an earlier-version show, also goes here while it lasts:
+        // the detailed status may be hidden (Pro test 2026-11-26: it was only seen on the screens).
+        if hostNow() < longUntil, hostNow() < messageUntil {
+            var parts = line.components(separatedBy: " ・ ")
+            parts.insert(message, at: 1)
+            line = parts.joined(separator: " ・ "); tone = 2
+        }
         // Each Mac may play its own movies on purpose, so a different name is only noted, not orange.
         if let f = follower, let mf = f.masterFile, mf != show.fileLabel {
             line += L(" ・ 映像の名前がマスターとちがう（Mac ごとに別の映像なら問題ない）", " ・ clip names differ from the master (fine if each Mac plays its own clips)")
@@ -2372,6 +2379,8 @@ final class AppModel: ObservableObject {
             out.append(StatusLine(id: out.count, text: t, level: level, fix: fix))
         }
         let maxErr = transport.maxError * 1000
+        // The last message first, so it is seen without scrolling; a long (important) one in orange.
+        if hostNow() < messageUntil { add(message, hostNow() < longUntil ? 2 : 0) }
         add(String(format: "%@ %@  %@", isMaster ? "MASTER" : "follower", opts.name, show.fileLabel))
         add(String(format: "pos %.3f s  error %+.1f ms  jumps %d", transport.displayTime(), maxErr, transport.resyncCount),
             abs(maxErr) > 40 ? 3 : abs(maxErr) > 8 ? 2 : 0,
@@ -2453,7 +2462,6 @@ final class AppModel: ObservableObject {
             add(String(format: L("描画 %@ %.0f fps", "Draw %@ %.0f fps"), o.name, r), r > 0 && r < 50 ? 2 : 0,
                 r > 0 && r < 50 ? L("描画が遅い。Screen・レイヤーの数か映像の大きさを減らす", "Drawing is slow. Use fewer screens or layers, or smaller clips") : nil)
         }
-        if hostNow() < messageUntil { add(message) }
         return out
     }
 
