@@ -745,7 +745,7 @@ struct Sidebar: View {
             // footage is added once and then rarely touched, so it has its own tab. Seats are in the top bar.
             Picker("", selection: $leftTab) {
                 // Short words so both fit in the narrowest column (check 46 M3); the count is in the tooltip.
-                Text(L("レイヤー", "Layers")).tag(0)
+                Text(L("出力", "Outputs")).tag(0)
                 Text(L("素材", "Footage")
                      + (model.show.clips.contains(where: { model.clipBroken($0.id) }) ? " ⚠︎" : "")).tag(1)
             }
