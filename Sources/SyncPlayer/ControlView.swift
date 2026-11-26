@@ -61,7 +61,8 @@ struct ControlView: View {
                     .padding(8)
                     .frame(maxHeight: .infinity)
                     if !hideStatus {
-                    HeightHandle(height: $statusHeight, auto: 170, range: 70...max(71, Double(geo.size.height) - 209), below: true)
+                    HeightHandle(height: $statusHeight, auto: 170, range: 70...max(71, Double(geo.size.height) - 209), below: true,
+                                 shown: max(70, min(statusHeight > 0 ? statusHeight : 170, Double(geo.size.height) - 209)))
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                         Text(L("Status（映像ごと）・緑はよい、橙は見ておく、赤は直す。→ のあとが対処。境の線を上へ動かすと広がる", "Status (per clip) · green OK, orange check, red fix. After → is what to do. Drag the line above to enlarge"))
@@ -1073,6 +1074,8 @@ struct HeightHandle: View {
     var range: ClosedRange<Double> = 40...900
     /// The part that grows is under the line (Status): dragging up makes it taller.
     var below = false
+    /// The height on screen when it is cut by the window; a drag starts from it (check 72 L1).
+    var shown: Double? = nil
     @State private var start: Double?
     @State private var hover = false
     var body: some View {
@@ -1088,7 +1091,7 @@ struct HeightHandle: View {
             .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                 .onChanged { g in
                     NSCursor.resizeUpDown.set()
-                    if start == nil { start = height > 0 ? height : Double(auto) }
+                    if start == nil { start = shown ?? (height > 0 ? height : Double(auto)) }
                     let d = below ? -g.translation.height : g.translation.height
                     height = min(max((start ?? height) + d, range.lowerBound), range.upperBound)
                 }
