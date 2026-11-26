@@ -1805,14 +1805,17 @@ final class AppModel: ObservableObject {
                 return e
             }
             // After a layer or footage row is clicked, ↑ ↓ move the selection in that list, not the playhead.
+            // Also while E / W editing: the list was clicked after the preview, so the arrows go to the
+            // list (Akira's ↑ ↓ did nothing with W on: they moved a mesh point). A click on the
+            // preview clears this, and then the arrows move the point again.
             if (e.keyCode == 125 || e.keyCode == 126), let step = self.arrowTarget, w === self.control,
-               self.editMode == .none, !e.modifierFlags.contains(.command) {
+               !e.modifierFlags.contains(.command) {
                 step(e.keyCode == 125 ? 1 : -1)
                 return nil
             }
             // The layer or footage list has the keyboard (clicked) but the row's click did not set
             // the target: tell the list from its rows (Akira 2026-11-26).
-            if (e.keyCode == 125 || e.keyCode == 126), w === self.control, self.editMode == .none,
+            if (e.keyCode == 125 || e.keyCode == 126), w === self.control,
                !e.modifierFlags.contains(.command), let t = w.firstResponder as? NSTableView, let k = ListMark.kind(of: t) {
                 let d = e.keyCode == 125 ? 1 : -1
                 if k == .layers {
@@ -1839,6 +1842,15 @@ final class AppModel: ObservableObject {
                 var inList = false
                 while let x = v { if x is NSTableView { inList = true; break }; v = x.superview }
                 if !inList || e.window !== self.control { self.deleteTarget = nil; self.arrowTarget = nil }
+            }
+            // A click outside the layer / footage list also takes the keyboard from it (the preview and
+            // the icons take no keys, so the list kept it and ↑ ↓ kept moving rows; check 55 M2).
+            if let c = self?.control, let t = c.firstResponder as? NSTableView, ListMark.kind(of: t) != nil {
+                var v: NSView? = nil
+                if e.window === c, let cv = c.contentView { v = cv.hitTest(cv.superview?.convert(e.locationInWindow, from: nil) ?? e.locationInWindow) }
+                var inside = false
+                while let x = v { if x === t { inside = true; break }; v = x.superview }
+                if !inside { c.makeFirstResponder(nil) }
             }
             guard let w = e.window, let editor = w.firstResponder as? NSTextView, editor.isFieldEditor,
                   let field = editor.delegate as? NSView else { return e }
