@@ -48,7 +48,7 @@ struct ControlView: View {
                 }
                 VSplitView {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(L("プレビュー: ", "Preview: ") + (model.selectedOutputConfig?.name ?? L("出力がありません", "No outputs")))
+                        Text("Preview: " + (model.selectedOutputConfig?.name ?? L("Screen がありません", "No screens")))
                             .font(.caption).foregroundColor(.secondary)
                         PreviewView(model: model)
                             .frame(minHeight: 160)
@@ -59,7 +59,7 @@ struct ControlView: View {
                     if !hideStatus {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
-                        Text(L("詳しい状態（映像ごと）・緑はよい、橙は見ておく、赤は直す。→ のあとが対処。境の線を上へ動かすと広がる", "Status (per clip) · green OK, orange check, red fix. After → is what to do. Drag the line above to enlarge"))
+                        Text(L("Status（映像ごと）・緑はよい、橙は見ておく、赤は直す。→ のあとが対処。境の線を上へ動かすと広がる", "Status (per clip) · green OK, orange check, red fix. After → is what to do. Drag the line above to enlarge"))
                             .font(.caption).foregroundColor(.secondary)
                             .lineLimit(1).truncationMode(.tail)
                         Spacer(minLength: 4)
@@ -179,7 +179,7 @@ struct KeyListView: View {
                         }
                     }
                 }
-                Text(L("キーは、操作の窓で文字を入れていないときと、出力の画面で効きます。H を押すと出力の画面にもこの一覧が出ます。", "Keys work in the control window (when not typing) and on the outputs. Press H to show this list on the outputs too."))
+                Text(L("キーは、操作の窓で文字を入れていないときと、Screen で効きます。H を押すと Screen にもこの一覧が出ます。", "Keys work in the control window (when not typing) and on the screens. Press H to show this list on the screens too."))
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(16)
@@ -566,11 +566,11 @@ struct SeatsPanel: View {
         let sel: Seat = selectedSeat.flatMap { id in model.show.seats.first { $0.id == id } } ?? model.show.seat
         ListBar {
             IconButton("plus", L("Seat を足す（Mac をもう 1 台使うとき）", "Add a seat (for another Mac)")) { model.addSeat() }
-            IconButton("plus.square.on.square", L("選んだ Seat を複製（出力とレイヤーごと）", "Duplicate the selected seat (with its outputs and layers)")) { model.duplicateSeat(sel.id) }
+            IconButton("plus.square.on.square", L("選んだ Seat を複製（Screen とレイヤーごと）", "Duplicate the selected seat (with its screens and layers)")) { model.duplicateSeat(sel.id) }
             IconButton("minus", L("選んだ Seat を消す", "Delete the selected seat")) { model.deleteSeat(sel.id) }
                 .disabled(model.show.seats.count < 2)
             Divider().frame(height: 14)
-            IconButton("arrow.left.arrow.right", L("この Mac を選んだ Seat にする（出力・レイヤー・音がその Seat のものになる）", "Make this Mac the selected seat (its outputs, layers and sound)")) { model.switchSeat(sel.id) }
+            IconButton("arrow.left.arrow.right", L("この Mac を選んだ Seat にする（Screen・レイヤー・音がその Seat のものになる）", "Make this Mac the selected seat (its screens, layers and sound)")) { model.switchSeat(sel.id) }
                 .disabled(sel.id == model.show.seatID)
         }
         }
@@ -618,7 +618,7 @@ struct Sidebar: View {
 
 
     @ViewBuilder private var outputSection: some View {
-        FoldSection("Outputs" + (model.show.seats.count > 1 ? " — " + model.show.seat.name : ""), key: "outputs", help: "outputs") {
+        FoldSection("Screens" + (model.show.seats.count > 1 ? " — " + model.show.seat.name : ""), key: "outputs", help: "outputs") {
         List {
             ForEach(model.show.outputs) { o in
                 HStack {
@@ -645,7 +645,7 @@ struct Sidebar: View {
                 .contextMenu {
                     Button(L("名前を変える", "Rename")) { renameText = o.name; renamingOutput = o.id }
                     Divider()
-                    Button(L("出力を消す…", "Delete Output…"), role: .destructive) { model.selectedOutput = o.id; model.removeOutput() }
+                    Button(L("Screen を消す…", "Delete Screen…"), role: .destructive) { model.selectedOutput = o.id; model.removeOutput() }
                         .disabled(model.show.outputs.count < 2)
                 }
             }
@@ -654,8 +654,8 @@ struct Sidebar: View {
         .scrollContentBackground(.hidden)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: UIColors.panel)))
         ListBar {
-            IconButton("plus", L("出力を足す（別のディスプレイに出すとき）", "Add an output (for another display)")) { model.addOutput() }
-            IconButton("minus", L("選んだ出力を消す", "Delete the selected output")) { model.removeOutput() }
+            IconButton("plus", L("Screen を足す（別のディスプレイに出すとき）", "Add a screen (for another display)")) { model.addOutput() }
+            IconButton("minus", L("選んだ Screen を消す", "Delete the selected screen")) { model.removeOutput() }
         }
         if model.selectedOutputConfig != nil {
             Picker("", selection: model.outputBinding(\.screen, 0)) {
@@ -745,14 +745,14 @@ struct Sidebar: View {
             // footage is added once and then rarely touched, so it has its own tab. Seats are in the top bar.
             Picker("", selection: $leftTab) {
                 // Short words so both fit in the narrowest column (check 46 M3); the count is in the tooltip.
-                Text(L("出力", "Outputs")).tag(0)
-                Text(L("素材", "Footage")
+                Text("Screens").tag(0)
+                Text("Footage"
                      + (model.show.clips.contains(where: { model.clipBroken($0.id) }) ? " ⚠︎" : "")).tag(1)
             }
             .labelsHidden()
             .pickerStyle(.segmented)
             .padding(.bottom, 2)
-            .help(L("素材: \(model.show.clips.count) 本", "Footage: \(model.show.clips.count) clips"))
+            .help(L("Footage: \(model.show.clips.count) 本", "Footage: \(model.show.clips.count) clips"))
             if leftTab == 0 {
             outputSection
             ThinLine()
@@ -824,7 +824,7 @@ struct Sidebar: View {
                 IconButton("arrow.up", L("選んだレイヤーを手前へ（ドラッグでも入れ替えられる）", "Bring the selected layer forward (or drag)")) { model.moveLayer(1) }
                 IconButton("arrow.down", L("選んだレイヤーを奥へ", "Send the selected layer backward")) { model.moveLayer(-1) }
                 Divider().frame(height: 14)
-                IconButton("square.grid.2x2", L("4 分割などに並べる: この出力のレイヤーを、数に合わせて 2×2 などの格子に並べる", "Tile: arrange this output's layers in a grid such as 2×2")) { model.arrangeGrid() }
+                IconButton("square.grid.2x2", L("4 分割などに並べる: この Screen のレイヤーを、数に合わせて 2×2 などの格子に並べる", "Tile: arrange this screen's layers in a grid such as 2×2")) { model.arrangeGrid() }
             }
 
             HeightHandle(height: $hLayers, auto: listHeight(model.selectedOutputConfig?.layers.count ?? 0, max: 12))
@@ -1187,7 +1187,7 @@ struct PreviewBar: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .help(L("拡大率。ホイールで拡大・縮小、ドラッグかホイールのボタンを押したままのドラッグで動かす。100 % は出力の画素そのまま", "Zoom. The wheel zooms; drag (or drag with the wheel button) to move. 100 % is the output's own pixels"))
+            .help(L("拡大率。ホイールで拡大・縮小、ドラッグかホイールのボタンを押したままのドラッグで動かす。100 % は Screen の画素そのまま", "Zoom. The wheel zooms; drag (or drag with the wheel button) to move. 100 % is the screen's own pixels"))
             BarIcon("arrow.up.left.and.down.right.and.arrow.up.right.and.down.left", on: model.previewZoom == nil,
                     L("全体を表示（画面に合わせる）", "Fit")) { model.setPreviewZoom(nil) }
             BarIcon("viewfinder", on: false, L("選んだレイヤーに合わせる（⇧Z）。まわりのレイヤーも少し見える", "Fit the selected layer (⇧Z), with a little of the others around it")) {
@@ -1217,7 +1217,7 @@ struct PreviewBar: View {
             BarIcon("squareshape.split.3x3", on: model.editMode == .mesh, L("曲面メッシュ（W）", "Mesh (W)")) { model.toggleEdit(.mesh) }
                 .disabled(model.selectedLook == nil)
             Divider().frame(height: 14)
-            BarIcon("rectangle.inset.filled", on: model.selectedOutputConfig?.fullscreen == true, L("選んだ出力を全画面に（F）", "Selected output full screen (F)")) {
+            BarIcon("rectangle.inset.filled", on: model.selectedOutputConfig?.fullscreen == true, L("選んだ Screen を全画面に（F）", "Selected screen full screen (F)")) {
                 model.toggleFullscreen()
             }
             .disabled(model.selectedOutputConfig == nil)
@@ -1590,9 +1590,9 @@ struct Inspector: View {
         VStack(alignment: .leading, spacing: 0) {
             Picker("", selection: $tab) {
                 // Layer at the left, Guide at the right; English names Setup and Guide (Akira 2026-11-26).
-                Text(L("画面の調整", "Layer")).tag(0)
-                Text(L("展示の設定", "Setup")).tag(1)
-                Text(L("手順", "Guide")).tag(3)
+                Text("Layer").tag(0)
+                Text("Setup").tag(1)
+                Text("Guide").tag(3)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -1652,8 +1652,8 @@ struct Inspector: View {
         StepLine(done: model.learnedSet.contains("fullscreen"), text: L("左の「全画面にする（F）」を入れ、S で操作の窓を出し入れする", "Turn on Full Screen (F) at the left; S shows and hides the control window"))
 
         StepHeader(title: "2. Build the picture", anchor: "step2")
-        StepLine(done: model.learnedSet.contains("added"), text: L("左の「素材」の ＋ か、右クリックの「差し替え」で自分の映像を入れる", "Add your clips with + or right-click › Replace Footage in Footage"))
-        StepLine(done: model.learnedSet.contains("adjusted"), text: L("「画面の調整」で位置・大きさ・四隅などを変える（⌘Z で戻せる）", "Change position, scale, corners in the Layer tab (⌘Z undoes)"))
+        StepLine(done: model.learnedSet.contains("added"), text: L("左の Footage の ＋ か、右クリックの「差し替え」で自分の映像を入れる", "Add your clips with + or right-click › Replace Footage in Footage"))
+        StepLine(done: model.learnedSet.contains("adjusted"), text: L("Layer のタブで位置・大きさ・四隅などを変える（⌘Z で戻せる）", "Change position, scale, corners in the Layer tab (⌘Z undoes)"))
         StepLine(done: model.learnedSet.contains("mask"), text: L("自分のマスク画像を使う（なくてもよい）", "Use your own mask image (optional)"))
         StepLine(done: model.showFile != nil, text: L("上の「保存…」でショーを保存する", "Save the show with the save button at the top"))
 
@@ -1662,7 +1662,7 @@ struct Inspector: View {
         StepLine(done: model.learnedSet.contains("synced"), text: L("同じネットワークの別の Mac をフォロワーにして、札が緑になる（フォロワーの Mac で ✓）", "Make another Mac on the same network a follower; its badge turns green (✓ on the follower)"))
 
         StepHeader(title: "4. Set up the exhibition", anchor: "step4")
-        StepLine(done: model.openAtLogin, text: L("「展示の設定」で「ログインしたら開く」を入れる（全台）", "In Setup, turn on Open at Login (all Macs)"))
+        StepLine(done: model.openAtLogin, text: L("Setup のタブで「ログインしたら開く」を入れる（全台）", "In Setup, turn on Open at Login (all Macs)"))
         StepLine(done: model.exhibitMaster, text: L("「展示のマスター」を 1 台だけに入れる（マスターの Mac で ✓）", "Turn on Exhibition Master on one Mac only (✓ on the master)"))
         Toggle(L("電源を切って入れ直し、同じ状態に戻るのを見た", "Restarted and saw it come back the same"), isOn: $rebootChecked)
             .font(.callout)
@@ -1784,7 +1784,7 @@ struct Inspector: View {
         Toggle(L("名前とディスプレイの番号を大きく出す（N）", "Show Names and Display Numbers (N)"), isOn: $model.showIdent)
         Text(L("どの Mac のどのディスプレイかを確かめる。マスターで入れると全台に出る。", "Find which Mac and display is which. On the master it shows on all Macs.")).font(.caption).foregroundColor(.secondary)
         Toggle(L("動作確認の文字を出す（I）", "Show Info Text (I)"), isOn: Binding(get: { model.infoShownNow }, set: { model.setInfoShown($0) }))
-        Text(L("出力の窓に、ずれなどの数字を出す。展示中は消しておく。", "Shows sync numbers on the outputs. Turn off during the exhibition.")).font(.caption).foregroundColor(.secondary)
+        Text(L("Screen の窓に、ずれなどの数字を出す。展示中は消しておく。", "Shows sync numbers on the screens. Turn off during the exhibition.")).font(.caption).foregroundColor(.secondary)
         if model.isMaster {
             Button(L("全台を頭からやり直す（R）", "Restart All from the Top (R)")) { model.master?.jump(to: 0) }
         }
@@ -1876,7 +1876,7 @@ struct Inspector: View {
                     Button(L("メッシュを戻す", "Reset Mesh")) { guard var s = model.selectedLook else { return }; s.resetMesh(); model.updateLook(s) }
                 }
                 Toggle(L("確認用の格子（G）", "Grid (G)"), isOn: model.lookBinding(\.showGrid, false))
-                Text(L("点はプレビューか出力の窓でドラッグ。Tab で次の点、矢印で 1 px（shift で 10 px）。", "Drag points in the preview or an output. Tab: next point, arrows: 1 px (shift: 10 px)."))
+                Text(L("点はプレビューか Screen の窓でドラッグ。Tab で次の点、矢印で 1 px（shift で 10 px）。", "Drag points in the preview or a screen. Tab: next point, arrows: 1 px (shift: 10 px)."))
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)

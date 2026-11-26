@@ -157,14 +157,14 @@ final class AppModel: ObservableObject {
 
     /// Every key, in groups: shown in the key list window (Help menu) and, as text, on the outputs with H.
     static var keyGroups: [KeyGroup] { [
-        KeyGroup(title: L("再生", "Playback"), keys: [
+        KeyGroup(title: "Playback", keys: [
             KeyItem(key: "space", what: L("再生／停止（マスター）", "Play / stop (master)")),
             KeyItem(key: "R  ↑", what: L("頭へ", "Go to start")),
             KeyItem(key: "↓", what: L("終わりの 3 秒前へ", "3 s before the end")),
             KeyItem(key: "←  →", what: L("1 コマ戻る／進む（止めているとき）", "1 frame back / forward (when stopped)")),
             KeyItem(key: "⇧←  ⇧→", what: L("1 秒戻る／進む", "1 s back / forward")),
             KeyItem(key: "A", what: L("音を出す／消す", "Sound on / off"))]),
-        KeyGroup(title: L("窓と表示", "Windows and display"), keys: [
+        KeyGroup(title: "Windows and Display", keys: [
             KeyItem(key: "S", what: L("操作の窓を出す／隠す", "Show / hide the control window")),
             KeyItem(key: "⌘0", what: L("左の欄を隠す／出す", "Hide / show the left column")),
             KeyItem(key: "⌥⌘0", what: L("右の欄を隠す／出す", "Hide / show the right column")),
@@ -174,25 +174,25 @@ final class AppModel: ObservableObject {
             KeyItem(key: "T", what: L("レイヤー名とファイル名", "Layer and file names")),
             KeyItem(key: "B", what: L("選んだレイヤーの枠（プレビュー）", "Selected layer outline (preview)")),
             KeyItem(key: "⇧Z", what: L("プレビューを選んだレイヤーに合わせる", "Fit the preview to the selected layer")),
-            KeyItem(key: "H  ?", what: L("キー一覧（出力の画面に）", "Key list (on the outputs)")),
+            KeyItem(key: "H  ?", what: L("キー一覧（Screen に）", "Key list (on the screens)")),
             KeyItem(key: "F", what: L("全画面", "Full screen")),
             KeyItem(key: "D", what: L("次のディスプレイへ", "Next display")),
             KeyItem(key: "G", what: L("格子", "Grid")),
             KeyItem(key: "M", what: L("マスター⇔フォロワー", "Master ⇔ follower")),
             KeyItem(key: "Q", what: L("終了", "Quit"))]),
-        KeyGroup(title: L("出力とレイヤー", "Outputs and layers"), keys: [
-            KeyItem(key: "O", what: L("次の出力", "Next output")),
+        KeyGroup(title: "Screens and Layers", keys: [
+            KeyItem(key: "O", what: L("次の Screen", "Next screen")),
             KeyItem(key: "L", what: L("次のレイヤー", "Next layer")),
             KeyItem(key: "+  −", what: L("大きさ", "Scale")),
             KeyItem(key: "[  ]", what: L("回転", "Rotate")),
             KeyItem(key: "0", what: L("戻す（編集中はその変形、ほかは位置・大きさ・回転）", "Reset (the warp being edited, else the transform)"))]),
-        KeyGroup(title: L("変形の編集", "Editing warps"), keys: [
+        KeyGroup(title: "Editing Warps", keys: [
             KeyItem(key: "E", what: L("四隅の変形", "Corner pin")),
             KeyItem(key: "W", what: L("曲面メッシュ", "Mesh")),
             KeyItem(key: "Tab", what: L("次の点", "Next point")),
             KeyItem(key: "↑ ↓ ← →", what: L("点を 1 px 動かす（左の一覧を押したあとは ↑ ↓ は一覧の行。プレビューを押すと点に戻る）", "Move the point 1 px (after a click in a left list, ↑ ↓ move its rows; click the preview to move points again)")),
             KeyItem(key: "⇧ + ↑ ↓ ← →", what: L("点を 10 px 動かす", "Move the point 10 px"))]),
-        KeyGroup(title: L("展示のファイル", "Show file"), keys: [
+        KeyGroup(title: "Show File", keys: [
             KeyItem(key: "⌘O", what: L("展示のファイルを開く", "Open a show")),
             KeyItem(key: "⌘S", what: L("別名で保存", "Save As")),
             KeyItem(key: "⇧⌘E", what: L("素材をまとめる", "Collect Files")),
@@ -201,7 +201,7 @@ final class AppModel: ObservableObject {
             KeyItem(key: "↑ ↓", what: L("左の一覧で行を押したあと: 上下の行を選ぶ", "After clicking a row in the left lists: pick the row above / below")),
             KeyItem(key: "delete", what: L("左の一覧で選んだ行を消す・外す（⌘・⇧ クリックで複数）", "Delete the rows picked in the left lists (⌘ / ⇧ click for several)")),
             KeyItem(key: "⌘,", what: L("設定（この Mac の見た目・言語・確かめの窓）", "Settings (this Mac: look, language, confirm windows)"))]),
-        KeyGroup(title: L("文字を入れているとき", "While typing"), keys: [
+        KeyGroup(title: "While Typing", keys: [
             KeyItem(key: "esc", what: L("入力を終える（space がまた再生に効く）", "Leave the field (space plays again)")),
             KeyItem(key: "return", what: L("決める", "Set"))]),
     ] }
@@ -312,7 +312,7 @@ final class AppModel: ObservableObject {
         if opts.preset != nil { print("--preset: presets were removed; a show file holds every seat (--show, --seat)") }
         show0 = chooseSeat(show0, asking: opts.seat == nil && !opts.roleGiven)
         if show0.outputs.isEmpty, let c = show0.clips.first {
-            show0.outputs = [OutputConfig(name: L("出力 1", "Output 1"), layers: [Layer(clipID: c.id)])]
+            show0.outputs = [OutputConfig(name: L("Screen 1", "Screen 1"), layers: [Layer(clipID: c.id)])]
         }
         if let sc = opts.screen { show0.outputs[0].screen = sc }
         if opts.fullscreen { show0.outputs[0].fullscreen = true }
@@ -560,8 +560,8 @@ final class AppModel: ObservableObject {
     func switchSeat(_ id: String, ask: Bool = true) {
         guard id != show.seatID, let st = show.seats.first(where: { $0.id == id }) else { return }
         if ask && !confirm(L("この Mac を Seat「\(st.name)」にしますか？", "Make this Mac seat “\(st.name)”?"),
-                           L("出力・レイヤー・音がその Seat のものに変わります。いまの Seat「\(show.seat.name)」の設定はファイルに残ります。",
-                             "Outputs, layers and sound change to that seat's. The current seat “\(show.seat.name)” stays in the file as it is."),
+                           L("Screen・レイヤー・音がその Seat のものに変わります。いまの Seat「\(show.seat.name)」の設定はファイルに残ります。",
+                             "Screens, layers and sound change to that seat's. The current seat “\(show.seat.name)” stays in the file as it is."),
                            ok: L("切り替える", "Switch"), icon: AlertPicture.switching(from: show.seat.name, to: st.name)) { return }
         saveNow()
         var s = show
@@ -575,7 +575,7 @@ final class AppModel: ObservableObject {
     func addSeat() {
         var s = show
         let n = s.newSeatName()
-        s.seats.append(Seat(name: n, outputs: [OutputConfig(name: L("出力 1", "Output 1"))]))
+        s.seats.append(Seat(name: n, outputs: [OutputConfig(name: L("Screen 1", "Screen 1"))]))
         show = s
         notify(L("Seat「\(n)」を足しました。その Seat の Mac で開き、Seat に選んでください", "Added seat “\(n)”. Open the show on that seat's Mac and choose it there"))
     }
@@ -606,8 +606,8 @@ final class AppModel: ObservableObject {
     func deleteSeat(_ id: String) {
         guard show.seats.count > 1, let st = show.seats.first(where: { $0.id == id }) else { return }
         guard confirm(L("Seat「\(st.name)」を消しますか？", "Delete seat “\(st.name)”?"),
-                      L("その Seat の出力とレイヤーがファイルから消えます（⌘Z で戻せます）。映像は消えません。",
-                        "Its outputs and layers are removed from the file (⌘Z brings them back). Clips are kept."), ok: L("消す", "Delete"), skip: .seat) else { return }
+                      L("その Seat の Screen とレイヤーがファイルから消えます（⌘Z で戻せます）。映像は消えません。",
+                        "Its screens and layers are removed from the file (⌘Z brings them back). Clips are kept."), ok: L("消す", "Delete"), skip: .seat) else { return }
         var s = show
         s.seats.removeAll { $0.id == id }
         if id == show.seatID { s.seatID = s.seats[0].id; ShowStore.rememberSeat(s.seatID, for: s) }
@@ -897,8 +897,8 @@ final class AppModel: ObservableObject {
             }
             let keep = fresh ?? idx[0]
             for i in idx where i != keep { s.outputs[i].fullscreen = false; dropped.append(s.outputs[i].name); any = true }
-            notify(L("1 つのディスプレイに全画面の出力は 1 つだけ。「\(show.outputs[keep].name)」を全画面にし、「\(dropped.joined(separator: "」「"))」は窓に戻しました（⌘Z で戻せる）",
-                     "One full-screen output per display. \(show.outputs[keep].name) is full screen; \(dropped.joined(separator: ", ")) went back to a window (⌘Z undoes)"))
+            notify(L("1 つのディスプレイに全画面の Screen は 1 つだけ。「\(show.outputs[keep].name)」を全画面にし、「\(dropped.joined(separator: "」「"))」は窓に戻しました（⌘Z で戻せる）",
+                     "Only one screen per display can be full screen. \(show.outputs[keep].name) is full screen; \(dropped.joined(separator: ", ")) went back to a window (⌘Z undoes)"))
         }
         if !any { return false }
         show = s
@@ -1072,27 +1072,27 @@ final class AppModel: ObservableObject {
     func addOutput() {
         let used = Set(show.outputs.map(\.screen))
         let screen = (0..<NSScreen.screens.count).first { !used.contains($0) } ?? 0
-        var o = OutputConfig(name: L("出力 \(show.outputs.count + 1)", "Output \(show.outputs.count + 1)"), screen: screen)
+        var o = OutputConfig(name: L("Screen \(show.outputs.count + 1)", "Screen \(show.outputs.count + 1)"), screen: screen)
         if let c = show.clips.first { o.layers = [Layer(clipID: c.id)] }
         show.outputs.append(o)
         selectedOutput = o.id
-        notify(L("出力「\(o.name)」を足しました（Display \(screen + 1)）", "Added output “\(o.name)” (display \(screen + 1))"))
+        notify(L("Screen「\(o.name)」を足しました（Display \(screen + 1)）", "Added screen “\(o.name)” (display \(screen + 1))"))
     }
 
     func removeOutput() {
-        guard show.outputs.count > 1, let o = selectedOutputIndex else { notify(L("出力は 1 つ以上要ります", "At least one output is needed")); return }
+        guard show.outputs.count > 1, let o = selectedOutputIndex else { notify(L("Screen は 1 つ以上要ります", "At least one screen is needed")); return }
         let name = show.outputs[o].name, oid = show.outputs[o].id
-        guard confirm(L("出力「\(name)」を消しますか？", "Delete output “\(name)”?"), L("この出力のレイヤーと、その調整（四隅・メッシュなど）も消えます（⌘Z で戻せます）。", "Its layers and their adjustments (corners, mesh…) are deleted too (⌘Z brings them back)."), ok: L("消す", "Delete"), skip: .output),
+        guard confirm(L("Screen「\(name)」を消しますか？", "Delete screen “\(name)”?"), L("この Screen のレイヤーと、その調整（四隅・メッシュなど）も消えます（⌘Z で戻せます）。", "Its layers and their adjustments (corners, mesh…) are deleted too (⌘Z brings them back)."), ok: L("消す", "Delete"), skip: .output),
               show.outputs.count > 1, let o2 = show.outputs.firstIndex(where: { $0.id == oid }) else { return }
         show.outputs.remove(at: o2)
-        notify(L("出力「\(name)」を消しました", "Deleted output “\(name)”"))
+        notify(L("Screen「\(name)」を消しました", "Deleted screen “\(name)”"))
     }
 
     func selectNextOutput() {
         guard !show.outputs.isEmpty else { return }
         let i = ((selectedOutputIndex ?? -1) + 1) % show.outputs.count
         selectedOutput = show.outputs[i].id
-        notify(L("出力: \(show.outputs[i].name)", "Output: \(show.outputs[i].name)"))
+        notify(L("Screen: \(show.outputs[i].name)", "Screen: \(show.outputs[i].name)"))
     }
 
     func toggleFullscreen() {
@@ -1748,7 +1748,7 @@ final class AppModel: ObservableObject {
             switch self {
             case .layer: return L("レイヤーを消すとき", "Deleting layers")
             case .clip: return L("素材から外すとき", "Removing footage")
-            case .output: return L("出力を消すとき", "Deleting outputs")
+            case .output: return L("Screen を消すとき", "Deleting screens")
             case .seat: return L("Seat を消すとき", "Deleting seats")
             case .quit: return L("SyncPlayer を終了するとき（⌘Q・Q）", "Quitting SyncPlayer (⌘Q, Q)")
             }
@@ -1770,7 +1770,7 @@ final class AppModel: ObservableObject {
     /// Asked before quitting by hand (Akira 2026-11-26), with "Don't ask again".
     func confirmQuit() -> Bool {
         confirm(L("SyncPlayer を終了しますか？", "Quit SyncPlayer?"),
-                L("この Mac の出力（全画面も）が閉じ、映像が止まります。ほかの Mac はそのまま動きます。", "This Mac's outputs (full screen too) close and its picture stops. Other Macs keep playing."),
+                L("この Mac の Screen（全画面も）が閉じ、映像が止まります。ほかの Mac はそのまま動きます。", "This Mac's screens (full screen too) close and its picture stops. Other Macs keep playing."),
                 ok: L("終了", "Quit"), skip: .quit, suppressTitle: L("次から確かめない", "Don't ask again"))
     }
 
@@ -2161,11 +2161,11 @@ final class AppModel: ObservableObject {
         var c: [CheckItem] = []
         func add(_ ok: Bool?, _ text: String, _ fix: String) { c.append(CheckItem(ok: ok, text: text, fix: fix)) }
         add(showFile != nil, L("ショーを保存してある", "The show is saved"), L("上の「保存…」で保存する（再起動のあと、このショーが開く）", "Save with the save button at the top (it opens after a restart)"))
-        add(!show.clips.contains { clipBroken($0.id) }, L("映像が全部開ける", "All clips open"), L("左の素材で「⚠︎ 開けない」の行を右クリックして「差し替え」", "In Footage, right-click the rows marked ⚠︎ › Replace Footage"))
+        add(!show.clips.contains { clipBroken($0.id) }, L("映像が全部開ける", "All clips open"), L("左の Footage で「⚠︎ 開けない」の行を右クリックして「差し替え」", "In Footage, right-click the rows marked ⚠︎ › Replace Footage"))
         let masks = show.outputs.flatMap { $0.layers.compactMap(\.mask) }
         add(!masks.contains { !FileManager.default.fileExists(atPath: $0) || GPU.shared?.maskReady($0) == false },
-            L("マスクが全部読める", "All masks are readable"), L("「画面の調整」のマスクで画像を選び直す", "Choose the image again under Mask in the Layer tab"))
-        add(show.outputs.contains { $0.fullscreen }, L("全画面の出力がある", "An output is full screen"), L("左の出力で「全画面にする（F）」を入れる", "Turn on Full Screen (F) under Outputs"))
+            L("マスクが全部読める", "All masks are readable"), L("Layer のタブのマスクで画像を選び直す", "Choose the image again under Mask in the Layer tab"))
+        add(show.outputs.contains { $0.fullscreen }, L("全画面の Screen がある", "A screen is full screen"), L("左の Screen で「全画面にする（F）」を入れる", "Turn on Full Screen (F) under Screens"))
         add(openAtLogin, L("ログインしたら SyncPlayer を開く", "SyncPlayer opens at login"), L("下の「ログインしたら SyncPlayer を開く」を入れる（全台）", "Turn on Open SyncPlayer at Login below (all Macs)"))
         if isMaster {
             add(exhibitMaster, L("この Mac は展示のマスター", "This Mac is the exhibition master"), L("マスターの Mac なら「この Mac を展示のマスターにする」を入れる（1 台だけ）", "On the master Mac, turn on Make This Mac the Exhibition Master (one Mac only)"))
@@ -2365,7 +2365,7 @@ final class AppModel: ObservableObject {
         for (id, n) in transport.orderedNodes {
             let name = clipName(id)
             if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
-                add(L("\(name): 開けません", "\(name): can't open"), 3, L("ファイルの場所が変わったか確かめ、素材の行を右クリックして「差し替え」で選び直す。開けない形式なら H.264/HEVC の mov・mp4 に書き出す", "Check whether the file moved and choose it again with right-click › Replace Footage in Footage. If the format won't open, export H.264/HEVC mov or mp4"))
+                add(L("\(name): 開けません", "\(name): can't open"), 3, L("ファイルの場所が変わったか確かめ、Footage の行を右クリックして「差し替え」で選び直す。開けない形式なら H.264/HEVC の mov・mp4 に書き出す", "Check whether the file moved and choose it again with right-click › Replace Footage in Footage. If the format won't open, export H.264/HEVC mov or mp4"))
             } else if !n.ready {
                 add(L("\(name): 読み込み中", "\(name): loading"))
             } else {
@@ -2398,7 +2398,7 @@ final class AppModel: ObservableObject {
             guard let w = outputs[o.id] else { continue }
             let r = w.picture.renderer.drawRate
             add(String(format: L("描画 %@ %.0f fps", "Draw %@ %.0f fps"), o.name, r), r > 0 && r < 50 ? 2 : 0,
-                r > 0 && r < 50 ? L("描画が遅い。出力・レイヤーの数か映像の大きさを減らす", "Drawing is slow. Use fewer outputs or layers, or smaller clips") : nil)
+                r > 0 && r < 50 ? L("描画が遅い。Screen・レイヤーの数か映像の大きさを減らす", "Drawing is slow. Use fewer screens or layers, or smaller clips") : nil)
         }
         if hostNow() < messageUntil { add(message) }
         return out

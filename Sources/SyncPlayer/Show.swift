@@ -61,7 +61,12 @@ struct OutputConfig: Codable, Equatable, Identifiable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
-        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "出力"
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Screen"
+        // The default names of older versions ("出力 2", "Output 2") read as "Screen 2" (Akira
+        // 2026-11-26: one word, Screen). Names someone typed are kept.
+        for old in ["出力 ", "Output "] where name.hasPrefix(old) && Int(name.dropFirst(old.count)) != nil {
+            name = "Screen " + name.dropFirst(old.count)
+        }
         screen = try c.decodeIfPresent(Int.self, forKey: .screen) ?? 0
         fullscreen = try c.decodeIfPresent(Bool.self, forKey: .fullscreen) ?? false
         layers = try c.decodeIfPresent([Layer].self, forKey: .layers) ?? []
@@ -245,7 +250,7 @@ struct Show: Codable, Equatable {
     static func make(paths: [String], look: DisplaySettings = DisplaySettings()) -> Show {
         var show = Show()
         for p in paths { show.clips.append(Clip(id: show.newClipID(), path: p)) }
-        var out = OutputConfig(name: "出力 1", screen: look.screen, fullscreen: look.fullscreen)
+        var out = OutputConfig(name: "Screen 1", screen: look.screen, fullscreen: look.fullscreen)
         out.layers = show.clips.map { Layer(clipID: $0.id, look: look) }
         show.outputs = [out]
         if out.layers.count > 1 { show.arrangeGrid(output: 0) }
