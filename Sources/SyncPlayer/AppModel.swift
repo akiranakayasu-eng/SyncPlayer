@@ -1687,7 +1687,7 @@ final class AppModel: ObservableObject {
         var label: String {
             switch self {
             case .layer: return L("レイヤーを消すとき", "Deleting layers")
-            case .clip: return L("映像ライブラリから外すとき", "Removing footage")
+            case .clip: return L("素材から外すとき", "Removing footage")
             case .output: return L("出力を消すとき", "Deleting outputs")
             case .seat: return L("席を消すとき", "Deleting seats")
             case .quit: return L("SyncPlayer を終了するとき（⌘Q・Q）", "Quitting SyncPlayer (⌘Q, Q)")
@@ -2084,7 +2084,7 @@ final class AppModel: ObservableObject {
         var c: [CheckItem] = []
         func add(_ ok: Bool?, _ text: String, _ fix: String) { c.append(CheckItem(ok: ok, text: text, fix: fix)) }
         add(showFile != nil, L("ショーを保存してある", "The show is saved"), L("上の「保存…」で保存する（再起動のあと、このショーが開く）", "Save with the save button at the top (it opens after a restart)"))
-        add(!show.clips.contains { clipBroken($0.id) }, L("映像が全部開ける", "All clips open"), L("左の映像ライブラリで「⚠︎ 開けない」の行を右クリックして「差し替え」", "In Footage, right-click the rows marked ⚠︎ › Replace Footage"))
+        add(!show.clips.contains { clipBroken($0.id) }, L("映像が全部開ける", "All clips open"), L("左の素材で「⚠︎ 開けない」の行を右クリックして「差し替え」", "In Footage, right-click the rows marked ⚠︎ › Replace Footage"))
         let masks = show.outputs.flatMap { $0.layers.compactMap(\.mask) }
         add(!masks.contains { !FileManager.default.fileExists(atPath: $0) || GPU.shared?.maskReady($0) == false },
             L("マスクが全部読める", "All masks are readable"), L("「画面の調整」のマスクで画像を選び直す", "Choose the image again under Mask in the Layer tab"))
@@ -2288,7 +2288,7 @@ final class AppModel: ObservableObject {
         for (id, n) in transport.orderedNodes {
             let name = clipName(id)
             if n.items.contains(where: { $0.status == .failed }) || missingFiles().contains(n.url.path) {
-                add(L("\(name): 開けません", "\(name): can't open"), 3, L("ファイルの場所が変わったか確かめ、映像ライブラリの行を右クリックして「差し替え」で選び直す。開けない形式なら H.264/HEVC の mov・mp4 に書き出す", "Check whether the file moved and choose it again with right-click › Replace Footage in Footage. If the format won't open, export H.264/HEVC mov or mp4"))
+                add(L("\(name): 開けません", "\(name): can't open"), 3, L("ファイルの場所が変わったか確かめ、素材の行を右クリックして「差し替え」で選び直す。開けない形式なら H.264/HEVC の mov・mp4 に書き出す", "Check whether the file moved and choose it again with right-click › Replace Footage in Footage. If the format won't open, export H.264/HEVC mov or mp4"))
             } else if !n.ready {
                 add(L("\(name): 読み込み中", "\(name): loading"))
             } else {

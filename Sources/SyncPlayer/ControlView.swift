@@ -743,13 +743,13 @@ struct Sidebar: View {
             Picker("", selection: $leftTab) {
                 // Short words so both fit in the narrowest column (check 46 M3); the count is in the tooltip.
                 Text(L("レイヤー", "Layers")).tag(0)
-                Text(L("映像ライブラリ", "Footage")
+                Text(L("素材", "Footage")
                      + (model.show.clips.contains(where: { model.clipBroken($0.id) }) ? " ⚠︎" : "")).tag(1)
             }
             .labelsHidden()
             .pickerStyle(.segmented)
             .padding(.bottom, 2)
-            .help(L("映像ライブラリ: \(model.show.clips.count) 本", "Footage: \(model.show.clips.count) clips"))
+            .help(L("素材: \(model.show.clips.count) 本", "Footage: \(model.show.clips.count) clips"))
             if leftTab == 0 {
             outputSection
             ThinLine()
@@ -1604,7 +1604,7 @@ struct Inspector: View {
         StepLine(done: model.learnedSet.contains("fullscreen"), text: L("左の「全画面にする（F）」を入れ、S で操作の窓を出し入れする", "Turn on Full Screen (F) at the left; S shows and hides the control window"))
 
         StepHeader(title: L("2. 画面を作る", "2. Build the picture"), anchor: "step2")
-        StepLine(done: model.learnedSet.contains("added"), text: L("左の「映像ライブラリ」の ＋ か、右クリックの「差し替え」で自分の映像を入れる", "Add your clips with + or right-click › Replace Footage in Footage"))
+        StepLine(done: model.learnedSet.contains("added"), text: L("左の「素材」の ＋ か、右クリックの「差し替え」で自分の映像を入れる", "Add your clips with + or right-click › Replace Footage in Footage"))
         StepLine(done: model.learnedSet.contains("adjusted"), text: L("「画面の調整」で位置・大きさ・四隅などを変える（⌘Z で戻せる）", "Change position, scale, corners in the Layer tab (⌘Z undoes)"))
         StepLine(done: model.learnedSet.contains("mask"), text: L("自分のマスク画像を使う（なくてもよい）", "Use your own mask image (optional)"))
         StepLine(done: model.showFile != nil, text: L("上の「保存…」でショーを保存する", "Save the show with the save button at the top"))
