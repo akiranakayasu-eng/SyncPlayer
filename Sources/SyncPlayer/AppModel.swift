@@ -962,6 +962,7 @@ final class AppModel: ObservableObject {
         let id = w.id
         let r = w.picture.renderer
         r.layers = { [weak self] in self?.show.outputs.first { $0.id == id }?.layers ?? [] }
+        r.blend = { [weak self] in self?.show.outputs.first { $0.id == id }?.blend }
         r.frames = { [weak self] clip in self?.transport.frames[clip] }
         setupOverlay(w.picture.overlay, outputID: { id }, viewAspect: { [weak w] in w?.viewAspect ?? 16.0 / 9.0 })
         w.onBecomeKey = { [weak self] in
@@ -1593,6 +1594,7 @@ final class AppModel: ObservableObject {
         preview = pv
         pv.renderer.layers = { [weak self] in self?.selectedOutputConfig?.layers ?? [] }
         pv.renderer.frames = { [weak self] clip in self?.transport.frames[clip] }
+        pv.renderer.blend = { [weak self] in self?.selectedOutputConfig?.blend }
         setupOverlay(pv.overlay, outputID: { [weak self] in self?.selectedOutput },
                      viewAspect: { [weak self] in self?.selectedOutputAspect ?? 16.0 / 9.0 }, preview: true)
         // Click the preview to select the layer under the pointer (frontmost first, like Adobe).
@@ -2177,7 +2179,7 @@ final class AppModel: ObservableObject {
         add(!show.clips.contains { clipBroken($0.id) }, L("映像が全部開ける", "All clips open"), L("左の Footage で「⚠︎ 開けない」の行を右クリックして「差し替え」", "In Footage, right-click the rows marked ⚠︎ › Replace Footage"))
         let masks = show.outputs.flatMap { $0.layers.compactMap(\.mask) }
         add(!masks.contains { !FileManager.default.fileExists(atPath: $0) || GPU.shared?.maskReady($0) == false },
-            L("マスクが全部読める", "All masks are readable"), L("Layer のタブのマスクで画像を選び直す", "Choose the image again under Mask in the Layer tab"))
+            L("マスクが全部読める", "All masks are readable"), L("Properties のタブのマスクで画像を選び直す", "Choose the image again under Mask in the Properties tab"))
         add(show.outputs.contains { $0.fullscreen }, L("全画面の Screen がある", "A screen is full screen"), L("左の Screen で「全画面にする（F）」を入れる", "Turn on Full Screen (F) under Screens"))
         add(openAtLogin, L("ログインしたら SyncPlayer を開く", "SyncPlayer opens at login"), L("下の「ログインしたら SyncPlayer を開く」を入れる（全台）", "Turn on Open SyncPlayer at Login below (all Macs)"))
         if isMaster {

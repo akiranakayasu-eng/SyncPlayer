@@ -216,7 +216,7 @@ struct RoleSwitch: View {
     }
 }
 
-/// The layer being adjusted, at the top of the Layer tab: its number (1 = front) in a filled
+/// The layer being adjusted, at the top of the Properties tab: its number (1 = front) in a filled
 /// badge, its name large, and the output it is on, so it is clear at a glance (Akira 2026-11-25).
 struct SelectedLayerHeader: View {
     @ObservedObject var model: AppModel
@@ -1593,8 +1593,8 @@ struct Inspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Picker("", selection: $tab) {
-                // Layer at the left, Guide at the right; English names Setup and Guide (Akira 2026-11-26).
-                Text("Layer").tag(0)
+                // Properties at the left, Guide at the right; English names (Akira 2026-11-26).
+                Text("Properties").tag(0)
                 Text("Setup").tag(1)
                 Text("Guide").tag(3)
             }
@@ -1610,11 +1610,17 @@ struct Inspector: View {
                     case 3: stepsSection
                     case 1: exhibitSection
                     default:
+                        // The selected thing's settings, like After Effects' Properties (Akira 2026-11-26):
+                        // the layer first (touched most), then the Screen it is on.
                         if model.selectedLayerIndex == nil {
-                            Text(L("左の「レイヤー」で 1 つ選ぶと、ここで位置・大きさ・切り取り・マスク・エッジブレンド・四隅を調整できる", "Select a layer at the left to adjust its transform, crop, mask, edge blend and corner pin here"))
+                            Text(L("左の Layers で 1 つ選ぶと、ここで位置・大きさ・切り取り・マスク・四隅を調整できる", "Select a layer at the left to adjust its transform, crop, mask and corner pin here"))
                                 .foregroundColor(.secondary)
                         } else {
                             layerSection
+                        }
+                        if model.selectedOutputConfig != nil {
+                            ThinLine()
+                            screenSection
                         }
                     }
                 }
@@ -1668,7 +1674,7 @@ struct Inspector: View {
 
         StepHeader(title: "2. Build the picture", anchor: "step2")
         StepLine(done: model.learnedSet.contains("added"), text: L("左の Footage の ＋ か、右クリックの「差し替え」で自分の映像を入れる", "Add your clips with + or right-click › Replace Footage in Footage"))
-        StepLine(done: model.learnedSet.contains("adjusted"), text: L("Layer のタブで位置・大きさ・四隅などを変える（⌘Z で戻せる）", "Change position, scale, corners in the Layer tab (⌘Z undoes)"))
+        StepLine(done: model.learnedSet.contains("adjusted"), text: L("Properties のタブで位置・大きさ・四隅などを変える（⌘Z で戻せる）", "Change position, scale, corners in the Properties tab (⌘Z undoes)"))
         StepLine(done: model.learnedSet.contains("mask"), text: L("自分のマスク画像を使う（なくてもよい）", "Use your own mask image (optional)"))
         StepLine(done: model.showFile != nil, text: L("上の「保存…」でショーを保存する", "Save the show with the save button at the top"))
 
@@ -1809,6 +1815,38 @@ struct Inspector: View {
         }
     }
 
+    /// The selected Screen's own settings: what applies to the whole picture sent to its display.
+    @ViewBuilder private var screenSection: some View {
+        if let o = model.selectedOutputConfig {
+            HStack(spacing: 8) {
+                Image(systemName: "rectangle.on.rectangle")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(minWidth: 26, minHeight: 26)
+                    .background(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.6), lineWidth: 1))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(o.name).font(.system(size: 14, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                    Text("Screen · Display \(o.screen + 1)").font(.caption).foregroundColor(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.4), lineWidth: 1))
+            DisclosureGroup(isExpanded: $openBlend) {
+                VStack(alignment: .leading, spacing: 6) {
+                    SliderRow(label: L("左", "Left"), value: model.outputBinding(\.blend.l, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                    SliderRow(label: L("右", "Right"), value: model.outputBinding(\.blend.r, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                    SliderRow(label: L("上", "Top"), value: model.outputBinding(\.blend.t, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                    SliderRow(label: L("下", "Bottom"), value: model.outputBinding(\.blend.b, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                    SliderRow(label: L("ガンマ", "Gamma"), value: model.outputBinding(\.blend.gamma, 2.2), range: 0.5...4, defaultValue: 2.2,
+                              help: L("重なりの明るさの合い方。ふつうは 2.2", "How brightness matches in the overlap. Usually 2.2"))
+                    Text(L("Screen の縁を暗くする（2 台のプロジェクターが重なる所）。Screen の幅（高さ）に対する割合で、この Screen のすべてのレイヤーに効く。レイヤーの縁をぼかすのは Crop の「ぼかし」。", "Darkens the Screen's edges where two projectors overlap, as a fraction of the Screen's width (height). Applies to every layer on this Screen. To soften a layer's edge, use Feather under Crop."))
+                        .font(.caption).foregroundColor(.secondary)
+                }
+                .padding(.top, 4)
+            } label: { FoldLabel(title: "Edge Blend", isOpen: $openBlend, help: "blend") }
+        }
+    }
+
     @ViewBuilder private var layerSection: some View {
         SelectedLayerHeader(model: model)
         Picker(L("映像", "Source"), selection: model.layerBinding(\.clipID, "")) {
@@ -1830,6 +1868,8 @@ struct Inspector: View {
                     guard var s = model.selectedLook else { return }
                     s.resetTransform(); model.updateLook(s)
                 }
+                Text(L("レイヤーの板の中で絵を動かす。板そのものの形と置き場所は Corner Pin で変える。", "Moves the picture inside the layer's frame. The frame itself is moved with Corner Pin."))
+                    .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
         } label: { FoldLabel(title: "Transform", isOpen: $openPlace, help: "place") }
@@ -1841,6 +1881,10 @@ struct Inspector: View {
                 SliderRow(label: L("右", "Right"), value: model.lookBinding(\.cropR, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
                 SliderRow(label: L("上", "Top"), value: model.lookBinding(\.cropT, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
                 SliderRow(label: L("下", "Bottom"), value: model.lookBinding(\.cropB, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
+                SliderRow(label: L("ぼかし", "Feather"), value: model.lookBinding(\.feather, 0), range: 0...0.25, defaultValue: 0, unit: ValueText.percent,
+                          help: L("素材の縁（切り取ったときは切った縁）を、素材の大きさに対するこの割合でやわらげる", "Softens the clip's edge (the cropped edge when cropped) over this fraction of the clip"))
+                Text(L("素材の縁を切る・ぼかす。素材の大きさに対する割合。", "Cuts and softens the clip's edges, as a fraction of the clip."))
+                    .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
         } label: { FoldLabel(title: "Crop", isOpen: $openCrop, help: "crop") }
@@ -1865,20 +1909,6 @@ struct Inspector: View {
         } label: { FoldLabel(title: "Mask", isOpen: $openMask, warn: maskBroken, help: "mask") }
 
         ThinLine()
-        DisclosureGroup(isExpanded: $openBlend) {
-            VStack(alignment: .leading, spacing: 6) {
-                SliderRow(label: L("左", "Left"), value: model.lookBinding(\.blendL, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
-                SliderRow(label: L("右", "Right"), value: model.lookBinding(\.blendR, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
-                SliderRow(label: L("上", "Top"), value: model.lookBinding(\.blendT, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
-                SliderRow(label: L("下", "Bottom"), value: model.lookBinding(\.blendB, 0), range: 0...0.5, defaultValue: 0, unit: ValueText.percent)
-                SliderRow(label: L("ガンマ", "Gamma"), value: model.lookBinding(\.blendGamma, 2.2), range: 0.5...4, defaultValue: 2.2,
-                          help: L("重なりの明るさの合い方。ふつうは 2.2", "How brightness matches in the overlap. Usually 2.2"))
-                Text(L("重なる幅を、画面の幅（高さ）に対する割合で。", "Overlap width as a fraction of the picture's width (height).")).font(.caption).foregroundColor(.secondary)
-            }
-            .padding(.top, 4)
-        } label: { FoldLabel(title: "Edge Blend", isOpen: $openBlend, help: "blend") }
-
-        ThinLine()
         DisclosureGroup(isExpanded: $openWarp) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -1892,7 +1922,7 @@ struct Inspector: View {
                     Button(L("メッシュを戻す", "Reset Mesh")) { guard var s = model.selectedLook else { return }; s.resetMesh(); model.updateLook(s) }
                 }
                 Toggle(L("確認用の格子（G）", "Grid (G)"), isOn: model.lookBinding(\.showGrid, false))
-                Text(L("点はプレビューか Screen の窓でドラッグ。Tab で次の点、矢印で 1 px（shift で 10 px）。", "Drag points in the preview or a screen. Tab: next point, arrows: 1 px (shift: 10 px)."))
+                Text(L("レイヤーの板の 4 つの角と曲面の点を、Screen の上で動かす。点はプレビューか Screen の窓でドラッグ。Tab で次の点、矢印で 1 px（shift で 10 px）。", "Moves the corners and mesh points of the layer's frame on the Screen. Drag points in the preview or a screen. Tab: next point, arrows: 1 px (shift: 10 px)."))
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.top, 4)
