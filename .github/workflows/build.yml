@@ -10,9 +10,13 @@ jobs:
   build:
     runs-on: macos-15
     steps:
+      # The branch's own commit (not GitHub's merge commit), so the title shows the commit that runs.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      # No VERSION: the title says "<last release>-dev (commit)" (tools/make-app.sh).
       - name: Build universal app
-        run: UNIVERSAL=1 VERSION="0.0.0-pr" sh tools/make-app.sh dist
+        run: UNIVERSAL=1 sh tools/make-app.sh dist
       - name: Check the app
         run: |
           lipo -info dist/SyncPlayer.app/Contents/MacOS/SyncPlayer

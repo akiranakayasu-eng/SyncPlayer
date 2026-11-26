@@ -871,9 +871,10 @@ struct Sidebar: View {
                         Text(c.name).font(.caption.bold()).lineLimit(1).truncationMode(.middle)
                         ClipPreview(path: c.path, sound: clipPreviewSound)
                             .id(c.path)   // a new player for each clip, so the last one stops
-                            .aspectRatio(info.map { $0.width > 0 && $0.height > 0 ? Double($0.width) / Double($0.height) : 16.0 / 9 } ?? 16.0 / 9,
-                                         contentMode: .fit)
-                            .frame(maxWidth: .infinity, maxHeight: 240)
+                            // A fixed height: the player fits the picture inside (black bars), so tall
+                            // movies and a wide column never push its controls out (check 61 M3).
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 200)
                             .background(Color.black)
                             .clipShape(RoundedRectangle(cornerRadius: 4))
                         HStack(spacing: 6) {

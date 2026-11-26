@@ -90,6 +90,39 @@ enum Warp {
     }
 
     /// Source picture coordinate shown at canvas point (u,v): inverse of shift / rotate / scale.
+    /// The inverse of `source`: where a point of the movie (0…1) lands on the layer (u, v).
+    static func layerPoint(_ s: DisplaySettings, videoAspect: Double, _ p: SIMD2<Double>) -> SIMD2<Double> {
+        let A = videoAspect > 0 ? videoAspect : 16.0 / 9.0
+        var c = (p - SIMD2(0.5, 0.5)) * max(0.01, s.scale)
+        c.x *= A
+        let th = s.rotation * .pi / 180
+        c = SIMD2(c.x * cos(th) - c.y * sin(th), c.x * sin(th) + c.y * cos(th))
+        c.x /= A
+        return c + SIMD2(0.5 + s.posX, 0.5 + s.posY)
+    }
+
+    /// The part of the layer the picture covers: the cropped movie after position, scale and
+    /// rotation, cut to the layer (0…1). Corners in (u, v), in order; empty when nothing shows.
+    static func pictureOutline(_ s: DisplaySettings, videoAspect: Double) -> [SIMD2<Double>] {
+        let l = s.cropL, r = 1 - s.cropR, b = s.cropB, t = 1 - s.cropT
+        guard r > l, t > b else { return [] }
+        var poly = [SIMD2(l, b), SIMD2(r, b), SIMD2(r, t), SIMD2(l, t)].map { Warp.layerPoint(s, videoAspect: videoAspect, $0) }
+        // Cut to the unit square, one side at a time (Sutherland–Hodgman).
+        let sides: [(SIMD2<Double>) -> Double] = [{ $0.x }, { 1 - $0.x }, { $0.y }, { 1 - $0.y }]
+        for inside in sides {
+            guard !poly.isEmpty else { break }
+            var out: [SIMD2<Double>] = []
+            for i in poly.indices {
+                let a = poly[i], c = poly[(i + 1) % poly.count]
+                let da = inside(a), dc = inside(c)
+                if da >= 0 { out.append(a) }
+                if (da >= 0) != (dc >= 0) { out.append(a + (c - a) * (da / (da - dc))) }
+            }
+            poly = out
+        }
+        return poly
+    }
+
     static func source(_ s: DisplaySettings, videoAspect: Double, _ u: Double, _ v: Double) -> SIMD2<Double> {
         let A = videoAspect > 0 ? videoAspect : 16.0 / 9.0
         var c = SIMD2(u - 0.5 - s.posX, v - 0.5 - s.posY)

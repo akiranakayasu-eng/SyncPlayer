@@ -108,7 +108,10 @@ final class EditOverlay: NSView {
             let d = hypot(v.x - p.x, v.y - p.y)
             if d < bestD { bestD = d; best = k }
         }
-        if best >= 0 { dragging = best; select(best) }
+        if best >= 0 { dragging = best; select(best); return }
+        // Not on a point: a click on another layer selects it and keeps the same edit mode, so its
+        // points can be dragged next (Akira 2026-11-26).
+        if bounds.width > 0, bounds.height > 0 { pick?(SIMD2(Double(p.x / bounds.width), Double(p.y / bounds.height))) }
     }
 
     override func mouseDragged(with e: NSEvent) {
@@ -175,20 +178,22 @@ final class EditOverlay: NSView {
         }
     }
 
-    /// The selected layer's edge as it is drawn (corners and mesh included), with small squares at
-    /// the corners, like the layer bounds in After Effects. Cyan, so it is not the yellow of editing.
+    /// The selected layer's picture as it is drawn: the cropped movie after position, scale and
+    /// rotation, cut to the layer, then through corners and mesh. Small squares at its corners, like
+    /// the layer bounds in After Effects. Cyan, so it is not the yellow of editing.
     private func drawOutline(_ s: DisplaySettings, view: Double, video: Double) {
+        let poly = Warp.pictureOutline(s, videoAspect: video)
+        guard poly.count >= 3 else { return }
         let q = Warp.corners(s, viewAspect: view, videoAspect: video)
         let H = Warp.Homography(q), m = s.meshOffsets
         let path = NSBezierPath()
-        path.lineWidth = 1.5
-        let steps = 32
-        for e in 0..<4 {
-            for t in 0...steps {
-                let f = Double(t) / Double(steps)
-                let (u, v): (Double, Double) = e == 0 ? (f, 0) : e == 1 ? (1, f) : e == 2 ? (1 - f, 1) : (0, 1 - f)
-                let pt = toView(Warp.output(s, H, m, u, v))
-                e == 0 && t == 0 ? path.move(to: pt) : path.line(to: pt)
+        let steps = 24   // each side bent by corners and mesh
+        for i in poly.indices {
+            let a = poly[i], c = poly[(i + 1) % poly.count]
+            for t in 0..<steps {
+                let p = a + (c - a) * (Double(t) / Double(steps))
+                let pt = toView(Warp.output(s, H, m, p.x, p.y))
+                i == 0 && t == 0 ? path.move(to: pt) : path.line(to: pt)
             }
         }
         path.close()
@@ -198,8 +203,8 @@ final class EditOverlay: NSView {
         NSColor.systemCyan.setStroke()
         path.lineWidth = 1.5
         path.stroke()
-        for (u, v) in [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)] {
-            let c = toView(Warp.output(s, H, m, u, v))
+        for p in poly {
+            let c = toView(Warp.output(s, H, m, p.x, p.y))
             let r = NSRect(x: c.x - 3, y: c.y - 3, width: 6, height: 6)
             NSColor.systemCyan.setFill()
             r.fill()

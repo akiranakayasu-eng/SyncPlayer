@@ -1377,7 +1377,7 @@ final class AppModel: ObservableObject {
 
     /// Shows the clip's movie file in the Finder.
     func revealClip(_ id: String) {
-        guard let c = show.clip(id) else { return }
+        guard let c = show.clip(id) else { notify(L("このレイヤーには映像がありません", "This layer has no clip")); return }
         let u = URL(fileURLWithPath: c.path)
         if FileManager.default.fileExists(atPath: u.path) { NSWorkspace.shared.activateFileViewerSelecting([u]) }
         else { notify(L("映像のファイルが見つかりません: \(c.path)", "Movie file not found: \(c.path)")) }
@@ -2088,8 +2088,12 @@ final class AppModel: ObservableObject {
             w.layoutIdent("\(opts.name)\n\(disp)\n\(o.name)")
         }
         previewBox?.aspect = selectedOutputAspect
-        // Also while the outline is on: the clip's aspect arrives after it loads.
-        if (editMode != .none || showSelection) && tickCount % 20 == 0 { redrawOverlays() }
+        if tickCount % 20 == 0 {
+            if editMode != .none { redrawOverlays() }
+            // The outline is only on the preview: redraw just that one (the clip's aspect arrives
+            // after it loads), not the outputs' overlays (check 61 M4).
+            else if showSelection { preview?.overlay.needsDisplay = true }
+        }
     }
 
     /// The state in plain words for the top of the control window. The state word comes first,
