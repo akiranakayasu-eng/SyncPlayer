@@ -53,7 +53,9 @@ def H():  # concentric rings, each with a gap, all gaps lined up: phases in sync
     a = math.radians(-60); r = S * 0.30
     d.ellipse((c + r * math.cos(a) - w * 0.75, c + r * math.sin(a) - w * 0.75,
                c + r * math.cos(a) + w * 0.75, c + r * math.sin(a) + w * 0.75), fill=(255, 196, 61, 255))
-    return icon(grad((14, 16, 22), (34, 38, 52)), art)
+    # Deep blue ground (Akira 2026-11-27: same deep-blue base as the site and SyncMapper, was grey (14,16,22)->(34,38,52)).
+    # The shipped docs/logo.png and AppIcon.iconset are lecture-web's recolour (claude-shared-docs projects/lecture-web/syncplayer-icon-blue-1024.png), which this matches closely.
+    return icon(grad((8, 26, 72), (22, 58, 128)), art)
 
 def I():  # wordmark icon: "Sync" set tight, with a play-head bar through it
     art = Image.new("RGBA", (S, S), (0, 0, 0, 0)); d = ImageDraw.Draw(art)
