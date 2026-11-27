@@ -1,5 +1,6 @@
 name: SyncFollower
 options:
+  projectFormat: xcode15_3
   bundleIdPrefix: com.nakayasu
   deploymentTarget:
     iOS: "16.0"
