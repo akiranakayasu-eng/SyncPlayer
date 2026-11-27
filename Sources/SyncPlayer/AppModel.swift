@@ -844,7 +844,7 @@ final class AppModel: ObservableObject {
     }
 
     /// The manual's page for a part of the window (the "?" buttons).
-    static let manualBase = "https://lecture.nakayasu.com/sync-player/"
+    static let manualBase = "https://lecture.nakayasu.com/syncplayer/"
     static func openManual(_ anchor: String) {
         if let u = URL(string: AppModel.manualBase + "#" + anchor) { NSWorkspace.shared.open(u) }
     }

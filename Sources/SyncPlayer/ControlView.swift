@@ -1762,7 +1762,7 @@ struct Inspector: View {
         Button(L("練習用のショーを開く", "Open the Practice Show")) { model.openPractice() }
             .help(L("番号入りの映像 4 本と丸いマスクの見本。保存したショーはファイルに残る（保存前のショーは、替える前に確かめる）", "4 numbered clips and a round mask. Saved shows stay in their files (an unsaved show asks first)"))
         Button(L("サンプル（映像と設定）をダウンロード…", "Download Samples (clips and shows)…")) {
-            if let u = URL(string: "https://github.com/akiranakayasu-eng/sync-player/releases/latest") { NSWorkspace.shared.open(u) }
+            if let u = URL(string: "https://github.com/akiranakayasu-eng/SyncPlayer/releases/latest") { NSWorkspace.shared.open(u) }
         }
         .help(L("音入りの映像と、そのまま開けるショーの一式（アプリとは別の zip、samples と付いたもの）を配っているページを開く。展開したら中の使い方.txt を見る", "Opens the page with clips with sound and ready-made shows (the zip named samples, separate from the app). Read the text file inside after unzipping"))
 
