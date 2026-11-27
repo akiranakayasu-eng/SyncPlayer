@@ -47,4 +47,4 @@ runway06〜10           同じく 4 秒。鉛筆・水滴・ピンポン・指�
 自分の映像に差し替えるときは、左の映像の「差し替え」を押す。
 
 ■ もっと詳しく
-使い方のページ: https://lecture.nakayasu.com/sync-player/
+使い方のページ: https://lecture.nakayasu.com/syncplayer/

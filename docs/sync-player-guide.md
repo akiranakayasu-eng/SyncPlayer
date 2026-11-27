@@ -1,8 +1,8 @@
 # SyncPlayer ガイド（AI に読ませる用・全部入り）
 
 - 対象の版: v0.3.7（2026-11-26）。版の違いは「版の履歴」の節。
-- 公式の場所: 使い方のページ https://lecture.nakayasu.com/sync-player/ ／ ダウンロード https://github.com/akiranakayasu-eng/sync-player/releases/latest
-- このファイルの最新版: https://lecture.nakayasu.com/sync-player/sync-player-guide.md
+- 公式の場所: 使い方のページ https://lecture.nakayasu.com/syncplayer/ ／ ダウンロード https://github.com/akiranakayasu-eng/SyncPlayer/releases/latest
+- このファイルの最新版: https://lecture.nakayasu.com/syncplayer/sync-player-guide.md
 
 ## このファイルを読んだ AI へ
 
@@ -43,7 +43,7 @@
 
 ## 2. 入れ方（ダウンロードと初めての起動）
 
-1. https://github.com/akiranakayasu-eng/sync-player/releases/latest から `SyncPlayer-<版>-macOS.zip` を落とし、ダブルクリックで展開する。
+1. https://github.com/akiranakayasu-eng/SyncPlayer/releases/latest から `SyncPlayer-<版>-macOS.zip` を落とし、ダブルクリックで展開する。
 2. 出てきた `SyncPlayer <版>.app`（例 `SyncPlayer 0.3.7.app`。名前に版が入っている）を「アプリケーション」フォルダに入れる。前の版の `SyncPlayer….app` はごみ箱へ（2 つ残すと古い方を開いてしまう）。
 3. 初めて開くときだけ macOS に止められる（Apple の公証を受けていないため。壊れているわけではない）。
    - macOS 15 以降: ダブルクリックして出る画面で「完了」→「システム設定」→「プライバシーとセキュリティ」→ 下の方の「"SyncPlayer" は開かれませんでした」の横の「このまま開く」→ パスワード。
@@ -385,4 +385,4 @@ Setup のタブで、Mac ごとに決める。
 - v0.3.3（2026-11-25）: 学生が独りで学べる版。練習用のショー、Guide のタブ、⌘Z、「?」、全台の一覧、展示の前の点検、操作の窓の色、サンプルの zip。
 - v0.3.2（2026-11-25）: 展示を作者でない人が預かれるようにした版（展示の設定、ログインで開く、展示のマスター）。
 - v0.3: 1 台で複数の映像を重ねて出せるようになった（Screen・レイヤー・ショー）。
-- 同期でつなぐ Mac は全台を同じ版にする。詳しくは https://github.com/akiranakayasu-eng/sync-player/blob/main/CHANGELOG.md
+- 同期でつなぐ Mac は全台を同じ版にする。詳しくは https://github.com/akiranakayasu-eng/SyncPlayer/blob/main/CHANGELOG.md

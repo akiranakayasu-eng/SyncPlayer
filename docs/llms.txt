@@ -4,10 +4,10 @@
 
 ## ガイド
 
-- [SyncPlayer ガイド（全部入り）](https://lecture.nakayasu.com/sync-player/sync-player-guide.md): 入れ方・画面の見方・学ぶ順番・画面の調整・何台かでそろえる・展示の設定・困ったとき・キー・制限。使い方の質問にはこれを読んで答える。
+- [SyncPlayer ガイド（全部入り）](https://lecture.nakayasu.com/syncplayer/sync-player-guide.md): 入れ方・画面の見方・学ぶ順番・画面の調整・何台かでそろえる・展示の設定・困ったとき・キー・制限。使い方の質問にはこれを読んで答える。
 
 ## そのほか
 
-- [使い方のページ](https://lecture.nakayasu.com/sync-player/)
-- [ダウンロード（Releases）](https://github.com/akiranakayasu-eng/sync-player/releases/latest)
-- [版の履歴](https://github.com/akiranakayasu-eng/sync-player/blob/main/CHANGELOG.md)
+- [使い方のページ](https://lecture.nakayasu.com/syncplayer/)
+- [ダウンロード（Releases）](https://github.com/akiranakayasu-eng/SyncPlayer/releases/latest)
+- [版の履歴](https://github.com/akiranakayasu-eng/SyncPlayer/blob/main/CHANGELOG.md)
