@@ -22,6 +22,11 @@ win-player <show.syncshow> [--seat B] [--size 1280x720] [--name NAME] [--local]
 - Log: `follow-log.csv` in the folder it was started from, one line per second
   (`wall,host,offset_ms,rtt_ms,err_ms,max_abs_err_ms,resyncs,loops,epoch,playing,seat,clips`, as iOS).
 - Only one follower per PC can listen on UDP 47800: close `follow.exe` first.
+- First run: Windows Firewall asks to allow the app; press Allow (private networks). If it was
+  cancelled, the Block rule is tied to the exe's path; copying the exe to another folder (e.g.
+  `dist\`, ignored by git) asks again.
+- `SYNCPLAYER_DEBUG=1` (environment) writes why each clip re-started to `win-player-debug.txt`.
+- Without beacons the last schedule is followed for 5 s (beacons can pause over a VPN), then it waits.
 
 ## How it follows
 - Each clip has its own ffmpeg child process (`-ss` to the wanted frame, raw RGBA on stdout, no `-re`).
