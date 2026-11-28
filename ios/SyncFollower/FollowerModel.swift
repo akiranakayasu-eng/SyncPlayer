@@ -6,13 +6,15 @@ import UIKit
 /// .syncshow from Documents, is one seat of it (chosen and remembered per show), and plays that seat's
 /// first Screen: its layers (order, visible, opacity) and sound. No warp / crop / mask / blend yet.
 final class FollowerModel: ObservableObject {
-    static let version = "0.2.0-ios"
+    static let version = "0.2.1-ios"
 
     struct LayerView: Identifiable { let id: String; let player: AVPlayer; let opacity: Double }
 
     @Published var status = "Waiting for a master…"
     @Published var detail = ""
     @Published var myIPs = ""
+    /// Big name card while the master has N on (nil: hidden), like the Mac's name and display number.
+    @Published var identText: String?
     @Published var shows: [URL] = []
     @Published var showTitle = "Test clip"
     @Published var seats: [ShowFile.Seat] = []
@@ -188,7 +190,10 @@ final class FollowerModel: ObservableObject {
         let ready = f.clock.ready, offset = f.clock.offset, rtt = f.clock.rtt, count = f.clock.count
         let sched = f.schedule
         let mname = f.masterName ?? f.masterHost
+        let ident = alive && f.masterIdent
         lock.unlock()
+        let card = ident ? "\(UIDevice.current.name)\n\(myIPs)" + (show == nil ? "" : "\nSeat \(seatName)") : nil
+        if identText != card { identText = card }
         if let ping, let addr { let s = clockSock; queue.async { s.send(ping.encoded(), to: addr) } }
 
         guard alive else {
@@ -227,7 +232,7 @@ final class FollowerModel: ObservableObject {
     private func openLog() {
         guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         let url = dir.appendingPathComponent("follow-log.csv")
-        let head = "wall,host,offset_ms,rtt_ms,err_ms,max_abs_err_ms,resyncs,loops,epoch,playing,seat,clips\n"
+        let head = "wall,host,offset_ms,rtt_ms,err_ms,max_abs_err_ms,resyncs,loops,epoch,playing,seat,clips,ident\n"
         try? head.write(to: url, atomically: true, encoding: .utf8)
         logHandle = try? FileHandle(forWritingTo: url)
         _ = logHandle?.seekToEndOfFile()
@@ -237,10 +242,10 @@ final class FollowerModel: ObservableObject {
         maxAbsErr = max(maxAbsErr, abs(lastErr))
         guard now - lastLog >= 1.0 else { return }
         lastLog = now
-        let line = String(format: "%@,%.3f,%.3f,%.2f,%.3f,%.3f,%d,%d,%d,%d,%@,%d\n",
+        let line = String(format: "%@,%.3f,%.3f,%.2f,%.3f,%.3f,%d,%d,%d,%d,%@,%d,%d\n",
                           ISO8601DateFormatter().string(from: Date()), now, offset * 1000, rtt * 1000,
                           lastErr * 1000, maxAbsErr * 1000, resyncs, loops, s.epoch, s.playing ? 1 : 0,
-                          seatName, nodes.count)
+                          seatName, nodes.count, identText == nil ? 0 : 1)
         if let d = line.data(using: .utf8) { logHandle?.write(d) }
         maxAbsErr = 0
     }

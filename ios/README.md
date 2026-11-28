@@ -6,3 +6,4 @@ An iPhone/iPad follower for a Mac SyncPlayer master (protocol 1, `docs/protocol.
 - Build: `brew install xcodegen && cd ios && xcodegen && open SyncFollower.xcodeproj`; set a Team (a free Apple ID works, the app expires after 7 days), run on the device.
 - Use: start the Mac master with this device's IP as an extra target: `SyncPlayer --master --to <ip shown on the iPad>`. Allow Local Network when asked. Play on the Mac.
 - Stage 1 limits: one clip, no warp/seats, simple loop (a hiccup at the loop point), movie is the bundled test only.
+- N on the master (0.2.1): the iPad/iPhone shows a big name card (device name, IP, seat) while the master has N on, like the Mac followers. follow-log.csv has an `ident` column (1 while shown).

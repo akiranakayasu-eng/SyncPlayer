@@ -20,6 +20,8 @@ struct FollowerCore {
     var masterID: String?
     var masterHost = "-"
     var masterName: String?
+    /// N on the master: every follower shows who it is (beacon `ident`, as on the Mac).
+    var masterIdent = false
     var schedule: Schedule?
     private var masterSince = 0.0
     private var lastBeacon = -Double.infinity
@@ -39,7 +41,7 @@ struct FollowerCore {
             adopted = false; masterID = mid; masterSince = since
             clock.reset(); generationStart = pingID
         }
-        lastBeacon = now; masterHost = host; masterName = m.name
+        lastBeacon = now; masterHost = host; masterName = m.name; masterIdent = m.ident ?? false
         if !adopted && clock.ready { adopted = true }
         if adopted { schedule = s } else { pending = s }
         return true

@@ -30,6 +30,12 @@ struct ContentView: View {
                     .foregroundColor(.white.opacity(0.35)).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .padding(24).allowsHitTesting(false)
             }
+            if let t = model.identText {
+                // N on the master: shown even when the info panel is hidden (the master decides)
+                Text(t).font(.system(size: 56, weight: .bold)).multilineTextAlignment(.center)
+                    .foregroundColor(.white).padding(24).background(.black.opacity(0.7)).cornerRadius(12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity).allowsHitTesting(false)
+            }
             if showInfo {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(model.status).font(.headline)
