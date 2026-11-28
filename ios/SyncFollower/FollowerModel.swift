@@ -107,7 +107,9 @@ final class FollowerModel: ObservableObject {
         show = sh; showTitle = sh.title; seats = sh.seats
         UserDefaults.standard.set(url.path, forKey: "lastShow")
         var remembered = (UserDefaults.standard.dictionary(forKey: "seats") as? [String: String]) ?? [:]
-        let sid = remembered[sh.id].flatMap { id in sh.seats.contains { $0.id == id } ? id : nil } ?? sh.seats[0].id
+        // Launch argument `-seat B` (devicectl ... process launch ... -seat B) wins over the remembered seat.
+        let asked = UserDefaults.standard.string(forKey: "seat").flatMap { n in sh.seats.first { $0.name == n }?.id }
+        let sid = asked ?? remembered[sh.id].flatMap { id in sh.seats.contains { $0.id == id } ? id : nil } ?? sh.seats[0].id
         remembered[sh.id] = sid
         UserDefaults.standard.set(remembered, forKey: "seats")
         chooseSeat(sid)
