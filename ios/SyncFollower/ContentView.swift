@@ -24,6 +24,12 @@ struct ContentView: View {
             ForEach(model.layers) { l in
                 PlayerView(player: l.player).opacity(l.opacity).ignoresSafeArea()
             }
+            if showInfo && !model.seats.isEmpty {
+                // big seat name, like N on the Mac
+                Text(model.seatName).font(.system(size: 120, weight: .heavy, design: .rounded))
+                    .foregroundColor(.white.opacity(0.35)).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(24).allowsHitTesting(false)
+            }
             if showInfo {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(model.status).font(.headline)
@@ -38,10 +44,17 @@ struct ContentView: View {
                         } label: { Label(model.showTitle, systemImage: "film.stack") }
                         if !model.seats.isEmpty {
                             Menu {
-                                ForEach(model.seats, id: \.id) { s in Button(s.name) { model.chooseSeat(s.id) } }
+                                ForEach(model.seats, id: \.id) { s in
+                                    Button { model.chooseSeat(s.id) } label: {
+                                        if s.id == model.seatID { Label(s.name, systemImage: "checkmark") } else { Text(s.name) }
+                                    }
+                                }
                             } label: { Label("Seat \(model.seatName)", systemImage: "rectangle.on.rectangle") }
                         }
                     }.font(.subheadline)
+                    ForEach(Array(model.layerInfo.enumerated()), id: \.offset) { _, t in
+                        Text("Layer " + t).font(.caption.monospacedDigit())
+                    }
                     Text("SyncFollower \(FollowerModel.version)  (triple-tap: hide)").font(.caption2).opacity(0.7)
                 }
                 .padding(8).background(.black.opacity(0.6)).cornerRadius(8).padding(12)

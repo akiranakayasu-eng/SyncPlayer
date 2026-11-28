@@ -18,6 +18,8 @@ final class FollowerModel: ObservableObject {
     @Published var seats: [ShowFile.Seat] = []
     @Published var seatID = ""
     @Published var layers: [LayerView] = []
+    /// One line per layer for the info panel (front first), so the seat's content is visible.
+    @Published var layerInfo: [String] = []
 
     private var show: ShowFile?
     private var nodes: [ClipNode] = []
@@ -94,7 +96,7 @@ final class FollowerModel: ObservableObject {
     }
 
     private func openTest() {
-        show = nil; seats = []; seatID = ""; showTitle = "Test clip"
+        show = nil; seats = []; seatID = ""; showTitle = "Test clip"; layerInfo = ["1  test.mp4  100%"]
         guard let url = Bundle.main.url(forResource: "test", withExtension: "mp4") else { return }
         let n = ClipNode(id: "test", url: url, muted: true)
         setNodes([n]); layers = [LayerView(id: "test", player: n.player, opacity: 1)]
@@ -133,6 +135,11 @@ final class FollowerModel: ObservableObject {
         setNodes(made)
         layers = (out?.layers ?? []).filter(\.visible).compactMap { l in
             made.first { $0.id == l.clipID }.map { LayerView(id: UUID().uuidString, player: $0.player, opacity: l.opacity) }
+        }
+        let all = out?.layers ?? []
+        layerInfo = all.enumerated().reversed().map { i, l in
+            let nm = l.name ?? sh.clips.first { $0.id == l.clipID }.map { ($0.path as NSString).lastPathComponent } ?? l.clipID
+            return "\(i + 1)  \(nm)  \(Int((l.opacity * 100).rounded()))%" + (l.visible ? "" : "  (hidden)")
         }
         if !missing.isEmpty { status = "Missing movies: " + missing.joined(separator: ", ") }
     }
