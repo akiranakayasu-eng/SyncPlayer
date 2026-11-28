@@ -53,8 +53,8 @@ final class FollowerModel: ObservableObject {
             guard let self, let m = Message.decode(data), m.k == "b" else { return }
             let host = UDPSocket.hostString(from), now = hostNow()
             self.lock.lock()
-            self.f.onBeacon(m, from: host, now: now)
-            self.masterAddr = UDPSocket.withPort(from, Ports.clock)
+            // only the master being followed decides where pings go (a dropped beacon must not redirect them)
+            if self.f.onBeacon(m, from: host, now: now) { self.masterAddr = UDPSocket.withPort(from, Ports.clock) }
             self.lock.unlock()
         }
         clockSock.onReceive = { [weak self] data, _ in

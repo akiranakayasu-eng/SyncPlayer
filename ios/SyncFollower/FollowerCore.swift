@@ -28,18 +28,21 @@ struct FollowerCore {
     private var pingID = 0
     private var generationStart = 0
 
-    mutating func onBeacon(_ m: Message, from host: String, now: Double) {
-        guard let s = m.s else { return }
+    /// Returns true when the beacon is from the master being followed (so the caller may aim pings at it).
+    @discardableResult
+    mutating func onBeacon(_ m: Message, from host: String, now: Double) -> Bool {
+        guard let s = m.s else { return false }
         let mid = m.mid ?? host, since = m.since ?? 0
         if mid != masterID {
             let newer = since > masterSince, silent = now - lastBeacon > 1.0
-            guard masterID == nil || newer || silent else { return }
+            guard masterID == nil || newer || silent else { return false }
             adopted = false; masterID = mid; masterSince = since
             clock.reset(); generationStart = pingID
         }
         lastBeacon = now; masterHost = host; masterName = m.name
         if !adopted && clock.ready { adopted = true }
         if adopted { schedule = s } else { pending = s }
+        return true
     }
 
     mutating func onPong(_ m: Message, t4: Double) {
@@ -48,7 +51,7 @@ struct FollowerCore {
         if !adopted && clock.ready { adopted = true; if let p = pending { schedule = p; pending = nil } }
     }
 
-    func masterAlive(now: Double) -> Bool { masterID != nil && now - lastBeacon < 1.0 }
+    func masterAlive(now: Double) -> Bool { masterID != nil && now - lastBeacon < 5.0 }   // like the Windows player: ride out short Wi‑Fi gaps, stop after 5 s
 
     /// Called every 50 ms (`tick` counts calls): every call while learning, then every 5th (0.25 s).
     mutating func pingDue(now: Double, name: String, ver: String, errMs: Double, dur: Double, seat: String?, tick: Int) -> Message? {

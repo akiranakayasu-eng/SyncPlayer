@@ -75,7 +75,8 @@ final class ClipNode {
         player.seek(to: CMTime(seconds: first, preferredTimescale: 90000), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self else { return }
-                let go = hostNow() + 0.1
+                // never earlier than the master's anchor (play/jump put it ~0.3 s ahead); Mac: max(startLocal, anchorHost - off)
+                let go = max(hostNow() + 0.1, s.anchorHost - offset())
                 let p = self.pos(s, go, offset())
                 self.player.setRate(1.0, time: CMTime(seconds: p, preferredTimescale: 90000),
                                     atHostTime: CMTime(seconds: go, preferredTimescale: 1_000_000_000))
