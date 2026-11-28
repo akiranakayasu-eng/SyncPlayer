@@ -39,12 +39,17 @@ pub fn tool(name: &str) -> PathBuf {
     PathBuf::from(exe)
 }
 
-/// What the timing needs to know about a movie (constant frame rate assumed).
+/// What the timing needs to know about a movie. Frames are taken as evenly spaced at `fps`; a movie
+/// whose frame spacing varies (VFR) is made even by ffmpeg's fps filter before its frames are timed.
 #[derive(Debug, Clone)]
 pub struct Media {
     pub path: PathBuf,
     pub fps: f64,
-    /// Length in seconds (stream duration, else container duration), as the Mac's asset duration.
+    /// The rate as ffprobe gave it (e.g. "30000/1001"), for ffmpeg's fps filter.
+    pub rate: String,
+    /// The frame spacing varies (average rate differs from the stream's base rate).
+    pub vfr: bool,
+    /// Length in seconds: the container's duration (as the Mac's AVAsset duration), else the stream's.
     pub len: f64,
     /// Coded picture size (its aspect is the one the layer fits, as the Mac uses the pixel buffer's).
     pub width: u32,
@@ -61,15 +66,23 @@ impl Media {
             "-of", "json"]).arg(path))
             .output().map_err(|e| format!("ffprobe could not start ({e}); is ffmpeg installed?"))?;
         let j: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| format!("ffprobe: {e}"))?;
+        Self::from_probe(path, &j)
+    }
+
+    /// Reads ffprobe's JSON (stream v:0 and format).
+    pub fn from_probe(path: &Path, j: &serde_json::Value) -> Result<Media, String> {
         let st = j.get("streams").and_then(|s| s.get(0)).ok_or(format!("no video in {}", path.display()))?;
         let rate = |k: &str| st.get(k).and_then(|v| v.as_str()).and_then(|r| {
             let (a, b) = r.split_once('/')?;
             let (a, b): (f64, f64) = (a.parse().ok()?, b.parse().ok()?);
-            (a > 0.0 && b > 0.0).then_some(a / b)
+            (a > 0.0 && b > 0.0 && a / b > 1.0 && a / b <= 240.0).then(|| (a / b, r.to_string()))
         });
-        let fps = rate("avg_frame_rate").or_else(|| rate("r_frame_rate")).filter(|f| *f > 1.0 && *f < 300.0).unwrap_or(30.0);
+        let (avg, base) = (rate("avg_frame_rate"), rate("r_frame_rate"));
+        let vfr = matches!((&avg, &base), (Some(a), Some(b)) if (a.0 - b.0).abs() > b.0 * 0.005);
+        // Even spacing at the stream's base rate for a VFR movie, else its (average) rate.
+        let (fps, rate) = if vfr { base.unwrap() } else { avg.or(base).unwrap_or((30.0, "30/1".into())) };
         let num = |v: Option<&serde_json::Value>| v.and_then(|d| d.as_str()).and_then(|d| d.parse::<f64>().ok()).filter(|d| *d > 0.0);
-        let len = num(st.get("duration")).or_else(|| num(j.get("format").and_then(|f| f.get("duration"))))
+        let len = num(j.get("format").and_then(|f| f.get("duration"))).or_else(|| num(st.get("duration")))
             .ok_or(format!("no duration for {}", path.display()))?;
         let width = st.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
         let height = st.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
@@ -80,13 +93,12 @@ impl Media {
             "bt2020nc" | "bt2020c" => "bt2020",
             _ => if height < 720 { "bt601" } else { "bt709" },
         };
-        Ok(Media {
-            path: path.to_path_buf(), fps, len, width, height, matrix,
-        })
+        Ok(Media { path: path.to_path_buf(), fps, rate, vfr, len, width, height, matrix })
     }
 
     /// Number of frames that start before `limit` seconds.
-    fn frames_before(&self, limit: f64) -> i64 { ((limit * self.fps) - 1e-6).ceil().max(1.0) as i64 }
+    /// (A start within 1 ms of the end does not count: durations are rounded, e.g. 4.041667 s at 24/s.)
+    fn frames_before(&self, limit: f64) -> i64 { ((limit - 0.001) * self.fps).ceil().max(1.0) as i64 }
 }
 
 pub struct Frame {
@@ -120,11 +132,17 @@ impl Drop for Decoder {
 fn spawn(m: &Media, first: i64, count: i64, w: u32, h: u32) -> std::io::Result<Child> {
     let mut cmd = Command::new(tool("ffmpeg"));
     cmd.args(["-hide_banner", "-loglevel", "error", "-nostdin"]);
-    // Seek half a frame before the wanted frame: the accurate seek drops frames before -ss, so the
-    // first frame out is exactly frame `first`.
-    if first > 0 { cmd.args(["-ss", &format!("{:.6}", (first as f64 - 0.5) / m.fps)]); }
+    // Even spacing: seek half a frame before the wanted frame (the accurate seek drops frames before
+    // -ss, so the first frame out is exactly frame `first`). Varying spacing (VFR): seek to the
+    // frame's time and let the fps filter lay frames on an even grid from there (frame k at k / fps).
+    let ss = if m.vfr { first as f64 / m.fps } else { (first as f64 - 0.5) / m.fps };
+    if first > 0 { cmd.args(["-ss", &format!("{ss:.6}")]); }
+    // VFR: keep the movie's own times (-copyts) so the grid starts at ss itself, not at the first
+    // frame that happens to follow it.
+    if m.vfr { cmd.arg("-copyts"); }
     cmd.arg("-i").arg(&m.path);
-    let vf = format!("scale={w}:{h}:flags=bilinear:in_color_matrix={},format=rgba", m.matrix);
+    let even = if m.vfr { format!("fps={}:start_time={ss:.6}:round=near,", m.rate) } else { String::new() };
+    let vf = format!("{even}scale={w}:{h}:flags=bilinear:in_color_matrix={},format=rgba", m.matrix);
     cmd.args(["-an", "-sn", "-vf", &vf, "-fps_mode", "passthrough", "-frames:v", &count.to_string(),
         "-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
     quiet(&mut cmd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
@@ -209,4 +227,37 @@ pub fn decode_size(m: &Media, max_w: u32, max_h: u32) -> (u32, u32) {
     let k = (max_w as f64 / m.width as f64).min(max_h as f64 / m.height as f64).min(1.0);
     let even = |x: f64| ((x.round() as u32) & !1).max(2);
     (even(m.width as f64 * k), even(m.height as f64 * k))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn media(j: &str) -> Media { Media::from_probe(Path::new("x.mp4"), &serde_json::from_str(j).unwrap()).unwrap() }
+
+    #[test]
+    fn length_from_the_container_and_even_rate() {
+        let m = media(r#"{"streams":[{"avg_frame_rate":"24/1","r_frame_rate":"24/1","duration":"4.000000","width":1280,"height":720}],
+            "format":{"duration":"4.041667"}}"#);
+        assert_eq!(m.len, 4.041667);
+        assert!(!m.vfr);
+        assert_eq!(m.fps, 24.0);
+        assert_eq!(m.matrix, "bt709");
+        assert_eq!(m.frames_before(m.len), 97);
+    }
+
+    #[test]
+    fn varying_frame_spacing_uses_the_base_rate() {
+        let m = media(r#"{"streams":[{"avg_frame_rate":"8960/301","r_frame_rate":"30/1","duration":"10.0","width":1920,"height":1080,
+            "color_space":"bt470bg"}],"format":{"duration":"10.033"}}"#);
+        assert!(m.vfr);
+        assert_eq!(m.fps, 30.0);
+        assert_eq!(m.rate, "30/1");
+        assert_eq!(m.matrix, "bt601");
+    }
+
+    #[test]
+    fn decode_size_keeps_aspect_and_even() {
+        let m = media(r#"{"streams":[{"avg_frame_rate":"30/1","width":3840,"height":1634}],"format":{"duration":"1"}}"#);
+        assert_eq!(decode_size(&m, 1920, 1080), (1920, 816));
+    }
 }

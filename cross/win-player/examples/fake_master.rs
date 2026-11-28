@@ -1,15 +1,19 @@
 //! A stand-in master on this PC, for testing win-player without a Mac: beacons to 127.0.0.1 every
 //! 0.2 s, answers clock pings, and walks through play / jump / pause / play / cycle / no cycle.
-//! Run: cargo run --release --example fake_master [beacon port, default 47800]
+//! Run: cargo run --release --example fake_master [beacon port, default 47800] [from address] [id]
+//!      (a second master: another loopback address, e.g. 127.0.0.2, and another id)
 //!      (with another port, start win-player with the same --beacon-port)
 use std::net::UdpSocket;
 use std::time::{Duration, Instant};
 use syncplayer_proto::{Message, Schedule, BEACON_PORT, CLOCK_PORT};
 
 fn main() {
-    let clock = UdpSocket::bind(("127.0.0.1", CLOCK_PORT)).expect("bind 127.0.0.1:47801");
+    // [beacon port] [address to send from, e.g. 127.0.0.2 for a second master] [master id]
+    let addr = std::env::args().nth(2).unwrap_or("127.0.0.1".into());
+    let mid = std::env::args().nth(3).unwrap_or("fake".into());
+    let clock = UdpSocket::bind((addr.as_str(), CLOCK_PORT)).expect("bind clock port");
     clock.set_nonblocking(true).unwrap();
-    let out = UdpSocket::bind(("127.0.0.1", 0)).unwrap();
+    let out = UdpSocket::bind((addr.as_str(), 0)).unwrap();
     let start = Instant::now();
     // A different origin than the follower's clock, so the offset is really learned.
     let host = || start.elapsed().as_secs_f64() + 1000.0;
@@ -50,7 +54,7 @@ fn main() {
         if el >= next_beacon {
             next_beacon = el + 0.2;
             let mut b = Message::new("b");
-            b.s = Some(s.clone()); b.mid = Some("fake".into()); b.since = Some(since); b.name = Some("fake-master".into());
+            b.s = Some(s.clone()); b.mid = Some(mid.clone()); b.since = Some(since); b.name = Some(mid.clone());
             b.ver = Some("test".into());
             let _ = out.send_to(&b.encode(), ("127.0.0.1", port));
         }

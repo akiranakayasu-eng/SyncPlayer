@@ -234,8 +234,10 @@ impl App {
         // The schedule to follow: the master's, or (--local) playing from 0 on our own clock.
         let (sched, offset) = if self.args.local {
             (Some(Schedule { epoch: 1, playing: true, anchor_host: 1.0, anchor_media: 0.0, cycle: None }), 0.0)
-        } else if self.heard(now) && self.f.clock.ready() {
-            (self.f.schedule.clone(), self.f.clock.offset)
+        } else if let (true, Some(off)) = (self.heard(now), self.f.offset()) {
+            // Also while a new master's clock is learned: the previous schedule and offset go on
+            // (no stop, no re-start of the movies).
+            (self.f.schedule.clone(), off)
         } else { (None, 0.0) };
 
         match &sched {
@@ -265,7 +267,7 @@ impl App {
 
     fn write_log(&mut self, now: f64, s: &Schedule) {
         let line = format!("{},{:.3},{:.3},{:.2},{:.3},{:.3},{},{},{},{},{},{}\n", wall_iso(), now,
-            self.f.clock.offset * 1000.0, self.f.clock.rtt * 1000.0, self.tick_err * 1000.0, self.max_abs_err * 1000.0,
+            self.f.offset().unwrap_or(0.0) * 1000.0, self.f.clock.rtt * 1000.0, self.tick_err * 1000.0, self.max_abs_err * 1000.0,
             self.resyncs(), self.loops, s.epoch, s.playing as u8, self.seat_name, self.clips.len());
         if let Some(f) = &mut self.log { let _ = f.write_all(line.as_bytes()); }
         self.max_abs_err = 0.0;
@@ -285,6 +287,7 @@ impl App {
             st.push(format!("{} {}  seat {}", if s.playing { "Following" } else { "Paused by" }, mname, self.seat_name));
             st.push(format!("err {:+.1} ms  rtt {:.1} ms  resyncs {}  loops {}  epoch {}",
                 self.tick_err * 1000.0, self.f.clock.rtt * 1000.0, self.resyncs(), self.loops, s.epoch));
+            if !self.f.adopted { st.push(format!("learning the new master's clock (samples {}); the last schedule goes on", self.f.clock.count())); }
             if !self.f.master_alive(now) { st.push("! no beacon for over 1 s (keeps following the last schedule up to 5 s)".into()); }
             if let Some(mf) = &self.f.master_file { if mf != &self.file_label { st.push("! the master has other movies".into()); } }
         }

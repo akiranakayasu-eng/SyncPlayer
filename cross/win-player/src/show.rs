@@ -114,7 +114,8 @@ fn outputs_of(v: Option<&Value>) -> Vec<Output> {
 impl ShowFile {
     pub fn read(path: &Path) -> Result<ShowFile, String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        Self::parse(&text, path)
+        // A file saved by a Windows editor may start with a byte order mark.
+        Self::parse(text.trim_start_matches('\u{feff}'), path)
     }
 
     pub fn parse(text: &str, path: &Path) -> Result<ShowFile, String> {

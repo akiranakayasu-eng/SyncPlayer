@@ -23,6 +23,8 @@ pub struct ClipPlayer {
     pub h: u32,
     /// How far ahead of the timeline a (re)start aims; learned from how long ffmpeg takes.
     lead: f64,
+    /// How far ahead the current decoder was started (the lead at that time).
+    aimed: f64,
     queue: usize,
 }
 
@@ -31,13 +33,14 @@ impl ClipPlayer {
         // About 0.4 s of frames, at most 16 (memory: w*h*4 each).
         let queue = ((media.fps * 0.4).ceil() as usize).clamp(4, 16);
         ClipPlayer { id, media: Arc::new(media), dec: None, cur: None, next: None, fresh: true, got_first: false, settled: false,
-            err_ema: 0.0, last_err: 0.0, resyncs: 0, serial: 0, lead: 0.25, w, h, queue }
+            err_ema: 0.0, last_err: 0.0, resyncs: 0, serial: 0, lead: 0.25, aimed: 0.0, w, h, queue }
     }
 
     fn restart(&mut self, tl: f64, playing: bool, cycle: Option<f64>, now: f64, why: &str) {
         debug(&format!("{now:.3} {} restart ({why}) tl {tl:.3} lead {:.3} cur {:?}", self.id, self.lead,
             self.cur.as_ref().map(|c| (c.tag, c.dur))));
         let t0 = if playing { tl + self.lead } else { tl };
+        self.aimed = t0 - tl;
         self.dec = None; // stops the old ffmpeg first
         self.dec = Some(Decoder::start(self.media.clone(), self.w, self.h, t0, cycle, now, self.queue));
         self.next = None;
@@ -97,8 +100,8 @@ impl ClipPlayer {
         if self.fresh {
             // Nothing from the new decoder yet. Its first frame is due no later than the start aim,
             // so one further ahead means the timeline went back (or the cycle moved): start again.
-            let far = self.next.as_ref().map(|f| f.tag > tl + self.lead + 0.1).unwrap_or(false);
-            if far || now - started > 3.0 { self.restart(tl, playing, cyc, now, if far { "first frame too far" } else { "no frame in 3 s" }); }
+            let far = self.next.as_ref().map(|f| f.tag > tl + self.aimed + 0.1).unwrap_or(false);
+            if far || now - started > 3.0 { self.restart(tl, playing, cyc, now, &(if far { format!("first frame too far: {:.3}", self.next.as_ref().map(|f| f.tag).unwrap_or(0.0)) } else { "no frame in 3 s".into() })); }
             return changed;
         }
         let Some(c) = &self.cur else { return changed };

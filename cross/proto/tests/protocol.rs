@@ -76,3 +76,46 @@ fn follower_prefers_newer_master_but_waits_out_silence() {
     f.on_beacon(&beacon("older", 1.0, true), "10.0.0.3", 3.0); // newer silent > 1 s: switch allowed
     assert_eq!(f.master_id.as_deref(), Some("older"));
 }
+
+fn learn(f: &mut Follower, from: f64, offset: f64) {
+    for i in 0..8 {
+        let now = from + i as f64 * 0.1;
+        let p = f.ping_due(now, "w", "0", None, 0.0).unwrap();
+        let t1 = p.t1.unwrap();
+        let mut q = Message::new("q");
+        q.id = p.id; q.t1 = Some(t1); q.t2 = Some(t1 + offset + 0.001); q.t3 = Some(t1 + offset + 0.0015);
+        f.on_pong(&q, t1 + 0.0025);
+    }
+}
+
+#[test]
+fn follower_keeps_playing_while_learning_a_new_master() {
+    // M6: switching masters must not stop the picture (the Mac's provisional offset).
+    let mut f = Follower::new();
+    f.on_beacon(&beacon("m1", 1.0, true), "10.0.0.2", 0.0);
+    learn(&mut f, 0.0, 5.0);
+    assert!(f.adopted);
+    let before = f.timeline(50.0).unwrap();
+    let off1 = f.offset().unwrap();
+    // A newer master: the clock starts over, but the old schedule goes on with the old offset.
+    let mut b = beacon("m2", 9.0, true);
+    b.s.as_mut().unwrap().anchor_media = 100.0;
+    f.on_beacon(&b, "10.0.0.3", 50.0);
+    assert_eq!(f.master_id.as_deref(), Some("m2"));
+    assert!(!f.adopted);
+    assert_eq!(f.offset(), Some(off1));
+    assert!((f.timeline(50.0).unwrap() - before).abs() < 1e-9);
+    // Once the new clock is ready, the new master's schedule and offset are used.
+    learn(&mut f, 50.0, 7.0);
+    assert!(f.adopted);
+    assert!((f.offset().unwrap() - 7.0).abs() < 1e-3);
+    assert_eq!(f.schedule.as_ref().unwrap().anchor_media, 100.0);
+}
+
+#[test]
+fn follower_without_a_schedule_has_no_provisional_timeline() {
+    let mut f = Follower::new();
+    f.on_beacon(&beacon("m1", 1.0, true), "10.0.0.2", 0.0);
+    assert!(f.offset().is_none());
+    assert!(f.timeline(1.0).is_none());
+}
