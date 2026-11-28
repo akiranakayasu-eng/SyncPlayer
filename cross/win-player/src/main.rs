@@ -219,7 +219,7 @@ impl App {
                 }
                 if now >= self.next_log { self.next_log = now + 1.0; self.write_log(now, s); }
             }
-            None => { for c in self.clips.iter_mut() { c.idle(); } self.tick_err = 0.0; }
+            None => { for c in self.clips.iter_mut() { if c.idle(now) { self.dirty = true; } } self.tick_err = 0.0; }
         }
 
         if now >= self.next_status {

@@ -42,8 +42,17 @@ impl ClipPlayer {
         self.resyncs += 1;
     }
 
-    /// Stop decoding (no master). Keeps the last picture.
-    pub fn idle(&mut self) { self.dec = None; self.next = None; }
+    /// No master: stop decoding and keep the last picture; before any picture, show the first frame
+    /// (as the iOS follower parks on it), so the seat can be checked while waiting.
+    pub fn idle(&mut self, now: f64) -> bool {
+        if self.cur.is_none() {
+            self.follow(0.0, false, None, now);
+            if self.cur.is_some() { self.dec = None; self.next = None; self.resyncs = 0; return true; }
+            return false;
+        }
+        self.dec = None; self.next = None;
+        false
+    }
 
     /// Brings the picture to timeline `tl` (master seconds, unwrapped). Returns true when the
     /// frame on screen changed.
