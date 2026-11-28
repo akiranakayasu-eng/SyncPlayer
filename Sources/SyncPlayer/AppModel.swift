@@ -1773,8 +1773,20 @@ final class AppModel: ObservableObject {
         win.title = L("SyncPlayer \(AppModel.version) — 操作", "SyncPlayer \(AppModel.version) — Control")
         control = win
         updateRepresented()
-        win.makeKeyAndOrderFront(nil)
+        // Exhibition (Akira 2026-11-28): this Mac starts without the control window (S shows it).
+        // The output windows are put in front in syncOutputs, which takes the keys when the control
+        // window is not visible.
+        if !hideControlAtStart {
+            win.makeKeyAndOrderFront(nil)
+        }
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Start without the control window (exhibition Macs that only follow). --hide-control for this
+    /// launch only; otherwise the Setup switch, kept for this Mac (UserDefaults), not in the show.
+    var hideControlAtStart: Bool { opts.hideControl || startHidden }
+    @Published var startHidden = UserDefaults.standard.bool(forKey: "exhibit.hideControl") {
+        didSet { UserDefaults.standard.set(startHidden, forKey: "exhibit.hideControl") }
     }
 
     /// The frontmost visible layer of the selected output that shows a picture at window point p

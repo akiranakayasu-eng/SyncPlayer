@@ -1878,6 +1878,7 @@ struct Inspector: View {
             GridRow { Text(L("版", "Version")).foregroundColor(.secondary); Text(AppModel.version) }
             GridRow { Text(L("役", "Role")).foregroundColor(.secondary); Text(model.isMaster ? L("マスター", "Master") : L("フォロワー", "Follower")) }
             GridRow { Text(L("展示のマスター", "Exhibition master")).foregroundColor(.secondary); Text(model.exhibitMaster ? L("はい（開くとマスターで始まる）", "Yes (starts as master)") : L("いいえ", "No")) }
+            GridRow { Text(L("操作の窓なしで開始", "Start without control window")).foregroundColor(.secondary); Text(model.startHidden ? L("はい", "Yes") : L("いいえ", "No")) }
             GridRow { Text(L("ログインで開く", "Open at login")).foregroundColor(.secondary); Text(model.openAtLogin ? L("はい", "Yes") : L("いいえ", "No")) }
             GridRow { Text(L("ショー", "Show")).foregroundColor(.secondary)
                       Text(model.showFile.map { ($0 as NSString).lastPathComponent } ?? L("まだ保存していない", "Not saved yet")).lineLimit(1).truncationMode(.middle) }
@@ -1889,6 +1890,9 @@ struct Inspector: View {
         FoldSection("Exhibition Setup (once, when installing)", key: "setup") {
         Toggle(L("ログインしたら SyncPlayer を開く", "Open SyncPlayer at Login"), isOn: Binding(get: { model.openAtLogin }, set: { model.openAtLogin = $0 }))
         Text(L("全台で入れる。再起動のあとログインするだけで、前と同じ全画面・音・マスクに戻る。", "Turn on for all Macs. After a restart, logging in brings back the same full screen, sound and masks."))
+            .font(.caption).foregroundColor(.secondary)
+        Toggle(L("起動したとき操作の窓を出さない", "Start Without the Control Window"), isOn: $model.startHidden)
+        Text(L("展示でフォロワーだけをする Mac に入れる。開くと前回のショーを、この Mac の Seat・全画面のまま開いて追従し、操作の窓は出ない。操作の窓は S で出し入れできる。", "For Macs that only follow in an exhibition. It opens the last show in this Mac's seat and full screen and follows the master, with no control window. S shows and hides the control window."))
             .font(.caption).foregroundColor(.secondary)
         Toggle(L("この Mac を展示のマスターにする", "Make This Mac the Exhibition Master"), isOn: Binding(get: { model.exhibitMaster }, set: { model.setExhibitMaster($0) }))
         Text(L("全台のうち 1 台だけに入れる。入れるとすぐマスターになり、次から開くとマスターで始まって 3 秒後に自動で再生する。ほかの Mac は何もしなくてもフォロワーになり、どちらが先に開いても数秒でそろう。マスターを開き直すと、全台が頭から始め直す（2〜3 秒止まる）。", "One Mac only. It becomes master now, and from then on starts as master and plays 3 s after opening. The other Macs become followers by themselves and sync within seconds in any order. Reopening the master restarts all Macs from the top (2–3 s pause)."))

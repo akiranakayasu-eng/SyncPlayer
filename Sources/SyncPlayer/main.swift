@@ -5,6 +5,7 @@ import AppKit
 // Options: --name A  --seat NAME  --fullscreen  --screen 1 (first output)  --audio | --mute
 //          --broadcast 192.168.1.255  --to 192.168.1.23 (extra master->follower address, repeatable)
 //          --log  --log-interval 0.1  --autoplay 2 (master starts by itself)  --quit-after 60
+//          --hide-control (start without the control window; S shows it)
 //          --switch-after 30 (test: switch master <-> follower after 30 s)
 //          --bgra (test: ask for BGRA frames instead of YUV, to compare the GPU load)
 //          --frames 420v|422v|x422|BGRA (test: ask for this frame layout only)
@@ -28,6 +29,8 @@ struct Options {
     var quitAfter: Double? = nil
     /// Test: open Footage with clip N (1 = first) picked, so its preview shows without clicking (2026-11-26).
     var selectClip: Int?
+    /// Start without the control window for this launch (S shows it). The Setup switch keeps it for this Mac.
+    var hideControl = false
     var preset: String?
     /// The seat this Mac is, by name (else the one it remembers, else it asks).
     var seat: String?
@@ -55,12 +58,13 @@ struct Options {
             case "--help", "-h":
                 // Print the options and stop, before any window opens or the show is saved
                 // (2026-11-25: --help used to start the app and rewrite current.syncshow).
-                print("usage: SyncPlayer [movies…] [--show file] [--master|--follower] [--name n] [--fullscreen] [--screen i] [--audio|--mute] [--broadcast a] [--to host] [--log] [--log-interval s] [--autoplay s] [--quit-after s] [--select-clip n] [--switch-after s] [--seat name] [--control off|local|lan] [--control-port 9310] [--control-key k] [--bgra] [--frames 420v|422v|x422|BGRA]")
+                print("usage: SyncPlayer [movies…] [--show file] [--master|--follower] [--name n] [--fullscreen] [--screen i] [--audio|--mute] [--broadcast a] [--to host] [--log] [--log-interval s] [--autoplay s] [--quit-after s] [--select-clip n] [--hide-control] [--switch-after s] [--seat name] [--control off|local|lan] [--control-port 9310] [--control-key k] [--bgra] [--frames 420v|422v|x422|BGRA]")
                 exit(0)
             case "--log-interval": log = true; logInterval = Double(next()) ?? 1
             case "--autoplay": autoplay = Double(next()) ?? 2
             case "--quit-after": quitAfter = Double(next())
             case "--select-clip": selectClip = Int(next())
+            case "--hide-control": hideControl = true
             case "--preset": preset = next()
             case "--seat": seat = next()
             case "--switch-after": switchAfter = Double(next())
