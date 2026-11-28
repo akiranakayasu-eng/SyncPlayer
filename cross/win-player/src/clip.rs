@@ -16,10 +16,13 @@ pub struct ClipPlayer {
     err_ema: f64,
     pub last_err: f64,
     pub resyncs: u32,
+    /// Goes up each time the frame on screen changes (so the window uploads it once).
+    pub serial: u64,
+    /// Decoded picture size.
+    pub w: u32,
+    pub h: u32,
     /// How far ahead of the timeline a (re)start aims; learned from how long ffmpeg takes.
     lead: f64,
-    w: u32,
-    h: u32,
     queue: usize,
 }
 
@@ -28,7 +31,7 @@ impl ClipPlayer {
         // About 0.4 s of frames, at most 16 (memory: w*h*4 each).
         let queue = ((media.fps * 0.4).ceil() as usize).clamp(4, 16);
         ClipPlayer { id, media: Arc::new(media), dec: None, cur: None, next: None, fresh: true, got_first: false, settled: false,
-            err_ema: 0.0, last_err: 0.0, resyncs: 0, lead: 0.25, w, h, queue }
+            err_ema: 0.0, last_err: 0.0, resyncs: 0, serial: 0, lead: 0.25, w, h, queue }
     }
 
     fn restart(&mut self, tl: f64, playing: bool, cycle: Option<f64>, now: f64, why: &str) {
@@ -83,6 +86,7 @@ impl ClipPlayer {
             match &self.next {
                 Some(f) if f.tag <= tl + 1e-4 => {
                     self.cur = self.next.take();
+                    self.serial += 1;
                     self.fresh = false;
                     changed = true;
                 }

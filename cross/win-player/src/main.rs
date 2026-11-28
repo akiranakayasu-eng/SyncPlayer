@@ -1,9 +1,10 @@
-//! SyncPlayer Windows player, stage 1 (picture only, no sound): opens a .syncshow, shows one seat's
-//! first output in one window, and follows a Mac SyncPlayer master (protocol 1, docs/protocol.md).
+//! SyncPlayer Windows player (picture only, no sound): opens a .syncshow, shows one seat's first
+//! output (its Screen) in one window, drawn like the Mac (layers with position / scale / rotation,
+//! corner pin, mesh, crop, feather, mask, opacity, and the Screen's edge blend), and follows a Mac SyncPlayer master (protocol 1, docs/protocol.md).
 //!
-//! Usage: win-player <show.syncshow> [--seat B] [--size 1280x720] [--name NAME] [--local]
+//! Usage: win-player <show.syncshow> [--seat B] [--size 1920x1080] [--name NAME] [--local]
 //!   --seat   seat name (default: the first seat)
-//!   --size   picture size the movies are decoded at (default 1280x720)
+//!   --size   largest size movies are decoded at, aspect kept (default 1920x1080)
 //!   --name   name reported to the master (default: the computer name)
 //!   --local  no master: play from 0 on this PC's own clock (to check the picture)
 //!   --beacon-port N  listen for beacons on another port (tests with examples/fake_master only)
@@ -14,13 +15,14 @@
 mod clip;
 mod decoder;
 mod font;
+mod gpu;
 mod show;
+mod warp;
 
 use clip::ClipPlayer;
 use std::io::Write;
 use std::net::{IpAddr, UdpSocket};
-use std::num::NonZeroU32;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use syncplayer_proto::{follower::Follower, Message, Schedule, BEACON_PORT, CLOCK_PORT};
 use winit::application::ApplicationHandler;
@@ -35,7 +37,7 @@ struct Args { show: String, seat: Option<String>, w: u32, h: u32, name: String, 
 
 fn parse_args() -> Result<Args, String> {
     let mut a = std::env::args().skip(1);
-    let mut out = Args { show: String::new(), seat: None, w: 1280, h: 720,
+    let mut out = Args { show: String::new(), seat: None, w: 1920, h: 1080,
         name: std::env::var("COMPUTERNAME").unwrap_or("Windows".into()), local: false, beacon_port: BEACON_PORT };
     while let Some(x) = a.next() {
         match x.as_str() {
@@ -55,7 +57,7 @@ fn parse_args() -> Result<Args, String> {
             _ => return Err(format!("unknown argument {x}")),
         }
     }
-    if out.show.is_empty() { return Err("usage: win-player <show.syncshow> [--seat B] [--size 1280x720] [--name NAME] [--local]".into()); }
+    if out.show.is_empty() { return Err("usage: win-player <show.syncshow> [--seat B] [--size 1920x1080] [--name NAME] [--local]".into()); }
     Ok(out)
 }
 
@@ -73,19 +75,22 @@ fn fail(msg: &str) -> ! {
     std::process::exit(1);
 }
 
-struct LayerRef { clip: usize, opacity: f64 }
-
 struct App {
     args: Args,
     seat_name: String,
     file_label: String,
     clips: Vec<ClipPlayer>,
-    layers: Vec<LayerRef>,
+    /// Layers for the GPU (handed over when the window is made).
+    specs: Option<Vec<gpu::LayerSpec>>,
+    blend: show::Blend,
     layer_info: Vec<String>,
     missing: Vec<String>,
     // network
     beacon: Option<UdpSocket>,
     clock: UdpSocket,
+    /// Pongs with their receive time, read on their own thread: drawing waits for the display's
+    /// refresh, and a pong read late would look like a longer round trip.
+    pongs: std::sync::mpsc::Receiver<(Vec<u8>, f64)>,
     f: Follower,
     master_ip: Option<IpAddr>,
     start: Instant,
@@ -98,9 +103,11 @@ struct App {
     log: Option<std::fs::File>,
     next_log: f64,
     // picture
-    window: Option<Rc<Window>>,
-    surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
-    canvas: Vec<u32>,
+    window: Option<Arc<Window>>,
+    gpu: Option<gpu::Gpu>,
+    /// Last frame serial uploaded, per clip.
+    uploaded: Vec<u64>,
+    overlay_dirty: bool,
     dirty: bool,
     status: Vec<String>,
     next_status: f64,
@@ -119,7 +126,7 @@ impl App {
                 "no seat '{n}' in the show (seats: {})", sh.seats.iter().map(|s| s.name.clone()).collect::<Vec<_>>().join(", ")))),
             None => &sh.seats[0],
         };
-        let out = seat.outputs.first().cloned().unwrap_or(show::Output { name: "Screen".into(), layers: vec![] });
+        let out = seat.outputs.first().cloned().unwrap_or(show::Output { name: "Screen".into(), layers: vec![], blend: show::Blend::default() });
         let mut clips: Vec<ClipPlayer> = vec![];
         let mut missing = vec![];
         let mut layers = vec![];
@@ -127,12 +134,26 @@ impl App {
             let idx = match clips.iter().position(|c| c.id == l.clip_id) {
                 Some(i) => Some(i),
                 None => match sh.clip_path(&l.clip_id).map(|p| decoder::Media::probe(&p)) {
-                    Some(Ok(m)) => { clips.push(ClipPlayer::new(l.clip_id.clone(), m, args.w, args.h)); Some(clips.len() - 1) }
+                    Some(Ok(m)) => {
+                        let (w, h) = decoder::decode_size(&m, args.w, args.h);
+                        clips.push(ClipPlayer::new(l.clip_id.clone(), m, w, h));
+                        Some(clips.len() - 1)
+                    }
                     Some(Err(e)) => { missing.push(e); None }
                     None => { missing.push(format!("missing movie {}", sh.clip_label(l))); None }
                 },
             };
-            if let Some(i) = idx { if l.visible && l.opacity > 0.0 { layers.push(LayerRef { clip: i, opacity: l.opacity.min(1.0) }); } }
+            let Some(i) = idx else { continue };
+            if !l.visible || l.opacity <= 0.0 { continue; }
+            let mask = match &l.mask {
+                None => None,
+                Some(m) => match sh.find(m).map(|p| gpu::load_mask(&p)) {
+                    Some(Ok(img)) => Some(img),
+                    Some(Err(e)) => { missing.push(e); None }
+                    None => { missing.push(format!("missing mask {}", m.rsplit(['/', '\\']).next().unwrap_or(m))); None }
+                },
+            };
+            layers.push(gpu::LayerSpec { clip: i, look: l.look.clone(), opacity: l.opacity.min(1.0), mask, mask_invert: l.mask_invert });
         }
         // front first, as on the Mac
         let layer_info = out.layers.iter().enumerate().rev().map(|(i, l)| format!("{} {} {}%{}", i + 1, sh.clip_label(l),
@@ -154,16 +175,25 @@ impl App {
             Some(s)
         };
         let clock = UdpSocket::bind(("0.0.0.0", 0)).unwrap_or_else(|e| fail(&format!("clock socket: {e}")));
-        clock.set_nonblocking(true).unwrap();
+        let start = Instant::now();
+        let (ptx, pongs) = std::sync::mpsc::channel();
+        let reader = clock.try_clone().unwrap_or_else(|e| fail(&format!("clock socket: {e}")));
+        std::thread::spawn(move || {
+            let mut b = [0u8; 2048];
+            while let Ok((n, _)) = reader.recv_from(&mut b) {
+                let t4 = start.elapsed().as_secs_f64();
+                if ptx.send((b[..n].to_vec(), t4)).is_err() { break; }
+            }
+        });
         let log = std::fs::File::create("follow-log.csv").ok().map(|mut f| {
             let _ = f.write_all(b"wall,host,offset_ms,rtt_ms,err_ms,max_abs_err_ms,resyncs,loops,epoch,playing,seat,clips\n");
             f
         });
         App {
-            seat_name: seat.name.clone(), file_label, clips, layers, layer_info, missing,
-            beacon, clock, f: Follower::new(), master_ip: None, start: Instant::now(), next_ping: 0.0, tick_err: 0.0,
+            seat_name: seat.name.clone(), file_label, uploaded: vec![0; clips.len()], clips, specs: Some(layers), blend: out.blend, layer_info, missing,
+            beacon, clock, pongs, f: Follower::new(), master_ip: None, start, next_ping: 0.0, tick_err: 0.0,
             max_abs_err: 0.0, loops: 0, last_cycle: None, log, next_log: 1.0,
-            window: None, surface: None, canvas: vec![0; (args.w * args.h) as usize], dirty: true,
+            window: None, gpu: None, overlay_dirty: true, dirty: true,
             status: vec![], next_status: 0.0, show_status: true, last_click: None, args,
         }
     }
@@ -187,9 +217,8 @@ impl App {
                 }
             }
         }
-        while let Ok((n, _)) = self.clock.recv_from(&mut buf) {
-            let t4 = self.host();
-            if let Some(m) = Message::decode(&buf[..n]) { self.f.on_pong(&m, t4); }
+        while let Ok((d, t4)) = self.pongs.try_recv() {
+            if let Some(m) = Message::decode(&d) { self.f.on_pong(&m, t4); }
         }
         let now = self.host();
         if now >= self.next_ping {
@@ -263,58 +292,28 @@ impl App {
         if self.status != st {
             if let Some(w) = &self.window { w.set_title(&format!("SyncPlayer — {}", st[0])); }
             self.status = st;
-            if self.show_status { self.dirty = true; }
-        }
-    }
-
-    /// Layers in order (the last one in front), each with its opacity and the movie's own alpha bars.
-    fn compose(&mut self) {
-        self.canvas.fill(0);
-        for l in &self.layers {
-            let Some(f) = &self.clips[l.clip].cur else { continue };
-            let op = (l.opacity * 256.0) as u32;
-            for (d, s) in self.canvas.iter_mut().zip(f.rgba.chunks_exact(4)) {
-                let a = (s[3] as u32 * op) >> 8;
-                if a == 0 { continue; }
-                if a >= 255 { *d = (s[0] as u32) << 16 | (s[1] as u32) << 8 | s[2] as u32; continue; }
-                let ia = 255 - a;
-                let (dr, dg, db) = ((*d >> 16) & 255, (*d >> 8) & 255, *d & 255);
-                let r = (s[0] as u32 * a + dr * ia) / 255;
-                let g = (s[1] as u32 * a + dg * ia) / 255;
-                let b = (s[2] as u32 * a + db * ia) / 255;
-                *d = r << 16 | g << 8 | b;
-            }
+            if self.show_status { self.dirty = true; self.overlay_dirty = true; }
         }
     }
 
     fn redraw(&mut self) {
-        let Some(win) = self.window.clone() else { return };
-        let size = win.inner_size();
-        let (ww, wh) = (size.width, size.height);
-        let (Some(nw), Some(nh)) = (NonZeroU32::new(ww), NonZeroU32::new(wh)) else { return };
-        self.compose();
-        let surface = self.surface.as_mut().unwrap();
-        if surface.resize(nw, nh).is_err() { return; }
-        let Ok(mut buf) = surface.buffer_mut() else { return };
-        buf.fill(0);
-        // Fit the picture into the window (aspect kept, black bars), nearest pixel.
-        let (cw, ch) = (self.args.w as f64, self.args.h as f64);
-        let k = (ww as f64 / cw).min(wh as f64 / ch);
-        let (dw, dh) = ((cw * k) as u32, (ch * k) as u32);
-        let (ox, oy) = ((ww - dw) / 2, (wh - dh) / 2);
-        let xs: Vec<usize> = (0..dw).map(|x| ((x as f64 + 0.5) / k) as usize).map(|x| x.min(self.args.w as usize - 1)).collect();
-        for y in 0..dh {
-            let sy = (((y as f64 + 0.5) / k) as usize).min(self.args.h as usize - 1);
-            let src = &self.canvas[sy * self.args.w as usize..][..self.args.w as usize];
-            let row = &mut buf[((oy + y) * ww + ox) as usize..][..dw as usize];
-            for (d, &sx) in row.iter_mut().zip(&xs) { *d = src[sx]; }
+        let Some(g) = self.gpu.as_mut() else { return };
+        for (k, c) in self.clips.iter().enumerate() {
+            if c.serial != self.uploaded[k] {
+                if let Some(f) = &c.cur { g.set_frame(k, c.w, c.h, &f.rgba); }
+                self.uploaded[k] = c.serial;
+            }
         }
-        if self.show_status {
-            let mut lines = self.status.clone();
-            if self.status.len() <= 2 { lines.extend(self.layer_info.iter().cloned()); }
-            font::draw_lines(&mut buf, ww, wh, 8, 8, &lines);
+        if self.overlay_dirty {
+            self.overlay_dirty = false;
+            if self.show_status {
+                let mut lines = self.status.clone();
+                if self.status.len() <= 2 { lines.extend(self.layer_info.iter().cloned()); }
+                let wide = self.window.as_ref().map(|w| w.inner_size().width >= 1600).unwrap_or(false);
+                g.set_overlay(Some(font::render(&lines, if wide { 2 } else { 1 })));
+            } else { g.set_overlay(None); }
         }
-        let _ = buf.present();
+        g.render(&self.blend);
         self.dirty = false;
     }
 
@@ -346,10 +345,13 @@ impl ApplicationHandler for App {
         if self.window.is_some() { return; }
         let attrs = Window::default_attributes().with_title("SyncPlayer")
             .with_inner_size(winit::dpi::LogicalSize::new(960.0, 540.0));
-        let w = Rc::new(el.create_window(attrs).unwrap_or_else(|e| fail(&format!("window: {e}"))));
-        let ctx = softbuffer::Context::new(w.clone()).unwrap_or_else(|e| fail(&format!("softbuffer: {e}")));
-        self.surface = Some(softbuffer::Surface::new(&ctx, w.clone()).unwrap_or_else(|e| fail(&format!("softbuffer: {e}"))));
+        let w = Arc::new(el.create_window(attrs).unwrap_or_else(|e| fail(&format!("window: {e}"))));
+        let specs = self.specs.take().unwrap_or_default();
+        let g = gpu::Gpu::new(w.clone(), self.clips.len(), specs).unwrap_or_else(|e| fail(&format!("GPU: {e}")));
+        self.layer_info.push(format!("GPU {}", g.adapter_name));
+        self.gpu = Some(g);
         self.window = Some(w);
+        self.overlay_dirty = true;
         self.dirty = true;
     }
 
@@ -357,7 +359,10 @@ impl ApplicationHandler for App {
         match ev {
             WindowEvent::CloseRequested => el.exit(),
             WindowEvent::RedrawRequested => self.redraw(),
-            WindowEvent::Resized(_) => self.dirty = true,
+            WindowEvent::Resized(s) => {
+                if let Some(g) = &mut self.gpu { g.resize(s.width, s.height); }
+                self.dirty = true; self.overlay_dirty = true;
+            }
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
                 let now = Instant::now();
                 if self.last_click.map(|t| now - t < Duration::from_millis(400)).unwrap_or(false) {
@@ -368,7 +373,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => match event.logical_key {
                 Key::Named(NamedKey::Escape) => self.toggle_full(false),
-                Key::Character(c) if c.eq_ignore_ascii_case("i") => { self.show_status = !self.show_status; self.dirty = true; }
+                Key::Character(c) if c.eq_ignore_ascii_case("i") => { self.show_status = !self.show_status; self.dirty = true; self.overlay_dirty = true; }
                 _ => {}
             },
             _ => {}

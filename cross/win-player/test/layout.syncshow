@@ -1,0 +1,18 @@
+{
+  "version": 3,
+  "id": "win-player-layout-test",
+  "clips": [
+    { "id": "c1", "path": "clipA.mp4" },
+    { "id": "c2", "path": "clipB.mp4" }
+  ],
+  "seats": [
+    { "id": "m", "name": "M", "outputs": [ { "name": "Screen 1", "layers": [
+      { "clipID": "c1" },
+      { "clipID": "c2", "mask": "../../../samples/丸いマスク.png" }
+    ] } ] },
+    { "id": "k", "name": "K", "outputs": [ { "name": "Screen 1", "blend": { "l": 0.15, "r": 0.15, "t": 0, "b": 0, "gamma": 2.2 }, "layers": [
+      { "clipID": "c1", "look": { "corners": [0.12, 0.0, 0.88, 0.0, 1.0, 1.0, 0.0, 1.0], "cropL": 0.05, "cropR": 0.05, "feather": 0.05 } },
+      { "clipID": "c2", "opacity": 0.8, "look": { "posX": 0.25, "posY": -0.1, "scale": 0.4, "rotation": 20 } }
+    ] } ] }
+  ]
+}

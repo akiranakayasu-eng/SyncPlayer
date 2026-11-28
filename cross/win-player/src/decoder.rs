@@ -46,12 +46,18 @@ pub struct Media {
     pub fps: f64,
     /// Length in seconds (stream duration, else container duration), as the Mac's asset duration.
     pub len: f64,
+    /// Coded picture size (its aspect is the one the layer fits, as the Mac uses the pixel buffer's).
+    pub width: u32,
+    pub height: u32,
+    /// ffmpeg name of the YCbCr matrix to convert with (the movie's own; untagged: below 720 lines
+    /// BT.601, else BT.709, as the Mac decides).
+    pub matrix: &'static str,
 }
 
 impl Media {
     pub fn probe(path: &Path) -> Result<Media, String> {
         let out = quiet(Command::new(tool("ffprobe")).args(["-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=avg_frame_rate,r_frame_rate,duration", "-show_entries", "format=duration",
+            "-show_entries", "stream=avg_frame_rate,r_frame_rate,duration,width,height,color_space", "-show_entries", "format=duration",
             "-of", "json"]).arg(path))
             .output().map_err(|e| format!("ffprobe could not start ({e}); is ffmpeg installed?"))?;
         let j: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| format!("ffprobe: {e}"))?;
@@ -65,8 +71,17 @@ impl Media {
         let num = |v: Option<&serde_json::Value>| v.and_then(|d| d.as_str()).and_then(|d| d.parse::<f64>().ok()).filter(|d| *d > 0.0);
         let len = num(st.get("duration")).or_else(|| num(j.get("format").and_then(|f| f.get("duration"))))
             .ok_or(format!("no duration for {}", path.display()))?;
+        let width = st.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let height = st.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        if width == 0 || height == 0 { return Err(format!("no picture size for {}", path.display())); }
+        let matrix = match st.get("color_space").and_then(|v| v.as_str()).unwrap_or("") {
+            "bt709" | "smpte240m" => "bt709",
+            "bt470bg" | "smpte170m" | "fcc" => "bt601",
+            "bt2020nc" | "bt2020c" => "bt2020",
+            _ => if height < 720 { "bt601" } else { "bt709" },
+        };
         Ok(Media {
-            path: path.to_path_buf(), fps, len,
+            path: path.to_path_buf(), fps, len, width, height, matrix,
         })
     }
 
@@ -101,8 +116,7 @@ impl Drop for Decoder {
     }
 }
 
-/// Spawns ffmpeg for frames [first, first + count) of the clip, scaled into w×h (aspect kept,
-/// transparent bars) as RGBA.
+/// Spawns ffmpeg for frames [first, first + count) of the clip, scaled to w×h, as RGBA.
 fn spawn(m: &Media, first: i64, count: i64, w: u32, h: u32) -> std::io::Result<Child> {
     let mut cmd = Command::new(tool("ffmpeg"));
     cmd.args(["-hide_banner", "-loglevel", "error", "-nostdin"]);
@@ -110,8 +124,7 @@ fn spawn(m: &Media, first: i64, count: i64, w: u32, h: u32) -> std::io::Result<C
     // first frame out is exactly frame `first`.
     if first > 0 { cmd.args(["-ss", &format!("{:.6}", (first as f64 - 0.5) / m.fps)]); }
     cmd.arg("-i").arg(&m.path);
-    let vf = format!("scale={w}:{h}:force_original_aspect_ratio=decrease:flags=bilinear,\
-        pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba");
+    let vf = format!("scale={w}:{h}:flags=bilinear:in_color_matrix={},format=rgba", m.matrix);
     cmd.args(["-an", "-sn", "-vf", &vf, "-fps_mode", "passthrough", "-frames:v", &count.to_string(),
         "-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
     quiet(&mut cmd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
@@ -189,4 +202,11 @@ impl Decoder {
             Err(TryRecvError::Disconnected) => Err(()),
         }
     }
+}
+
+/// The size a movie is decoded at: its own, made smaller (aspect kept) to fit in `max_w`×`max_h`.
+pub fn decode_size(m: &Media, max_w: u32, max_h: u32) -> (u32, u32) {
+    let k = (max_w as f64 / m.width as f64).min(max_h as f64 / m.height as f64).min(1.0);
+    let even = |x: f64| ((x.round() as u32) & !1).max(2);
+    (even(m.width as f64 * k), even(m.height as f64 * k))
 }

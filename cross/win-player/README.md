@@ -1,9 +1,10 @@
-# win-player (SyncPlayer for Windows, stage 1: picture)
+# win-player (SyncPlayer for Windows: picture)
 
-Opens a `.syncshow`, shows one seat's first output in one window, and follows a Mac SyncPlayer
-master (protocol 1, `docs/protocol.md`). No sound, no warp / crop / mask / edge blend yet (the same
-scope as the iOS follower). Layers are drawn in order (the last one in front) with their opacity,
-each fitted into the picture with its aspect kept.
+Opens a `.syncshow`, shows one seat's first output (its Screen) in one window, and follows a Mac
+SyncPlayer master (protocol 1, `docs/protocol.md`). Drawn like the Mac (`src/warp.rs` and the shader in
+`src/gpu.rs` port `Warp.swift` and `Renderer.swift`): layers back to front with opacity, position /
+scale / rotation, corner pin, curved-surface mesh, crop, feather, mask image, and the Screen's edge
+blend; wgpu (Direct3D 12 / Vulkan), presented with vsync. No sound yet.
 
 ## Needs
 - `ffmpeg.exe` and `ffprobe.exe` (e.g. `winget install Gyan.FFmpeg`): on PATH, next to
@@ -12,10 +13,11 @@ each fitted into the picture with its aspect kept.
 
 ## Run
 ```
-win-player <show.syncshow> [--seat B] [--size 1280x720] [--name NAME] [--local]
+win-player <show.syncshow> [--seat B] [--size 1920x1080] [--name NAME] [--local]
 ```
 - `--seat`: seat name (default: the first seat). Shows without seats (version 1–2) are seat `A`.
-- `--size`: the size the movies are decoded at (default 1280x720); the window scales it.
+- `--size`: the largest size movies are decoded at, aspect kept (default 1920x1080). The window is the
+  Screen: layers are placed in it as on the Mac's output window.
 - `--local`: no master, play from 0 on this PC's clock (to check the picture).
 - On the Mac master, add this PC's address with `--to` (unicast), or rely on broadcast.
 - Double-click: full screen. Esc: back to a window. I: hide/show the status.
