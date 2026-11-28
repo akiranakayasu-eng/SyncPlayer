@@ -6,7 +6,7 @@ import UIKit
 /// one bundled movie in step with it. No warp, no seats, simple loop (a short hiccup at the loop
 /// point is expected; the Mac's two-player handover is not ported yet).
 final class FollowerModel: ObservableObject {
-    static let version = "0.1.0-ios"
+    static let version = "0.1.1-ios"
     let player = AVPlayer()
     @Published var status = "Waiting for a master…"
     @Published var detail = ""
@@ -29,7 +29,10 @@ final class FollowerModel: ObservableObject {
     private var errEMA = 0.0
     private(set) var lastErr = 0.0
     private var resyncs = 0, loops = 0
-    private var lastCycleStart = -1.0
+    private var lastCycleIndex = -1
+    private var logHandle: FileHandle?
+    private var lastLog = 0.0
+    private var maxAbsErr = 0.0
 
     init() {
         beaconSock = (try? UDPSocket(port: Ports.beacon, reusePort: true)) ?? { fatalError("beacon port") }()
@@ -46,6 +49,7 @@ final class FollowerModel: ObservableObject {
             }
         }
         UIApplication.shared.isIdleTimerDisabled = true
+        openLog()
         beaconSock.onReceive = { [weak self] data, from in
             guard let self, let m = Message.decode(data), m.k == "b" else { return }
             let host = UDPSocket.hostString(from), now = hostNow()
@@ -110,6 +114,31 @@ final class FollowerModel: ObservableObject {
         detail = String(format: "offset %.3f ms  rtt %.1f ms  err %+.2f ms  resyncs %d  loops %d  epoch %d",
                         offset * 1000, rtt * 1000, lastErr * 1000, resyncs, loops, s.epoch)
         follow(s, offset: offset, now: now)
+        writeLog(now: now, offset: offset, rtt: rtt, s: s)
+    }
+
+    /// Documents/follow-log.csv, one line per second (new file per launch). Read it from the Mac:
+    /// xcrun devicectl device copy from --device <id> --domain-type appDataContainer
+    ///   --domain-identifier com.nakayasu.syncfollower --source Documents/follow-log.csv --destination <path>
+    private func openLog() {
+        guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let url = dir.appendingPathComponent("follow-log.csv")
+        let head = "wall,host,offset_ms,rtt_ms,err_ms,max_abs_err_ms,resyncs,loops,epoch,playing,rate,pos\n"
+        try? head.write(to: url, atomically: true, encoding: .utf8)
+        logHandle = try? FileHandle(forWritingTo: url)
+        _ = logHandle?.seekToEndOfFile()
+    }
+
+    private func writeLog(now: Double, offset: Double, rtt: Double, s: Schedule) {
+        maxAbsErr = max(maxAbsErr, abs(lastErr))
+        guard now - lastLog >= 1.0 else { return }
+        lastLog = now
+        let line = String(format: "%@,%.3f,%.3f,%.2f,%.3f,%.3f,%d,%d,%d,%d,%.2f,%.3f\n",
+                          ISO8601DateFormatter().string(from: Date()), now, offset * 1000, rtt * 1000,
+                          lastErr * 1000, maxAbsErr * 1000, resyncs, loops, s.epoch, s.playing ? 1 : 0,
+                          Double(player.rate), player.currentTime().seconds)
+        if let d = line.data(using: .utf8) { logHandle?.write(d) }
+        maxAbsErr = 0
     }
 
     /// Position inside the clip for a local time.
@@ -128,6 +157,10 @@ final class FollowerModel: ObservableObject {
             return
         }
         let target = clipPos(s, now, offset)
+        let span = (s.cycle ?? 0) > 0 ? s.cycle! : duration
+        let idx = Int(s.timeline(local: now, offset: offset) / span)
+        if lastCycleIndex >= 0 && idx > lastCycleIndex { loops += 1 }
+        lastCycleIndex = idx
         // The master's times are in its clock; a start time to the local host clock is "local".
         let needStart = servedEpoch != s.epoch || player.rate == 0
         var err = 0.0
