@@ -1,0 +1,17 @@
+{
+  "version": 3,
+  "id": "win-player-test",
+  "clips": [
+    { "id": "c1", "path": "clipA.mp4" },
+    { "id": "c2", "path": "/Users/someone/Movies/clipB.mp4" }
+  ],
+  "seats": [
+    { "id": "s1", "name": "A", "outputs": [ { "name": "Screen 1", "layers": [ { "clipID": "c1" } ] } ] },
+    { "id": "s2", "name": "B", "outputs": [ { "name": "Screen 1", "layers": [
+      { "clipID": "c1", "opacity": 1 },
+      { "clipID": "c2", "opacity": 0.6 }
+    ] } ] }
+  ],
+  "loopTogether": true,
+  "loopLength": 0
+}
