@@ -8,6 +8,9 @@
 //!   --size   largest size movies are decoded at, aspect kept (default 1920x1080)
 //!   --name   name reported to the master / announced as master (default: the computer name)
 //!   --master start as the master (as M); --to: also send the beacon to these addresses (unicast)
+//!   --fullscreen  start full screen
+//!   --exhibit     for exhibitions: full screen, no status, no mouse pointer (I shows the status)
+//!   (no show given: the one opened last time, with the seat chosen last time for it)
 //!   --local  no master: play from 0 on this PC's own clock (to check the picture)
 //!   --beacon-port N  listen for beacons on another port (tests with examples/fake_master only)
 //!   --no-broadcast   as master, send the beacon only to this PC and --to (tests: leaves other masters alone)
@@ -22,6 +25,7 @@ mod decoder;
 mod font;
 mod gpu;
 mod master;
+mod memory;
 mod show;
 mod warp;
 
@@ -40,19 +44,21 @@ use winit::window::{Fullscreen, Window, WindowId};
 const VERSION: &str = "0.1.0-win";
 
 struct Args { show: String, seat: Option<String>, w: u32, h: u32, name: String, local: bool, beacon_port: u16,
-    master: bool, to: Vec<String>, no_broadcast: bool }
+    master: bool, to: Vec<String>, no_broadcast: bool, fullscreen: bool, exhibit: bool }
 
 fn parse_args() -> Result<Args, String> {
     let mut a = std::env::args().skip(1);
     let mut out = Args { show: String::new(), seat: None, w: 1920, h: 1080,
         name: std::env::var("COMPUTERNAME").unwrap_or("Windows".into()), local: false, beacon_port: BEACON_PORT,
-        master: false, to: vec![], no_broadcast: false };
+        master: false, to: vec![], no_broadcast: false, fullscreen: false, exhibit: false };
     while let Some(x) = a.next() {
         match x.as_str() {
             "--seat" => out.seat = a.next(),
             "--name" => out.name = a.next().unwrap_or(out.name),
             "--local" => out.local = true,
             "--master" => out.master = true,
+            "--fullscreen" => out.fullscreen = true,
+            "--exhibit" => { out.exhibit = true; out.fullscreen = true; }
             "--no-broadcast" => out.no_broadcast = true,
             "--to" => out.to.extend(a.next().unwrap_or_default().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty())),
             "--beacon-port" => out.beacon_port = a.next().and_then(|p| p.parse().ok()).ok_or("bad --beacon-port")?,
@@ -68,7 +74,9 @@ fn parse_args() -> Result<Args, String> {
             _ => return Err(format!("unknown argument {x}")),
         }
     }
-    if out.show.is_empty() { return Err("usage: win-player <show.syncshow> [--seat B] [--size 1920x1080] [--name NAME] [--master [--to IP,IP]] [--local]".into()); }
+    // No show given: the one opened last time (an exhibition PC just starts the player).
+    if out.show.is_empty() { if let Some(p) = memory::last_show() { out.show = p.to_string_lossy().to_string(); } }
+    if out.show.is_empty() { return Err("usage: win-player <show.syncshow> [--seat B] [--size 1920x1080] [--name NAME] [--master [--to IP,IP]] [--fullscreen] [--exhibit] [--local]\n(no show to open yet: give one the first time)".into()); }
     Ok(out)
 }
 
@@ -139,12 +147,17 @@ impl App {
 
     fn new(args: Args) -> App {
         let path = std::path::PathBuf::from(&args.show);
+        // Full path (remembered for the next launch), without Windows' \\?\ prefix.
+        let path = std::fs::canonicalize(&path)
+            .map(|p| std::path::PathBuf::from(p.to_string_lossy().trim_start_matches(r"\\?\").to_string())).unwrap_or(path);
         let sh = show::ShowFile::read(&path).unwrap_or_else(|e| fail(&e));
         let seat = match &args.seat {
             Some(n) => sh.seats.iter().find(|s| &s.name == n).unwrap_or_else(|| fail(&format!(
                 "no seat '{n}' in the show (seats: {})", sh.seats.iter().map(|s| s.name.clone()).collect::<Vec<_>>().join(", ")))),
-            None => &sh.seats[0],
+            // Not given: the seat chosen last time for this show, else the first.
+            None => memory::seat_for(&path).and_then(|n| sh.seats.iter().find(|s| s.name == n)).unwrap_or(&sh.seats[0]),
         };
+        if !args.local { memory::remember(&path, &seat.name); }
         let out = seat.outputs.first().cloned().unwrap_or(show::Output { name: "Screen".into(), layers: vec![], blend: show::Blend::default() });
         let mut clips: Vec<ClipPlayer> = vec![];
         let mut missing = vec![];
@@ -221,7 +234,7 @@ impl App {
             loop_together: sh.loop_together, loop_fixed: sh.loop_length, master_ip: None, start, next_ping: 0.0, tick_err: 0.0,
             max_abs_err: 0.0, loops: 0, last_cycle: None, log, next_log: 1.0,
             window: None, gpu: None, overlay_dirty: true, dirty: true,
-            status: vec![], next_status: 0.0, show_status: true, last_click: None, shift: false, args,
+            status: vec![], next_status: 0.0, show_status: !args.exhibit, last_click: None, shift: false, args,
         }
     }
 
@@ -438,8 +451,11 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, el: &ActiveEventLoop) {
         if self.window.is_some() { return; }
         let attrs = Window::default_attributes().with_title("SyncPlayer")
-            .with_inner_size(winit::dpi::LogicalSize::new(960.0, 540.0));
+            .with_inner_size(winit::dpi::LogicalSize::new(960.0, 540.0))
+            .with_fullscreen(self.args.fullscreen.then_some(Fullscreen::Borderless(None)));
         let w = Arc::new(el.create_window(attrs).unwrap_or_else(|e| fail(&format!("window: {e}"))));
+        // An exhibition screen shows no mouse pointer.
+        if self.args.exhibit { w.set_cursor_visible(false); }
         let specs = self.specs.take().unwrap_or_default();
         let g = gpu::Gpu::new(w.clone(), self.clips.len(), specs).unwrap_or_else(|e| fail(&format!("GPU: {e}")));
         self.layer_info.push(format!("GPU {}", g.adapter_name));

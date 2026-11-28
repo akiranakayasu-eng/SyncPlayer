@@ -62,3 +62,11 @@ the picture); the common loop is the show's `loopLength`, else the longest clip 
 (when `loopTogether`). Keys: space play/stop, ← → one frame (shift: 1 s), ↑ or R to the start.
 The window lists the followers heard (name, seat, error). Shows are still edited on the Mac.
 `--no-broadcast` (tests) sends the beacon only to this PC and `--to`, leaving other masters alone.
+
+## Exhibitions (switch on, and it plays)
+- Started without a show, it opens the show opened last time, with the seat chosen last time for
+  that show (kept in `%APPDATA%\SyncPlayer\win-player.json`). It follows a master as usual.
+- `--exhibit`: full screen, no status, no mouse pointer (I shows the status). `--fullscreen` alone
+  only starts full screen.
+- To start it when Windows starts, put a shortcut in the Startup folder (`shell:startup`) whose
+  target is `win-player.exe --exhibit` (ffmpeg on PATH or next to the exe).
