@@ -50,3 +50,15 @@ cargo run --release --example fake_master 47810
 target\release\win-player.exe test\test.syncshow --seat B --beacon-port 47810
 ```
 `fake_master` sends beacons to 127.0.0.1 and walks through play, jump, pause, play, cycle 6 s, no cycle.
+
+## Master (this PC leads)
+```
+win-player <show.syncshow> --master [--to 192.168.1.20,100.64.0.5]
+```
+or press M in the window (M again steps down). As on the Mac (`Roles.swift` Master): beacon every
+0.2 s to the subnet (255.255.255.255), this PC and each `--to`; clock pings answered on their own
+thread; the newest master wins (a newer one makes this PC step down and follow it, without stopping
+the picture); the common loop is the show's `loopLength`, else the longest clip any follower reports
+(when `loopTogether`). Keys: space play/stop, ← → one frame (shift: 1 s), ↑ or R to the start.
+The window lists the followers heard (name, seat, error). Shows are still edited on the Mac.
+`--no-broadcast` (tests) sends the beacon only to this PC and `--to`, leaving other masters alone.

@@ -79,6 +79,9 @@ pub struct ShowFile {
     pub title: String,
     pub clips: Vec<Clip>,
     pub seats: Vec<Seat>,
+    /// Loop together (one common loop length for every machine) and its fixed length (0 = automatic).
+    pub loop_together: bool,
+    pub loop_length: f64,
 }
 
 fn outputs_of(v: Option<&Value>) -> Vec<Output> {
@@ -138,6 +141,8 @@ impl ShowFile {
             folder: path.parent().map(Path::to_path_buf).unwrap_or_default(),
             title: path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
             clips, seats,
+            loop_together: j.get("loopTogether").and_then(|v| v.as_bool()).unwrap_or(true),
+            loop_length: j.get("loopLength").and_then(|v| v.as_f64()).unwrap_or(0.0),
         })
     }
 
