@@ -137,10 +137,15 @@ impl Decoder {
             let p0 = (t0 - origin).min(limit);
             let first = ((p0 * m.fps + 1e-6).floor() as i64).clamp(0, total - 1);
             let size = (w * h * 4) as usize;
-            let mut seg_first = first;
-            let mut child = match spawn(m, first, total - first, w, h) { Ok(c) => c, Err(_) => return };
+            // Start a few frames early and drop them: a seek to (near) the very last frame can give
+            // nothing, and then the frame to hold would be missing.
+            let back = first.min(12);
+            let mut seg_first = first - back;
+            let mut skip_below = first;
+            let mut child = match spawn(m, seg_first, total - seg_first, w, h) { Ok(c) => c, Err(_) => return };
             let mut next: Option<Child> = None;
             let mut pending: Option<Frame> = None;
+            let mut pending_early = false;
             loop {
                 if stop2.load(Ordering::SeqCst) { break; }
                 let mut out = child.stdout.take().unwrap();
@@ -152,7 +157,11 @@ impl Decoder {
                     let mut buf = vec![0u8; size];
                     if out.read_exact(&mut buf).is_err() { break; }
                     let f = Frame { tag: origin + i as f64 * fd, dur: fd, rgba: buf };
-                    if let Some(p) = pending.replace(f) { if tx.send(p).is_err() { return; } }
+                    let early = i < skip_below;
+                    // An early frame is only kept in case the clip ends before the wanted one.
+                    let prev = pending.replace(f);
+                    if let Some(p) = prev { if !pending_early && tx.send(p).is_err() { return; } }
+                    pending_early = early;
                     i += 1;
                 }
                 if stop2.load(Ordering::SeqCst) { return; }
@@ -162,8 +171,10 @@ impl Decoder {
                     p.dur = (origin - p.tag).max(fd);
                     if tx.send(p).is_err() { return; }
                 }
+                pending_early = false;
                 if let Ok(mut ch) = children2.lock() { for c in ch.iter_mut() { let _ = c.wait(); } ch.clear(); }
                 seg_first = 0;
+                skip_below = 0;
                 child = match next.take() { Some(c) => c, None => match spawn(m, 0, total, w, h) { Ok(c) => c, Err(_) => return } };
             }
         });
