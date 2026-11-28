@@ -170,6 +170,12 @@ final class FollowerModel: ObservableObject {
         return out
     }
 
+    /// Publish only when changed, so SwiftUI does not rebuild (and dismiss open menus) 20 times a second.
+    private func setText(_ s: String, _ d: String) {
+        if status != s { status = s }
+        if detail != d { detail = d }
+    }
+
     private func step() {
         let now = hostNow()
         tick += 1
@@ -186,13 +192,12 @@ final class FollowerModel: ObservableObject {
         if let ping, let addr { let s = clockSock; queue.async { s.send(ping.encoded(), to: addr) } }
 
         guard alive else {
-            status = "Waiting for a master…"
-            detail = "Tell the Mac master: --to <this device's IP>   IP: \(myIPs)"
+            setText("Waiting for a master…", "Tell the Mac master: --to <this device's IP>   IP: \(myIPs)")
             nodes.forEach { $0.idle() }
             return
         }
         guard ready, let s = sched, longest > 0 else {
-            status = "Learning the clock from \(mname)…"; detail = "samples \(count)"; return
+            setText("Learning the clock from \(mname)…", "samples \(count)"); return
         }
         let off = { [weak self] () -> Double in
             guard let self else { return 0 }
@@ -207,9 +212,10 @@ final class FollowerModel: ObservableObject {
         if lastCycleIndex >= 0 && idx > lastCycleIndex { loops += 1 }
         lastCycleIndex = idx
         let resyncs = nodes.map(\.resyncs).reduce(0, +)
-        status = (s.playing ? "Following " : "Paused by ") + mname + (show == nil ? "" : " — seat \(seatName)")
-        detail = String(format: "offset %.3f ms  rtt %.1f ms  err %+.2f ms  resyncs %d  loops %d  clips %d  epoch %d",
+        let st = (s.playing ? "Following " : "Paused by ") + mname + (show == nil ? "" : " — seat \(seatName)")
+        let dt = String(format: "offset %.3f ms  rtt %.1f ms  err %+.2f ms  resyncs %d  loops %d  clips %d  epoch %d",
                         offset * 1000, rtt * 1000, lastErr * 1000, resyncs, loops, nodes.count, s.epoch)
+        setText(st, dt)
         writeLog(now: now, offset: offset, rtt: rtt, s: s, resyncs: resyncs)
     }
 

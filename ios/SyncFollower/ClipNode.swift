@@ -27,7 +27,13 @@ final class ClipNode {
     }
 
     func setMuted(_ m: Bool) { player.isMuted = m }
-    func idle() { if player.rate != 0 { player.pause() }; servedEpoch = -1 }
+    private var parked = false
+    /// No master: stop, and (once) park on the first frame so the seat's picture is visible.
+    func idle() {
+        if player.rate != 0 { player.pause() }
+        servedEpoch = -1
+        if !parked { parked = true; player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) }
+    }
 
     private func pos(_ s: Schedule, _ local: Double, _ offset: Double) -> Double {
         s.clipPosition(timeline: s.timeline(local: local, offset: offset), len: duration)
@@ -45,6 +51,10 @@ final class ClipNode {
             return
         }
         let target = pos(s, now, off)
+        // A clip shorter than the common loop holds its last frame: nothing to follow, so don't re-sync it.
+        if target >= duration - 0.002, abs(player.currentTime().seconds - duration) < 0.2 {
+            lastErr = 0; errEMA = 0; return
+        }
         let needStart = servedEpoch != s.epoch || player.rate == 0
         var err = 0.0
         if !needStart && now > settleUntil {
