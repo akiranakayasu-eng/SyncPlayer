@@ -58,6 +58,7 @@ final class ClipNode {
 
     private func start(_ s: Schedule, offset: @escaping () -> Double) {
         starting = true
+        lastErr = 0; errEMA = 0   // the error before a re-start is stale (it showed as 162 ms for 2 s in the log)
         let epoch = s.epoch
         resyncs += 1
         let first = pos(s, hostNow() + 0.25, offset())
