@@ -16,20 +16,41 @@ struct PlayerView: UIViewRepresentable {
 struct ContentView: View {
     @ObservedObject var model: FollowerModel
     @State private var showInfo = true
+    @State private var picking = false
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.black.ignoresSafeArea()
-            PlayerView(player: model.player).ignoresSafeArea()
+            // first layer is at the back
+            ForEach(model.layers) { l in
+                PlayerView(player: l.player).opacity(l.opacity).ignoresSafeArea()
+            }
             if showInfo {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(model.status).font(.headline)
                     Text(model.detail).font(.caption.monospacedDigit())
-                    Text("SyncFollower \(FollowerModel.version)").font(.caption2).opacity(0.7)
+                    HStack {
+                        Menu {
+                            ForEach(model.shows, id: \.self) { u in
+                                Button(u.deletingPathExtension().lastPathComponent) { model.openShow(u) }
+                            }
+                            Button("Import folder…") { picking = true }
+                            Button("Refresh") { model.refreshShows() }
+                        } label: { Label(model.showTitle, systemImage: "film.stack") }
+                        if !model.seats.isEmpty {
+                            Menu {
+                                ForEach(model.seats, id: \.id) { s in Button(s.name) { model.chooseSeat(s.id) } }
+                            } label: { Label("Seat \(model.seatName)", systemImage: "rectangle.on.rectangle") }
+                        }
+                    }.font(.subheadline)
+                    Text("SyncFollower \(FollowerModel.version)  (triple-tap: hide)").font(.caption2).opacity(0.7)
                 }
                 .padding(8).background(.black.opacity(0.6)).cornerRadius(8).padding(12)
             }
         }
-        .onTapGesture(count: 3) { showInfo.toggle() }   // triple tap: info on/off
+        .onTapGesture(count: 3) { showInfo.toggle() }
         .statusBarHidden(true)
+        .fileImporter(isPresented: $picking, allowedContentTypes: [.folder]) { r in
+            if case .success(let u) = r { model.importFolder(u) }
+        }
     }
 }

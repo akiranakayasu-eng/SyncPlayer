@@ -51,13 +51,13 @@ struct FollowerCore {
     func masterAlive(now: Double) -> Bool { masterID != nil && now - lastBeacon < 1.0 }
 
     /// Called every 50 ms (`tick` counts calls): every call while learning, then every 5th (0.25 s).
-    mutating func pingDue(now: Double, name: String, ver: String, errMs: Double, dur: Double, tick: Int) -> Message? {
+    mutating func pingDue(now: Double, name: String, ver: String, errMs: Double, dur: Double, seat: String?, tick: Int) -> Message? {
         guard masterID != nil else { return nil }
         if clock.count >= 40 && tick % 5 != 0 { return nil }
         pingID += 1
         var m = Message(k: "p")
         m.id = pingID; m.dur = dur > 0 ? dur : nil
-        m.name = name; m.ver = ver; m.err = errMs.isFinite ? errMs : nil
+        m.name = name; m.ver = ver; m.seat = seat; m.err = errMs.isFinite ? errMs : nil
         m.t1 = now
         return m
     }
